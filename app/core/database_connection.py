@@ -5,7 +5,6 @@ Manages PostgreSQL database connections with connection pooling.
 Provides direct access to database operations.
 """
 import logging
-import os
 import sys
 from typing import Any
 from typing import Dict
@@ -14,10 +13,6 @@ from typing import Optional
 import psycopg2
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
-
-# Add parent directory to path for direct script execution
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-from app.core.config_manager import settings  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +42,9 @@ class DatabaseManager:
 
         # Use provided config or settings
         if config is None:
+            # Lazy import to avoid circular dependencies and import issues
+            from app.core.config_manager import settings
+
             config = {
                 "host": settings.database_host,
                 "port": settings.database_port,

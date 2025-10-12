@@ -9,12 +9,13 @@ Usage:
     python format_code.py --check      # Check without fixing
     python format_code.py --all        # Format Python + YAML files
 """
-
 import argparse
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Set, Tuple
+from typing import List
+from typing import Set
+from typing import Tuple
 
 
 def run_command(cmd: List[str], description: str) -> bool:
@@ -157,8 +158,75 @@ def format_yaml_files(files: Set[str], check_only: bool = False) -> bool:
         return True
 
 
+def remove_unused_imports(files: Set[str], check_only: bool = False) -> bool:
+    """Remove unused imports using autoflake"""
+    if not files:
+        return True
+
+    # Check if autoflake is installed
+    try:
+        subprocess.run(["autoflake", "--version"], capture_output=True, check=True)
+    except (subprocess.SubprocessError, FileNotFoundError):
+        print("Warning: autoflake not found. Installing...")
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "autoflake"], check=True)
+        except subprocess.SubprocessError:
+            print("Failed to install autoflake. Skipping unused import removal.")
+            return True
+
+    print(f"\n{'='*60}")
+    print("Removing unused imports")
+    print(f"{'='*60}")
+
+    files_list = sorted(list(files))
+
+    autoflake_cmd = ["autoflake"]
+    if not check_only:
+        autoflake_cmd.append("--in-place")
+    autoflake_cmd.extend(["--remove-all-unused-imports", "--remove-unused-variables", "--expand-star-imports"])
+    autoflake_cmd.extend(files_list)
+
+    return run_command(autoflake_cmd, "Removing unused imports")
+
+
+def reorder_imports(files: Set[str], check_only: bool = False) -> bool:
+    """Reorder imports to top of file using reorder-python-imports"""
+    if not files:
+        return True
+
+    # Check if reorder-python-imports is installed
+    try:
+        subprocess.run(["reorder-python-imports", "--help"], capture_output=True, check=True)
+    except (subprocess.SubprocessError, FileNotFoundError):
+        print("Warning: reorder-python-imports not found. Installing...")
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "reorder-python-imports"], check=True)
+        except subprocess.SubprocessError:
+            print("Failed to install reorder-python-imports. Skipping import reordering.")
+            return True
+
+    print(f"\n{'='*60}")
+    print("Reordering imports to top of file")
+    print(f"{'='*60}")
+
+    files_list = sorted(list(files))
+
+    reorder_cmd = ["reorder-python-imports", "--py38-plus"]
+    if check_only:
+        reorder_cmd.append("--diff-only")
+
+    success = True
+    # Process files one by one to avoid command line length limits
+    for file_path in files_list:
+        file_cmd = reorder_cmd + [file_path]
+        if not run_command(file_cmd, f"Reordering imports in {file_path}"):
+            success = False
+
+    return success
+
+
 def format_code(files: Set[str], check_only: bool = False) -> bool:
-    """Format Python files using black and isort"""
+    """Format Python files using black"""
     if not files:
         print("No Python files to format")
         return True
@@ -175,7 +243,10 @@ def format_code(files: Set[str], check_only: bool = False) -> bool:
         fixed = remove_trailing_whitespace(files)
         print(f"✓ Fixed trailing whitespace in {fixed} files")
 
-    # Black formatting
+    # For simplicity, we'll just run black directly and skip the complex import handling
+    # This avoids conflicts with pre-commit hooks
+
+    # Black formatting (must run after import processing)
     black_cmd = ["black"]
     if check_only:
         black_cmd.extend(["--check", "--diff"])
@@ -183,16 +254,6 @@ def format_code(files: Set[str], check_only: bool = False) -> bool:
     black_cmd.extend(files_list)
 
     if not run_command(black_cmd, "Black code formatting"):
-        success = False
-
-    # isort import sorting
-    isort_cmd = ["isort"]
-    if check_only:
-        isort_cmd.extend(["--check", "--diff"])
-    isort_cmd.extend(["--profile", "black", "--line-length", "120"])  # Increased line length
-    isort_cmd.extend(files_list)
-
-    if not run_command(isort_cmd, "isort import sorting"):
         success = False
 
     return success
@@ -205,12 +266,7 @@ def run_linting(files: Set[str]) -> bool:
 
     files_list = sorted(list(files))
 
-    flake8_cmd = [
-        "flake8",
-        "--max-line-length=120",  # Increased line length
-        "--ignore=E203,W503,E501",  # Changed to --ignore instead of --extend-ignore
-        "--statistics",
-    ] + files_list
+    flake8_cmd = ["flake8"] + files_list
 
     return run_command(flake8_cmd, "Flake8 linting")
 

@@ -55,16 +55,14 @@ jobs:
 
       - name: Code Quality Analysis
         run: |
-          # Auto-fix formatting
+          # Install tools
+          pip install black flake8
+
+          # Auto-fix formatting (always succeeds)
           black app/ tests/ || true
-          isort app/ tests/ || true
 
-          # Check formatting
-          black --check --diff app/ tests/
-          isort --check --diff app/ tests/
-
-          # Linting
-          flake8 app/ tests/ --max-line-length=120 --extend-ignore=E203,W503,E501 --statistics
+          # Linting only (can fail CI)
+          flake8 app/ tests/
 
           # Type checking
           mypy app/ --config-file=mypy.ini || echo "Type checking completed with warnings"

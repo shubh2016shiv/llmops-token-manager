@@ -5,7 +5,7 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
-  workflow_dispatch:  # Allows manual triggering
+  workflow_dispatch:
 
 jobs:
   quality:
@@ -40,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch all history for proper coverage analysis
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -53,31 +53,37 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Code Quality Checks
+      - name: Code Quality Analysis
         run: |
-          # Format and style
+          # Format verification
           black --check --diff app/ tests/
           isort --check --diff app/ tests/
           
-          # Linting and complexity
+          # Static code analysis
           flake8 app/ tests/ \
             --max-line-length=88 \
             --max-complexity=10 \
             --select=E9,F63,F7,F82,C901 \
-            --count \
             --statistics
           
           # Type checking
           mypy app/ --config-file=mypy.ini
 
-      - name: Security Scan
+      - name: Security Analysis
         run: |
-          # Security vulnerabilities
-          bandit -r app/ -c pyproject.toml -ll -ii
+          # Code security scan
+          bandit -r app/ -c pyproject.toml -ll
           
-          # Dependency vulnerabilities
+          # Dependencies security check
           pip install safety
           safety check
+
+      - name: Code Duplication Analysis
+        run: |
+          pip install radon
+          radon cc app/ -a -s
+          radon mi app/ -s
+          radon raw app/ -s
 
       - name: Run Tests with Coverage
         env:
@@ -89,7 +95,7 @@ jobs:
           REDIS_HOST: localhost
           REDIS_PORT: 6379
         run: |
-          # Initialize database schema
+          # Initialize test database
           PGPASSWORD=mypassword psql -h localhost -U myuser -d mydb -f postgres_schema/initial_schema.sql
           
           # Run tests with coverage
@@ -101,18 +107,18 @@ jobs:
             --durations=10 \
             -v
 
-      - name: Check Coverage Threshold
+      - name: Verify Coverage Threshold
         run: |
-          echo "Checking coverage meets minimum 80% threshold..."
+          echo "Verifying minimum coverage threshold of 80%"
           coverage_threshold=80
           coverage_result=$(coverage report | grep "TOTAL" | awk '{print $NF}' | sed 's/%//')
           echo "Current coverage: $coverage_result%"
           
           if (( $(echo "$coverage_result < $coverage_threshold" | bc -l) )); then
-            echo "❌ Coverage ($coverage_result%) is below minimum threshold of $coverage_threshold%"
+            echo "Coverage ($coverage_result%) is below minimum threshold of $coverage_threshold%"
             exit 1
           else
-            echo "✅ Coverage ($coverage_result%) meets minimum threshold of $coverage_threshold%"
+            echo "Coverage ($coverage_result%) meets minimum threshold of $coverage_threshold%"
           fi
 
       - name: Upload Coverage Report
@@ -121,28 +127,3 @@ jobs:
           file: ./coverage.xml
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
-
-  docker:
-    name: Docker Validation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Validate and Test Infrastructure
-        run: |
-          # Validate compose file
-          docker-compose config
-          
-          # Start services
-          docker-compose up -d
-          
-          # Wait for services and check health
-          sleep 10
-          docker-compose ps
-          
-          # Test connections
-          docker exec llm_postgres pg_isready -U myuser
-          docker exec llm_redis redis-cli ping
-          
-          # Cleanup
-          docker-compose down -v

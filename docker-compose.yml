@@ -1,0 +1,110 @@
+# ============================================================
+#  Docker Compose Setup: LLM Token Manager Infrastructure
+# ------------------------------------------------------------
+#  Purpose:
+#    Infrastructure services for LLM token management system.
+#    Provides backend services only (no FastAPI integration).
+#
+#  Services:
+#    1. PostgreSQL – persistent data store for requests and metrics
+#    2. RabbitMQ – message broker for job queueing
+#    3. Redis – caching and rate limiting
+#
+#  Networking:
+#    - All services share a private Docker bridge network "backend_net"
+#    - Each service can reach the others by service name
+#
+#  Access (host machine):
+#    PostgreSQL → localhost:5432
+#    Redis → localhost:6379
+#    RabbitMQ AMQP → localhost:5672
+#    RabbitMQ Management → http://localhost:15672 (login: rmq_user/rmq_password)
+#
+#  Commands:
+#    docker-compose up -d --build              # Start all services
+#    docker-compose down -v                    # Stop and remove all
+#    docker-compose logs -f postgres           # View PostgreSQL logs
+#    docker-compose logs -f redis              # View Redis logs
+#    docker-compose logs -f rabbitmq           # View RabbitMQ logs
+# ============================================================
+
+version: '3.8'
+
+services:
+  # -------------------- PostgreSQL --------------------------
+  postgres:
+    image: postgres:14.19-alpine3.21
+    container_name: llm_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: mydb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres_schema/initial_schema.sql:/docker-entrypoint-initdb.d/initial_schema.sql
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myuser"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -------------------- Redis --------------------------------
+  redis:
+    image: redis:latest
+    container_name: llm_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend_net
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -------------------- RabbitMQ -----------------------------
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: llm_rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: rmq_user
+      RABBITMQ_DEFAULT_PASS: rmq_password
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# FastAPI server is not included in docker-compose
+# It will be developed and run separately
+
+# Celery workers are not included in docker-compose
+# They will be part of your FastAPI application development
+
+# -------------------- Named Volumes --------------------------
+volumes:
+  pgdata:
+  redis_data:
+  rabbitmq_data:
+
+# -------------------- Network Definition ---------------------
+networks:
+  backend_net:
+    driver: bridge

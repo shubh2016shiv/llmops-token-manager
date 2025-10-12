@@ -1,0 +1,80 @@
+############################################################
+# CORE FRAMEWORK & SERVER
+############################################################
+fastapi==0.117.1                  # Modern web framework for building APIs
+uvicorn[standard]==0.37.0         # ASGI server for FastAPI
+python-multipart==0.0.12          # Multipart/form-data parser for file uploads
+
+
+############################################################
+# ASYNC TASKS & MESSAGE BROKER
+############################################################
+celery==5.5.3                     # Distributed task queue for background jobs
+redis==5.2.0                      # Redis client for Celery broker/result backend
+hiredis==3.0.0                    # High-performance Redis protocol parser
+
+
+############################################################
+# DATABASE & PERSISTENCE
+############################################################
+psycopg2-binary==2.9.11           # PostgreSQL database adapter
+
+
+############################################################
+# LLM PROVIDERS & AI SDKs
+############################################################
+openai==1.55.3                    # OpenAI Python SDK
+google-generativeai==0.8.5        # Google Generative AI SDK (Gemini models)
+# google-genai==0.x.x             # (Future replacement for google-generativeai)
+# anthropic==0.39.0               # Anthropic Claude SDK (optional)
+tiktoken==0.8.0                   # Token counting utilities
+
+
+############################################################
+# CONFIGURATION & DATA VALIDATION
+############################################################
+pydantic==2.9.2                   # Data validation & serialization library
+pydantic-settings==2.6.1          # Environment-based settings management
+
+
+############################################################
+# LOGGING & MONITORING
+############################################################
+loguru==0.7.2                     # Elegant logging utility
+
+
+############################################################
+# UTILITIES & NETWORKING
+############################################################
+python-dotenv==1.0.1              # Loads environment variables from .env files
+httpx==0.28.0                     # Async HTTP client (used by OpenAI & APIs)
+tenacity==9.0.0                   # Retry logic with exponential backoff
+
+
+############################################################
+# TESTING & QA (Code Quality Essentials)
+############################################################
+pytest                            # Industry-standard testing framework
+pytest-asyncio                    # Async tests for FastAPI & Celery
+pytest-cov                        # Coverage reporting
+requests-mock                     # Mock external HTTP calls
+
+# Static analysis & style
+black                             # Opinionated code formatter
+isort                             # Import sorting & consistency
+flake8                            # Core linter (PEP8 compliance)
+mypy                              # Static type checker for Python
+pylint                            # Advanced linter for style and complexity
+bandit                            # Security analyzer for Python code
+safety                            # Dependency vulnerability scanner
+
+# Dev automation & hooks
+pre-commit                        # Pre-commit hook manager
+commitizen                        # Enforce conventional commits and versioning
+
+
+############################################################
+# OPTIONAL DEV TOOLS
+############################################################
+rich                              # Beautiful console output for debugging/logs
+ipython                           # Enhanced interactive shell

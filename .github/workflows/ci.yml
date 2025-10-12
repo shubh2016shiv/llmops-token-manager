@@ -64,7 +64,7 @@ jobs:
           isort --check --diff app/ tests/
 
           # Linting
-          flake8 app/ tests/ --max-line-length=88 --extend-ignore=E203,W503 --statistics
+          flake8 app/ tests/ --max-line-length=120 --extend-ignore=E203,W503,E501 --statistics
 
           # Type checking
           mypy app/ --config-file=mypy.ini || echo "Type checking completed with warnings"

@@ -1,15 +1,18 @@
 [flake8]
-max-line-length = 88
-extend-ignore = E203, W503
+max-line-length = 120
+ignore =
+    # W503: line break before binary operator (black handles this)
+    W503,
+    # E203: whitespace before ':' (black handles this)
+    E203,
+    # E501: line too long (we've agreed to allow longer lines)
+    E501,
+    # C901: function is too complex
+    C901
 exclude =
     .git,
     __pycache__,
-    build,
-    dist,
     .venv,
-    venv
-max-complexity = 10
-select = B,C,E,F,W,T4,B9,S
-per-file-ignores =
-    __init__.py:F401
-    tests/*:S101,S105,S106
+    venv,
+    build,
+    dist

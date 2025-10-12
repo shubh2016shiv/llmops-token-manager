@@ -1,8 +1,65 @@
 # Pre-commit hooks for LLM Token Manager
 # Simplified and fast configuration for solo developer workflow
 #
-# Setup: pip install pre-commit && pre-commit install
-# Skip hooks for urgent commits: git commit --no-verify
+# ============================================================
+# SETUP & USAGE
+# ============================================================
+# 1. Install pre-commit: pip install pre-commit
+# 2. Install hooks: pre-commit install
+# 3. Skip hooks for urgent commits: git commit --no-verify
+#
+# ============================================================
+# FIRST RUN NOTES
+# ============================================================
+# - You'll see "[INFO] Initializing environment for..." messages
+# - This is normal! Pre-commit creates isolated environments for each hook
+# - It happens only once when a hook runs for the first time
+# - Future runs will be much faster
+#
+# ============================================================
+# MIGRATION NOTES
+# ============================================================
+# If you see warning about deprecated stage names, run:
+# pre-commit migrate-config
+# This is a one-time command needed when upgrading pre-commit or changing stage names
+#
+# ============================================================
+# COMMON COMMANDS
+# ============================================================
+# - Run on all files: pre-commit run --all-files
+# - Run on staged files: pre-commit run
+# - Run specific hook: pre-commit run trailing-whitespace
+# - Uninstall hooks: pre-commit uninstall
+# - Clean cache: pre-commit clean
+# - Force environment recreation: pre-commit clean && pre-commit run
+#
+# ============================================================
+# WHAT THESE HOOKS DO
+# ============================================================
+# 1. trailing-whitespace: Removes spaces at end of lines
+# 2. end-of-file-fixer: Ensures files end with single newline
+# 3. check-yaml: Validates YAML syntax
+# 4. check-merge-conflict: Detects merge conflict markers
+# 5. detect-private-key: Warns about potential private keys
+# 6. black: Formats Python code consistently
+# 7. isort: Sorts and organizes Python imports
+# 8. flake8: Lints Python code for style issues
+#
+# ============================================================
+# PERFORMANCE NOTES
+# ============================================================
+# - All hooks are optimized for speed
+# - Removed slow hooks: mypy, bandit, pylint
+# - CI handles comprehensive checks
+# - Typical run time: 2-5 seconds
+#
+# ============================================================
+# TROUBLESHOOTING
+# ============================================================
+# - If hooks are slow: pre-commit clean
+# - If hooks fail: Check the error message and fix manually
+# - If urgent: Use git commit --no-verify
+# - If environment issues: pre-commit clean && pre-commit install
 
 repos:
   # Basic file checks (fast)
@@ -21,7 +78,7 @@ repos:
     rev: 24.1.1
     hooks:
       - id: black
-        args: [--line-length=88]
+        args: [--line-length=120]
 
   # Import sorting (fast, auto-fixes)
   - repo: https://github.com/pycqa/isort
@@ -35,7 +92,7 @@ repos:
     rev: 7.0.0
     hooks:
       - id: flake8
-        args: [--max-line-length=88, --extend-ignore=E203,W503]
+        # args are now in the .flake8 config file
 
 # Skip slow/problematic checks - let CI handle them
 # Removed: mypy (slow type checking)

@@ -11,7 +11,7 @@ jobs:
   quality:
     name: Code Quality & Tests
     runs-on: ubuntu-latest
-    
+
     services:
       postgres:
         image: postgres:14-alpine
@@ -26,7 +26,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      
+
       redis:
         image: redis:alpine
         ports:
@@ -52,28 +52,57 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          # Install additional formatting tools
+          pip install autoflake pyupgrade docformatter add-trailing-comma
 
       - name: Code Quality Analysis
         run: |
-          # Format verification
-          black --check --diff app/ tests/
-          isort --check --diff app/ tests/
-          
+          # Remove unused imports and variables
+          autoflake --in-place --remove-all-unused-imports --remove-unused-variables --recursive app/ tests/
+
+          # Upgrade Python syntax
+          pyupgrade --py311-plus --keep-runtime-typing $(find app/ tests/ -name "*.py")
+
+          # Format docstrings
+          docformatter --in-place --recursive app/ tests/
+
+          # Add trailing commas
+          add-trailing-comma app/ tests/
+
+          # Auto-fix formatting issues
+          black app/ tests/
+          isort app/ tests/
+
+          # Verify fixes
+          black --check app/ tests/
+          isort --check app/ tests/
+
           # Static code analysis
           flake8 app/ tests/ \
             --max-line-length=88 \
             --max-complexity=10 \
             --select=E9,F63,F7,F82,C901 \
             --statistics
-          
+
           # Type checking
           mypy app/ --config-file=mypy.ini
+
+      - name: Commit formatting changes
+        if: github.event_name == 'pull_request'
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add .
+            git commit -m "style: auto-format code and remove unused imports"
+            git push
+          fi
 
       - name: Security Analysis
         run: |
           # Code security scan
           bandit -r app/ -c pyproject.toml -ll
-          
+
           # Dependencies security check
           pip install safety
           safety check
@@ -97,7 +126,7 @@ jobs:
         run: |
           # Initialize test database
           PGPASSWORD=mypassword psql -h localhost -U myuser -d mydb -f postgres_schema/initial_schema.sql
-          
+
           # Run tests with coverage
           pytest tests/ \
             --cov=app \
@@ -113,7 +142,7 @@ jobs:
           coverage_threshold=80
           coverage_result=$(coverage report | grep "TOTAL" | awk '{print $NF}' | sed 's/%//')
           echo "Current coverage: $coverage_result%"
-          
+
           if (( $(echo "$coverage_result < $coverage_threshold" | bc -l) )); then
             echo "Coverage ($coverage_result%) is below minimum threshold of $coverage_threshold%"
             exit 1

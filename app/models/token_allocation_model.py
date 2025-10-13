@@ -1,0 +1,100 @@
+from datetime import datetime
+from typing import Optional, Dict, Any
+from uuid import UUID
+from pydantic import BaseModel, Field, field_validator
+
+
+class TokenAllocation(BaseModel):
+    """
+    Pydantic model for the 'token_manager' table.
+
+    Central gateway for LLM token allocation requests, ensuring fair usage,
+    cost control, and deployment resilience.
+    Maps to: token_manager_schema.sql
+
+    Note: This table is named 'token_manager' in the database but represents
+    token allocations, so the model is named TokenAllocation for clarity.
+    """
+
+    token_request_id: str = Field(
+        ..., description="Unique identifier for the token allocation request"
+    )
+    user_id: UUID = Field(..., description="Reference to the user requesting tokens")
+    model_name: str = Field(..., description="Name of the LLM model (e.g., GPT-4)")
+    model_id: Optional[UUID] = Field(
+        default=None,
+        description="Reference to the specific LLM model in llm_models table",
+    )
+    deployment_name: Optional[str] = Field(
+        default=None, description="Specific deployment of the model, if applicable"
+    )
+    cloud_provider: Optional[str] = Field(
+        default=None, description="Cloud provider hosting the LLM (e.g., Azure, AWS)"
+    )
+    api_endpoint: Optional[str] = Field(
+        default=None, description="API endpoint for the selected LLM instance"
+    )
+    region: Optional[str] = Field(
+        default=None,
+        description="Geographic region of the LLM instance (e.g., eastus2, westus2)",
+    )
+    token_count: int = Field(
+        ..., description="Number of tokens allocated for this request", gt=0
+    )
+    allocation_status: str = Field(
+        default="ACQUIRED",
+        description="Current status: ACQUIRED, RELEASED, EXPIRED, PAUSED, or FAILED",
+    )
+    allocated_at: datetime = Field(
+        ..., description="Timestamp when tokens were allocated"
+    )
+    expires_at: Optional[datetime] = Field(
+        default=None, description="Optional expiration time for the allocation lock"
+    )
+    request_context: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Additional context data in JSON format (e.g., team, application)",
+    )
+    temperature: Optional[float] = Field(
+        default=None, description="Temperature setting for this specific request"
+    )
+    top_p: Optional[float] = Field(
+        default=None, description="Top P (nucleus sampling) parameter for this request"
+    )
+    seed: Optional[float] = Field(
+        default=None, description="Seed value for reproducible LLM outputs"
+    )
+
+    @field_validator("allocation_status")
+    @classmethod
+    def validate_allocation_status(cls, v: str) -> str:
+        """Validate allocation status matches database CHECK constraint."""
+        allowed_statuses = ["ACQUIRED", "RELEASED", "EXPIRED", "PAUSED", "FAILED"]
+        if v not in allowed_statuses:
+            raise ValueError(
+                f"Allocation status must be one of: {', '.join(allowed_statuses)}"
+            )
+        return v
+
+    @field_validator("token_count")
+    @classmethod
+    def validate_token_count(cls, v: int) -> int:
+        """Validate token count is positive (matches database CHECK constraint)."""
+        if v <= 0:
+            raise ValueError("Token count must be greater than 0")
+        return v
+
+    class Config:
+        """Pydantic configuration."""
+
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "token_request_id": "req_abc123",
+                "user_id": "550e8400-e29b-41d4-a716-446655440000",
+                "model_name": "gpt-4",
+                "token_count": 1000,
+                "allocation_status": "ACQUIRED",
+                "allocated_at": "2025-10-13T23:00:00Z",
+            }
+        }

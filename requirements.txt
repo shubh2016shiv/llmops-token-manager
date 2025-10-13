@@ -69,6 +69,7 @@ bandit                            # Security analyzer for Python code
 safety                            # Dependency vulnerability scanner
 autoflake                         # Remove unused imports
 reorder-python-imports            # Reorder imports to top of file
+ruff                              # Linter for Python code
 
 # Dev automation & hooks
 pre-commit                        # Pre-commit hook manager

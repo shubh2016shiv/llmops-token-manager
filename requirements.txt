@@ -17,7 +17,7 @@ hiredis==3.0.0                    # High-performance Redis protocol parser
 ############################################################
 # DATABASE & PERSISTENCE
 ############################################################
-psycopg2-binary==2.9.11           # PostgreSQL database adapter
+psycopg[binary,pool]==3.2.1       # PostgreSQL database adapter with async support
 
 
 ############################################################
@@ -54,10 +54,11 @@ tenacity==9.0.0                   # Retry logic with exponential backoff
 ############################################################
 # TESTING & QA (Code Quality Essentials)
 ############################################################
-pytest                            # Industry-standard testing framework
-pytest-asyncio                    # Async tests for FastAPI & Celery
-pytest-cov                        # Coverage reporting
-requests-mock                     # Mock external HTTP calls
+pytest==7.4.3                     # Industry-standard testing framework
+pytest-asyncio==0.21.1            # Async tests for FastAPI & Celery
+pytest-cov==4.1.0                 # Coverage reporting
+pytest-mock==3.12.0               # Mock utilities for pytest
+requests-mock==1.12.1             # Mock external HTTP calls
 
 # Static analysis & style
 black                             # Opinionated code formatter

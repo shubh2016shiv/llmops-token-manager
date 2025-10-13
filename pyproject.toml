@@ -40,10 +40,12 @@ extend-exclude = '''
 
 [tool.ruff]
 line-length = 88
+
+[tool.ruff.lint]
 select = ["E9", "F", "C901"]  # Match your flake8 selects; Ruff uses different codes but equivalents exist
 ignore = []  # As needed
 
-[tool.ruff.mccabe]
+[tool.ruff.lint.mccabe]
 max-complexity = 30
 
 [tool.isort]

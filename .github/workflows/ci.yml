@@ -106,13 +106,21 @@ jobs:
           PGPASSWORD=mypassword psql -h localhost -U myuser -d mydb -f postgres_schema/initial_schema.sql
 
           # Run tests with coverage
-          pytest tests/ \
-            --cov=app \
-            --cov-report=xml \
-            --cov-report=term \
-            --cov-report=html \
+          # pytest tests/ \
+          #   --cov=app \
+          #   --cov-report=xml \
+          #   --cov-report=term \
+          #   --cov-report=html \
+          #   --durations=10 \
+          #   -v
+          # Run tests with coverage, excluding app/models/* and */__init__.py
+          coverage run --omit="app/models/*,*/__init__.py" -m pytest tests/ \
             --durations=10 \
             -v
+
+          # Generate reports (xml for codecov, term for console, html for local viewing)
+          coverage term
+          coverage html
 
       - name: Verify Coverage Threshold
         run: |

@@ -119,7 +119,7 @@ jobs:
             -v
 
           # Generate reports (xml for codecov, term for console, html for local viewing)
-          coverage term
+          coverage report --show-missing  # Adds missing line details like term-missing
           coverage html
 
       - name: Verify Coverage Threshold

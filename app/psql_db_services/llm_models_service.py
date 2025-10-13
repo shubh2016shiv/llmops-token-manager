@@ -115,7 +115,7 @@ class LLMModelsService(BaseDatabaseService):
     # CREATE OPERATIONS
     # ========================================================================
 
-    async def create_model(
+    async def create_llm_model(
         self,
         provider_name: str,
         model_name: str,
@@ -223,7 +223,7 @@ class LLMModelsService(BaseDatabaseService):
     # READ OPERATIONS
     # ========================================================================
 
-    async def get_model_by_id(self, model_id: UUID) -> Optional[Dict[str, Any]]:
+    async def get_llm_model_by_id(self, model_id: UUID) -> Optional[Dict[str, Any]]:
         """
         Retrieve an LLM model by its unique identifier.
 
@@ -253,7 +253,7 @@ class LLMModelsService(BaseDatabaseService):
             logger.error(f"Error fetching model {model_id}: {database_error}")
             raise
 
-    async def get_model_by_name_and_endpoint(
+    async def get_llm_model_by_name_and_endpoint(
         self, model_name: str, api_endpoint_url: str
     ) -> Optional[Dict[str, Any]]:
         """
@@ -291,7 +291,7 @@ class LLMModelsService(BaseDatabaseService):
             )
             raise
 
-    async def get_all_models(
+    async def get_all_llm_models(
         self,
         provider_filter: Optional[str] = None,
         active_status_filter: Optional[bool] = None,
@@ -346,7 +346,7 @@ class LLMModelsService(BaseDatabaseService):
             logger.error(f"Error fetching models: {database_error}")
             raise
 
-    async def get_active_models(
+    async def get_active_llm_models(
         self, limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         """
@@ -363,11 +363,11 @@ class LLMModelsService(BaseDatabaseService):
             psycopg.Error: On database errors
             ValueError: On invalid pagination parameters
         """
-        return await self.get_all_models(
+        return await self.get_all_llm_models(
             active_status_filter=True, limit=limit, offset=offset
         )
 
-    async def get_models_by_provider(
+    async def get_llm_models_by_provider(
         self, provider_name: str, limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         """
@@ -385,11 +385,11 @@ class LLMModelsService(BaseDatabaseService):
             psycopg.Error: On database errors
             ValueError: On invalid parameters
         """
-        return await self.get_all_models(
+        return await self.get_all_llm_models(
             provider_filter=provider_name, limit=limit, offset=offset
         )
 
-    async def get_models_by_name(
+    async def get_llm_models_by_name(
         self, model_name: str, limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         """
@@ -431,7 +431,7 @@ class LLMModelsService(BaseDatabaseService):
             )
             raise
 
-    async def count_models_by_provider(self, provider_name: str) -> int:
+    async def count_llm_models_by_provider(self, provider_name: str) -> int:
         """
         Count the number of models for a specific provider.
 
@@ -467,7 +467,7 @@ class LLMModelsService(BaseDatabaseService):
     # UPDATE OPERATIONS
     # ========================================================================
 
-    async def update_model(
+    async def update_llm_model(
         self,
         model_id: UUID,
         provider_name: Optional[str] = None,
@@ -556,7 +556,7 @@ class LLMModelsService(BaseDatabaseService):
 
         if not update_fields_dict:
             logger.warning(f"No fields to update for model {model_id}")
-            return await self.get_model_by_id(model_id)
+            return await self.get_llm_model_by_id(model_id)
 
         try:
             sql_query, query_parameters = self.build_dynamic_update_query(
@@ -586,7 +586,7 @@ class LLMModelsService(BaseDatabaseService):
             logger.error(f"Error updating model {model_id}: {database_error}")
             raise
 
-    async def update_model_status(
+    async def update_llm_model_status(
         self, model_id: UUID, is_active_status: bool
     ) -> Optional[Dict[str, Any]]:
         """
@@ -603,11 +603,11 @@ class LLMModelsService(BaseDatabaseService):
             psycopg.Error: On database errors
             ValueError: If model_id is invalid
         """
-        return await self.update_model(
+        return await self.update_llm_model(
             model_id=model_id, is_active_status=is_active_status
         )
 
-    async def activate_model(self, model_id: UUID) -> Optional[Dict[str, Any]]:
+    async def activate_llm_model(self, model_id: UUID) -> Optional[Dict[str, Any]]:
         """
         Activate a model by setting is_active to True.
 
@@ -621,9 +621,11 @@ class LLMModelsService(BaseDatabaseService):
             psycopg.Error: On database errors
             ValueError: If model_id is invalid
         """
-        return await self.update_model_status(model_id=model_id, is_active_status=True)
+        return await self.update_llm_model_status(
+            model_id=model_id, is_active_status=True
+        )
 
-    async def deactivate_model(self, model_id: UUID) -> Optional[Dict[str, Any]]:
+    async def deactivate_llm_model(self, model_id: UUID) -> Optional[Dict[str, Any]]:
         """
         Deactivate a model by setting is_active to False.
 
@@ -637,7 +639,9 @@ class LLMModelsService(BaseDatabaseService):
             psycopg.Error: On database errors
             ValueError: If model_id is invalid
         """
-        return await self.update_model_status(model_id=model_id, is_active_status=False)
+        return await self.update_llm_model_status(
+            model_id=model_id, is_active_status=False
+        )
 
     async def update_model_usage_statistics(
         self,
@@ -706,7 +710,7 @@ class LLMModelsService(BaseDatabaseService):
     # DELETE OPERATIONS
     # ========================================================================
 
-    async def delete_model(self, model_id: UUID) -> bool:
+    async def delete_llm_model(self, model_id: UUID) -> bool:
         """
         Delete an LLM model configuration from the database.
 
@@ -745,7 +749,7 @@ class LLMModelsService(BaseDatabaseService):
             logger.error(f"Error deleting model {model_id}: {database_error}")
             raise
 
-    async def delete_models_by_provider(self, provider_name: str) -> int:
+    async def delete_llm_models_by_provider(self, provider_name: str) -> int:
         """
         Delete all models for a specific LLM provider.
 

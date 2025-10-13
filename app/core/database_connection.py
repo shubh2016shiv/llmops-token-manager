@@ -15,11 +15,10 @@ from psycopg_pool import AsyncConnectionPool
 from psycopg.rows import dict_row
 
 import asyncio
+from app.core.config_manager import settings
 
 # Add parent directory to path for direct script execution
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-
-from app.core.config_manager import settings
 
 logger = logging.getLogger(__name__)
 

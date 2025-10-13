@@ -43,7 +43,7 @@ COMMENT ON COLUMN token_manager.expires_at IS 'Optional expiration time for the 
 COMMENT ON COLUMN token_manager.request_context IS 'Additional context data in JSON format (e.g., team, application)';
 COMMENT ON COLUMN token_manager.temperature IS 'Temperature for the LLM';
 COMMENT ON COLUMN token_manager.top_p IS 'Top P for the LLM';
-COMMENT ON COLUMN token_manager.seed IS 'Frequency penalty for the LLM';
+COMMENT ON COLUMN token_manager.seed IS 'Seed value for reproducible LLM outputs';
 -- ============================================================================
 -- INDEXES - OPTIMIZED FOR PERFORMANCE
 -- Supports efficient querying for token allocation lifecycle management.

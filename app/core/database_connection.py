@@ -14,6 +14,8 @@ import psycopg
 from psycopg_pool import AsyncConnectionPool
 from psycopg.rows import dict_row
 
+import asyncio
+
 # Add parent directory to path for direct script execution
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
@@ -233,7 +235,5 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Error testing database connection: {e}")
             sys.exit(1)
-
-    import asyncio
 
     asyncio.run(test_connection())

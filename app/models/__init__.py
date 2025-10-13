@@ -16,12 +16,10 @@ from app.models.users_model import User
 from app.models.llm_config_models import LLMModel
 from app.models.token_allocation_model import TokenAllocation
 from app.models.request_models import (
-    LLMRequestCreate,
-    LLMRequestResponse,
-    LLMTaskStatus,
-    LLMTaskResult,
-    HealthStatus,
-    DependencyHealth,
+    TokenAllocationRequest,
+    TokenReleaseRequest,
+    UserCreateRequest,
+    LLMModelCreateRequest,
 )
 
 __all__ = [
@@ -30,10 +28,8 @@ __all__ = [
     "LLMModel",
     "TokenAllocation",
     # Request/Response models
-    "LLMRequestCreate",
-    "LLMRequestResponse",
-    "LLMTaskStatus",
-    "LLMTaskResult",
-    "HealthStatus",
-    "DependencyHealth",
+    "TokenAllocationRequest",
+    "TokenReleaseRequest",
+    "UserCreateRequest",
+    "LLMModelCreateRequest",
 ]

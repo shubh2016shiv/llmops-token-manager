@@ -325,7 +325,7 @@ class LLMModelsService(BaseDatabaseService):
             async with self.get_database_connection() as database_connection:
                 async with database_connection.cursor(row_factory=dict_row) as cursor:
                     sql_query = "SELECT * FROM llm_models WHERE 1=1"
-                    query_parameters = []
+                    query_parameters: List[Any] = []
 
                     if provider_filter:
                         sql_query += " AND provider = %s"
@@ -526,7 +526,7 @@ class LLMModelsService(BaseDatabaseService):
         )
 
         # Build update fields dictionary
-        update_fields_dict = {}
+        update_fields_dict: Dict[str, Any] = {}
         if provider_name is not None:
             update_fields_dict["provider"] = provider_name
         if model_name is not None:
@@ -744,7 +744,7 @@ class LLMModelsService(BaseDatabaseService):
                     else:
                         logger.debug(f"Model not found for deletion: {model_id}")
 
-                    return was_deleted
+                    return bool(was_deleted)
         except psycopg.Error as database_error:
             logger.error(f"Error deleting model {model_id}: {database_error}")
             raise
@@ -787,7 +787,7 @@ class LLMModelsService(BaseDatabaseService):
                     else:
                         logger.debug(f"No models found for provider {provider_name}")
 
-                    return deleted_count
+                    return int(deleted_count)
         except psycopg.Error as database_error:
             logger.error(
                 f"Error deleting models for provider {provider_name}: {database_error}"

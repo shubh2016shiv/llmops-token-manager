@@ -255,7 +255,7 @@ class UsersService(BaseDatabaseService):
             async with self.get_database_connection() as database_connection:
                 async with database_connection.cursor(row_factory=dict_row) as cursor:
                     sql_query = "SELECT * FROM users WHERE 1=1"
-                    query_parameters = []
+                    query_parameters: List[Any] = []
 
                     if role_filter:
                         sql_query += " AND role = %s"
@@ -539,7 +539,7 @@ class UsersService(BaseDatabaseService):
                     else:
                         logger.debug(f"User not found for deletion: {user_id}")
 
-                    return was_deleted
+                    return bool(was_deleted)
         except psycopg.Error as database_error:
             logger.error(f"Error deleting user {user_id}: {database_error}")
             raise
@@ -580,7 +580,7 @@ class UsersService(BaseDatabaseService):
                             f"User with email {email_address} not found for deletion"
                         )
 
-                    return was_deleted
+                    return bool(was_deleted)
         except psycopg.Error as database_error:
             logger.error(
                 f"Error deleting user by email {email_address}: {database_error}"

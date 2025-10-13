@@ -16,6 +16,7 @@ from uuid import UUID
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Json
 from loguru import logger
 
 from app.core.database_connection import DatabaseManager
@@ -163,9 +164,7 @@ class TokenAllocationService(BaseDatabaseService):
                             allocation_status,
                             allocation_timestamp or datetime.now(),
                             expiration_timestamp,
-                            psycopg.extras.Json(request_metadata)
-                            if request_metadata
-                            else None,
+                            Json(request_metadata) if request_metadata else None,
                         ),
                     )
 
@@ -231,7 +230,7 @@ class TokenAllocationService(BaseDatabaseService):
             )
             raise
 
-    def get_total_allocated_tokens_by_model(
+    async def get_total_allocated_tokens_by_model(
         self, model_name: str, included_statuses: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
@@ -264,8 +263,8 @@ class TokenAllocationService(BaseDatabaseService):
             self.validate_allocation_status(status)
 
         try:
-            with self.get_database_connection() as database_connection:
-                with database_connection.cursor(row_factory=dict_row) as cursor:
+            async with self.get_database_connection() as database_connection:
+                async with database_connection.cursor(row_factory=dict_row) as cursor:
                     sql_query = """
                         SELECT
                             model_name,
@@ -283,7 +282,7 @@ class TokenAllocationService(BaseDatabaseService):
                         ORDER BY total_tokens ASC
                     """
 
-                    cursor.execute(sql_query, (model_name, included_statuses))
+                    await cursor.execute(sql_query, (model_name, included_statuses))
                     endpoint_statistics = cursor.fetchall()
 
                     logger.debug(
@@ -296,7 +295,7 @@ class TokenAllocationService(BaseDatabaseService):
             )
             raise
 
-    def get_total_allocated_tokens_for_endpoint(
+    async def get_total_allocated_tokens_for_endpoint(
         self, model_name: str, api_endpoint_url: str
     ) -> int:
         """
@@ -319,8 +318,8 @@ class TokenAllocationService(BaseDatabaseService):
         self.validate_string_not_empty(api_endpoint_url, "api_endpoint_url")
 
         try:
-            with self.get_database_connection() as database_connection:
-                with database_connection.cursor() as cursor:
+            async with self.get_database_connection() as database_connection:
+                async with database_connection.cursor() as cursor:
                     sql_query = """
                         SELECT COALESCE(SUM(token_count), 0) as total_tokens
                         FROM token_allocations
@@ -331,7 +330,7 @@ class TokenAllocationService(BaseDatabaseService):
                             AND (expires_at IS NULL OR expires_at > NOW())
                     """
 
-                    cursor.execute(sql_query, (model_name, api_endpoint_url))
+                    await cursor.execute(sql_query, (model_name, api_endpoint_url))
                     count_result = cursor.fetchone()
                     return count_result[0] if count_result else 0
         except psycopg.Error as database_error:
@@ -452,7 +451,7 @@ class TokenAllocationService(BaseDatabaseService):
                 with conn.cursor(row_factory=dict_row) as cur:
                     # Build dynamic update query
                     update_fields = ["allocation_status = %s"]
-                    params = [new_status]
+                    params: List[Any] = [new_status]
 
                     if api_endpoint is not None:
                         update_fields.append("api_endpoint = %s")
@@ -643,7 +642,7 @@ class TokenAllocationService(BaseDatabaseService):
                             f"Allocation not found for deletion: {token_request_id}"
                         )
 
-                    return deleted
+                    return bool(deleted)
         except psycopg.Error as e:
             logger.error(f"Error deleting allocation {token_request_id}: {e}")
             raise
@@ -676,7 +675,7 @@ class TokenAllocationService(BaseDatabaseService):
                     else:
                         logger.debug("No expired allocations to clean up")
 
-                    return deleted_count
+                    return int(deleted_count)
         except psycopg.Error as e:
             logger.error(f"Error deleting expired allocations: {e}")
             raise
@@ -717,7 +716,7 @@ class TokenAllocationService(BaseDatabaseService):
                     logger.info(
                         f"Deleted {deleted_count} allocations for user {user_id}"
                     )
-                    return deleted_count
+                    return int(deleted_count)
         except psycopg.Error as e:
             logger.error(f"Error deleting allocations for user {user_id}: {e}")
             raise
@@ -782,7 +781,7 @@ class TokenAllocationService(BaseDatabaseService):
             token_request_id = f"pause_{uuid.uuid4().hex}"
 
             # Create the pause allocation
-            self.create_pause_allocation(
+            return await self.create_pause_allocation(
                 token_request_id=token_request_id,
                 model_name=model_name,
                 api_endpoint=api_endpoint,
@@ -815,7 +814,7 @@ class TokenAllocationService(BaseDatabaseService):
             logger.error(f"Unexpected error in pause_deployment: {e}")
             raise ValueError(f"Failed to pause deployment: {e}")
 
-    def create_pause_allocation(
+    async def create_pause_allocation(
         self,
         token_request_id: str,
         model_name: str,
@@ -866,21 +865,18 @@ class TokenAllocationService(BaseDatabaseService):
             f"Creating pause allocation for {model_name} at {api_endpoint} for {pause_duration_minutes}m"
         )
 
-        return self.create_token_allocation(
-            token_request_id=token_request_id,
+        return await self.create_token_allocation(
+            token_request_identifier=token_request_id,
             user_id=UUID(
                 "00000000-0000-0000-0000-000000000000"
             ),  # System user for pauses
             model_name=model_name,
             token_count=max_token_limit,
             allocation_status="PAUSED",
-            api_endpoint=api_endpoint,
-            region=region,
-            cloud_provider=cloud_provider,
+            api_endpoint_url=api_endpoint,
+            cloud_provider_name=cloud_provider,
             deployment_name=deployment_name,
-            allocated_at=datetime.now(),
-            expires_at=datetime.now() + timedelta(minutes=pause_duration_minutes),
-            request_context=context,
+            request_metadata=context,
         )
 
     async def get_allocation_summary_by_model(self, model_name: str) -> Dict[str, Any]:
@@ -968,7 +964,9 @@ class TokenAllocationService(BaseDatabaseService):
     # ALLOCATION LOGIC OPERATIONS (Core Business Logic)
     # ========================================================================
 
-    def retry_acquire_tokens(self, token_request_id: str) -> Optional[Dict[str, Any]]:
+    async def retry_acquire_tokens(
+        self, token_request_id: str
+    ) -> Optional[Dict[str, Any]]:
         """
         Retry acquiring tokens for a waiting request
         Similar to MongoDB's retry_acquire method
@@ -985,7 +983,7 @@ class TokenAllocationService(BaseDatabaseService):
         """
         try:
             # Get the allocation record
-            allocation = self.get_allocation_by_request_id(token_request_id)
+            allocation = await self.get_allocation_by_request_id(token_request_id)
             if not allocation:
                 logger.warning(f"Token request not found: {token_request_id}")
                 return {"error": f"Invalid token_req_id = {token_request_id}"}
@@ -1004,9 +1002,10 @@ class TokenAllocationService(BaseDatabaseService):
             token_count = allocation["token_count"]
 
             # Get least loaded deployment
-            total_allocated_tokens, chosen_model_config = (
-                self.get_least_loaded_deployment(model_name)
-            )
+            (
+                total_allocated_tokens,
+                chosen_model_config,
+            ) = await self.get_least_loaded_deployment(model_name)
             max_token_limit = chosen_model_config.get("max_tokens", 100000)
             max_token_lock_time_secs = chosen_model_config.get(
                 "max_token_lock_time_secs", 70
@@ -1029,7 +1028,7 @@ class TokenAllocationService(BaseDatabaseService):
             api_endpoint = chosen_model_config.get("api_base", "")
             region = chosen_model_config.get("region", "")
 
-            updated_allocation = self.transition_waiting_to_acquired(
+            updated_allocation = await self.transition_waiting_to_acquired(
                 token_request_id=token_request_id,
                 api_endpoint=api_endpoint,
                 region=region,
@@ -1064,7 +1063,7 @@ class TokenAllocationService(BaseDatabaseService):
             logger.error(f"Unexpected error in retry_acquire_tokens: {e}")
             raise ValueError(f"Failed to retry acquire tokens: {e}")
 
-    def acquire_tokens(
+    async def acquire_tokens(
         self,
         user_id: UUID,
         model_name: str,
@@ -1093,9 +1092,10 @@ class TokenAllocationService(BaseDatabaseService):
 
         try:
             # Get least loaded deployment
-            total_allocated_tokens, chosen_model_config = (
-                self.get_least_loaded_deployment(model_name)
-            )
+            (
+                total_allocated_tokens,
+                chosen_model_config,
+            ) = await self.get_least_loaded_deployment(model_name)
 
             # Extract max token limit and lock time
             max_token_limit = chosen_model_config.get("max_tokens")
@@ -1147,20 +1147,21 @@ class TokenAllocationService(BaseDatabaseService):
                 seed = chosen_model_config.get("seed", 42)
 
             # Create the allocation record
-            allocation = self.create_token_allocation(
-                token_request_id=token_request_id,
+            allocation = await self.create_token_allocation(
+                token_request_identifier=token_request_id,
                 user_id=user_id,
                 model_name=model_name,
                 token_count=token_count,
                 allocation_status=allocation_status,
-                allocated_at=now,
-                expires_at=expires_at,
+                expiration_timestamp=expires_at,
                 model_id=chosen_model_config.get("model_id"),
                 deployment_name=deployment_name,
-                cloud_provider="azure" if "azure" in api_endpoint.lower() else "openai",
-                api_endpoint=api_endpoint,
-                region=region,
-                request_context=request_context,
+                cloud_provider_name="azure"
+                if "azure" in api_endpoint.lower()
+                else "openai",
+                api_endpoint_url=api_endpoint,
+                geographic_region=region,
+                request_metadata=request_context,
             )
 
             # Add additional fields for response

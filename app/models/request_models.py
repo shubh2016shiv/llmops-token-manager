@@ -1,48 +1,85 @@
 """
-Request Models
--------------
-Pydantic models for API request validation.
-Simple, focused schemas aligned with the token allocation system.
+Request Models - Token Resource Allocation Manager
+===================================================
+Token capacity reservation system for multi-provider LLM deployments.
 """
 
 from typing import Optional, Dict, Any
-from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
+from enum import Enum
+from uuid import UUID
+from datetime import datetime
+
+
+class AllocationStatus(str, Enum):
+    ACQUIRED = "ACQUIRED"
+    WAITING = "WAITING"
+    PAUSED = "PAUSED"
+    RELEASED = "RELEASED"
+
+
+class ProviderType(str, Enum):
+    AZURE_OPENAI = "azure_openai"
+    OPENAI_DIRECT = "openai_direct"
+    ANTHROPIC = "anthropic"
+    GOOGLE_VERTEX = "google_vertex"
+    AWS_BEDROCK = "aws_bedrock"
+    ON_PREMISE = "on_premise"
 
 
 class TokenAllocationRequest(BaseModel):
     """
-    Request schema for allocating LLM tokens.
-    Maps to the core fields needed for token_manager table.
+    Reserve token capacity before making LLM calls.
+
+    Flow: Client estimates tokens → calls acquire → receives deployment config → makes LLM call → releases tokens
     """
 
-    user_id: UUID = Field(..., description="User requesting token allocation")
+    user_id: UUID = Field(..., description="Reference to the user requesting tokens")
+
+    provider: ProviderType = Field(
+        ..., description="LLM provider type - determines routing"
+    )
+
     model_name: str = Field(
         ...,
-        description="Name of the LLM model (e.g., gpt-4, claude-3-opus)",
+        description=(
+            "The LOGICAL model identifier representing the AI capability requested "
+            "(e.g., 'gpt-4-turbo-2024-04-09', 'claude-3-opus', 'llama-3-70b'). "
+            "This specifies WHAT AI model capability you want to use, independent of "
+            "WHERE or HOW it's deployed."
+        ),
         min_length=1,
         max_length=100,
     )
+
     token_count: int = Field(
-        ..., description="Number of tokens to allocate", gt=0, le=1000000
+        ...,
+        description="Estimated total tokens to reserve based on the user's payload size",
+        gt=0,
+        le=3000000,
     )
+
     deployment_name: Optional[str] = Field(
-        default=None, description="Specific deployment name if applicable"
+        default=None,
+        description=(
+            "The PHYSICAL deployment instance identifier (e.g., 'azure-gpt4-eastus-prod-01', "
+            "'aws-claude-west-instance-3'). This specifies WHICH specific running instance "
+            "or endpoint to use. If omitted, the system automatically selects the least-busy "
+            "physical deployment that provides the requested model_name capability. "
+            "Think of this as the 'server name' or 'endpoint address' that hosts the model."
+        ),
+        max_length=100,
     )
+
     region: Optional[str] = Field(
-        default=None, description="Preferred geographic region (e.g., eastus2, westus2)"
+        default=None,
+        description="Preferred region - system tries this region first if capacity available",
+        max_length=50,
     )
-    temperature: Optional[float] = Field(
-        default=None, description="Temperature parameter for generation", ge=0.0, le=2.0
-    )
-    top_p: Optional[float] = Field(
-        default=None, description="Top-p (nucleus sampling) parameter", ge=0.0, le=1.0
-    )
-    seed: Optional[float] = Field(
-        default=None, description="Seed for reproducible outputs"
-    )
+
     request_context: Optional[Dict[str, Any]] = Field(
-        default=None, description="Additional context metadata"
+        default=None,
+        description="Metadata for tracking (team, project, batch_id, etc.)",
     )
 
     @field_validator("token_count")
@@ -50,114 +87,296 @@ class TokenAllocationRequest(BaseModel):
     def validate_token_count(cls, v: int) -> int:
         if v <= 0:
             raise ValueError("Token count must be positive")
-        if v > 1000000:
-            raise ValueError("Token count exceeds maximum limit")
+        if v > 3000000:
+            raise ValueError(f"Token count {v} exceeds maximum limit")
         return v
 
     class Config:
         json_schema_extra = {
             "example": {
-                "user_id": "550e8400-e29b-41d4-a716-446655440000",
-                "model_name": "gpt-4",
-                "token_count": 2000,
-                "deployment_name": "gpt-4-turbo",
+                "provider": "azure_openai",
+                "model_name": "gpt-4-turbo-2024-04-09-gp",
+                "token_count": 5000,
+                "deployment_name": None,
                 "region": "eastus2",
-                "temperature": 0.7,
-                "request_context": {"application": "chatbot", "team": "ml-research"},
+                "request_context": {"team": "research", "project": "medical-qa"},
             }
         }
 
 
 class TokenReleaseRequest(BaseModel):
     """
-    Request schema for releasing allocated tokens.
+    Release allocated tokens back to pool.
+
+    Critical: Must call immediately after LLM call completes to free capacity.
     """
 
-    token_request_id: str = Field(
-        ..., description="ID of the token allocation to release", min_length=1
-    )
-    user_id: UUID = Field(..., description="User releasing the tokens")
+    token_req_id: str = Field(..., description="Token request ID to release")
 
     class Config:
-        json_schema_extra = {
-            "example": {
-                "token_request_id": "req_abc123xyz",
-                "user_id": "550e8400-e29b-41d4-a716-446655440000",
-            }
-        }
+        json_schema_extra = {"example": {"token_req_id": "abc123def456"}}
 
 
-class UserCreateRequest(BaseModel):
+class PauseDeploymentRequest(BaseModel):
     """
-    Request schema for creating a new user.
+    Emergency failover - pause a failing deployment.
+
+    Use when: Provider outage, rate limits, high errors, maintenance.
     """
 
-    email: str = Field(
-        ..., description="User's email address", min_length=3, max_length=255
-    )
-    role: str = Field(
-        default="developer", description="User role: owner, admin, developer, or viewer"
-    )
+    provider: ProviderType = Field(..., description="Provider to pause")
 
-    @field_validator("role")
-    @classmethod
-    def validate_role(cls, v: str) -> str:
-        allowed_roles = ["owner", "admin", "developer", "viewer"]
-        if v not in allowed_roles:
-            raise ValueError(f"Role must be one of: {', '.join(allowed_roles)}")
-        return v
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, v: str) -> str:
-        if "@" not in v:
-            raise ValueError("Invalid email format")
-        return v.lower().strip()
-
-    class Config:
-        json_schema_extra = {
-            "example": {"email": "user@example.com", "role": "developer"}
-        }
-
-
-class LLMModelCreateRequest(BaseModel):
-    """
-    Request schema for registering a new LLM model.
-    """
-
-    provider: str = Field(..., description="LLM provider: openai, gemini, or anthropic")
     model_name: str = Field(
-        ..., description="Name of the model", min_length=1, max_length=100
+        ..., description="Model to pause", min_length=1, max_length=100
     )
-    deployment_name: Optional[str] = Field(default=None, description="Deployment name")
-    api_endpoint: Optional[str] = Field(default=None, description="API endpoint URL")
-    max_tokens: Optional[int] = Field(
-        default=None, description="Maximum tokens per request", gt=0
-    )
-    tokens_per_minute_limit: Optional[int] = Field(
-        default=None, description="Rate limit: tokens per minute", gt=0
-    )
-    requests_per_minute_limit: Optional[int] = Field(
-        default=None, description="Rate limit: requests per minute", gt=0
-    )
-    region: Optional[str] = Field(default=None, description="Geographic region")
 
-    @field_validator("provider")
-    @classmethod
-    def validate_provider(cls, v: str) -> str:
-        allowed_providers = ["openai", "gemini", "anthropic"]
-        if v not in allowed_providers:
-            raise ValueError(f"Provider must be one of: {', '.join(allowed_providers)}")
-        return v
+    api_base: Optional[str] = Field(
+        default=None, description="Endpoint URL to pause", min_length=1, max_length=500
+    )
+
+    pause_reason: str = Field(
+        ...,
+        description="Reason for pause - logged for audit",
+        min_length=1,
+        max_length=1000,
+    )
+
+    pause_duration_minutes: Optional[int] = Field(
+        default=None,
+        description="How long to pause - if omitted, uses config default",
+        gt=0,
+        le=1440,
+    )
 
     class Config:
         json_schema_extra = {
             "example": {
-                "provider": "openai",
-                "model_name": "gpt-4",
-                "deployment_name": "gpt-4-turbo",
-                "max_tokens": 8192,
-                "tokens_per_minute_limit": 90000,
-                "region": "eastus2",
+                "provider": "azure_openai",
+                "model_name": "gpt-4-turbo-2024-04-09-gp",
+                "api_base": "https://dev-cd-rx-aoi-eastus2.openai.azure.com/",
+                "pause_reason": "Azure region outage - 503 errors",
+                "pause_duration_minutes": 60,
             }
+        }
+
+
+class ResumeDeploymentRequest(BaseModel):
+    """
+    Resume a paused deployment.
+
+    Use when: Issue resolved - manually un-pause before auto-expiry.
+    """
+
+    provider: ProviderType = Field(..., description="Provider to resume")
+
+    model_name: str = Field(
+        ..., description="Model to resume", min_length=1, max_length=100
+    )
+
+    api_base: str = Field(
+        ..., description="Endpoint URL to resume", min_length=1, max_length=500
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "provider": "azure_openai",
+                "model_name": "gpt-4-turbo-2024-04-09-gp",
+                "api_base": "https://dev-cd-rx-aoi-eastus2.openai.azure.com/",
+            }
+        }
+
+
+class DeploymentConfigCreate(BaseModel):
+    """
+    Register new LLM deployment for load balancing.
+
+    Use when: Admin adds new provider endpoint to the pool.
+    """
+
+    provider: ProviderType = Field(..., description="LLM provider type")
+
+    model_name: str = Field(
+        ..., description="Model identifier", min_length=1, max_length=100
+    )
+
+    api_version: str = Field(
+        ...,
+        description="Provider API version (e.g., '2023-03-15' for Azure OpenAI)",
+        min_length=1,
+        max_length=50,
+    )
+
+    deployment_name: str = Field(
+        ...,
+        description="Deployment-specific name (Azure deployment name, etc.)",
+        min_length=1,
+        max_length=100,
+    )
+
+    api_base: Optional[str] = Field(
+        default=None,
+        description="Base URL for API calls",
+        min_length=1,
+        max_length=500,
+    )
+
+    api_key_identifier: str = Field(
+        ...,
+        description="Identifier for the API key like OPENAI_API_KEY_GPT4T or ANTHROPIC_API_KEY_CLAUDE3OPUS",
+        min_length=1,
+        max_length=200,
+    )
+
+    region: str = Field(
+        ..., description="Geographic region for routing", min_length=1, max_length=50
+    )
+
+    max_tokens: int = Field(
+        ...,
+        description="Maximum tokens per minute (TPM) quota for this deployment",
+        gt=0,
+        le=100000000,
+    )
+
+    max_token_lock_time_secs: Optional[int] = Field(
+        default=70,
+        description="Default reservation expiry time in seconds",
+        gt=0,
+        le=3600,
+    )
+
+    temperature: Optional[float] = Field(
+        default=0.0,
+        description="Default temperature for this deployment",
+        ge=0.0,
+        le=2.0,
+    )
+
+    seed: Optional[int] = Field(
+        default=42, description="Default seed for this deployment", ge=0
+    )
+
+    is_active: bool = Field(
+        default=True, description="Enable/disable traffic to this deployment"
+    )
+
+    created_at: Optional[datetime] = Field(
+        default=datetime.now(),
+        description="Timestamp when the deployment configuration was created",
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "provider": "azure_openai",
+                "model_name": "gpt-4-turbo-2024-04-09-gp",
+                "api_version": "2023-03-15",
+                "deployment_name": "gpt-4-turbo-2024-04-09-gp",
+                "api_base": "https://dev-cd-rx-aoi-eastus2.openai.azure.com/",
+                "api_key_identifier": "AZURE_OPENAI_API_KEY_GPT4T",
+                "region": "eastus2",
+                "max_tokens": 120000,
+                "max_token_lock_time_secs": 70,
+                "temperature": 0.0,
+                "seed": 42,
+                "is_active": True,
+                "created_at": "2025-10-17T10:30:00Z",
+            }
+        }
+
+
+class DeploymentConfigUpdate(BaseModel):
+    """
+    Update existing deployment configuration.
+
+    Use when: Modify rate limits, defaults, endpoints, or toggle active status.
+    All fields are optional - only provided fields will be updated.
+    """
+
+    model_name: Optional[str] = Field(
+        default=None,
+        description="Updated model identifier",
+        min_length=1,
+        max_length=100,
+    )
+
+    api_version: Optional[str] = Field(
+        default=None,
+        description="Updated provider API version",
+        min_length=1,
+        max_length=50,
+    )
+
+    deployment_name: Optional[str] = Field(
+        default=None,
+        description="Updated deployment-specific name",
+        min_length=1,
+        max_length=100,
+    )
+
+    api_base: Optional[str] = Field(
+        default=None,
+        description="Updated base URL for API calls",
+        min_length=1,
+        max_length=500,
+    )
+
+    api_key_identifier: Optional[str] = Field(
+        default=None,
+        description="Updated API key identifier",
+        min_length=1,
+        max_length=200,
+    )
+
+    region: Optional[str] = Field(
+        default=None,
+        description="Updated geographic region for routing",
+        min_length=1,
+        max_length=50,
+    )
+
+    max_tokens: Optional[int] = Field(
+        default=None,
+        description="Updated maximum tokens per minute (TPM) quota",
+        gt=0,
+        le=100000000,
+    )
+
+    max_token_lock_time_secs: Optional[int] = Field(
+        default=None,
+        description="Updated default reservation expiry time in seconds",
+        gt=0,
+        le=3600,
+    )
+
+    temperature: Optional[float] = Field(
+        default=None,
+        description="Updated default temperature for this deployment",
+        ge=0.0,
+        le=2.0,
+    )
+
+    seed: Optional[int] = Field(
+        default=None, description="Updated default seed for this deployment", ge=0
+    )
+
+    is_active: Optional[bool] = Field(
+        default=None, description="Updated enable/disable traffic to this deployment"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "examples": [
+                # Update rate limits only
+                {"max_tokens": 150000, "is_active": True},
+                # Update endpoint and credentials
+                {
+                    "api_base": "https://new-endpoint.openai.azure.com/",
+                    "api_key_identifier": "AZURE_OPENAI_API_KEY_GPT4T_V2",
+                },
+                # Update defaults
+                {"temperature": 0.5, "seed": 123, "max_token_lock_time_secs": 120},
+            ],
+            "example": {"max_tokens": 150000, "is_active": True},
         }

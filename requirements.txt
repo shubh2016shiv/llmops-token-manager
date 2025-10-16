@@ -17,6 +17,7 @@ hiredis==3.0.0                    # High-performance Redis protocol parser
 # DATABASE & PERSISTENCE
 ############################################################
 psycopg[binary,pool]==3.2.1       # PostgreSQL database adapter with async support
+sqlalchemy==2.0.44                # SQLAlchemy for database ORM
 
 
 ############################################################
@@ -34,6 +35,7 @@ tiktoken==0.8.0                   # Token counting utilities
 ############################################################
 pydantic==2.9.2                   # Data validation & serialization library
 pydantic-settings==2.6.1          # Environment-based settings management
+pydantic[email]==2.9.2            # Email validation
 
 
 ############################################################

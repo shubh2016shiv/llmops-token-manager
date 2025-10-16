@@ -18,8 +18,10 @@ from app.models.token_allocation_model import TokenAllocation
 from app.models.request_models import (
     TokenAllocationRequest,
     TokenReleaseRequest,
-    UserCreateRequest,
-    LLMModelCreateRequest,
+    DeploymentConfigCreate,
+    PauseDeploymentRequest,
+    ResumeDeploymentRequest,
+    DeploymentConfigUpdate,
 )
 
 __all__ = [
@@ -30,6 +32,8 @@ __all__ = [
     # Request/Response models
     "TokenAllocationRequest",
     "TokenReleaseRequest",
-    "UserCreateRequest",
-    "LLMModelCreateRequest",
+    "DeploymentConfigCreate",
+    "PauseDeploymentRequest",
+    "ResumeDeploymentRequest",
+    "DeploymentConfigUpdate",
 ]

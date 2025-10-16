@@ -60,7 +60,6 @@ class TokenAllocationRequest(BaseModel):
     user_id: UUID = Field(..., description="Reference to the user requesting tokens")
 
     user_role: UserRole = Field(
-        ...,
         description="User role - determines access to requests",
         default=UserRole.USER,
     )
@@ -143,7 +142,6 @@ class TokenReleaseRequest(BaseModel):
     token_req_id: str = Field(..., description="Token request ID to release")
 
     user_role: UserRole = Field(
-        ...,
         description="User role - determines access to requests",
         default=UserRole.USER,
     )
@@ -162,7 +160,6 @@ class PauseDeploymentRequest(BaseModel):
     user_id: UUID = Field(..., description="Reference to the user requesting tokens")
 
     user_role: UserRole = Field(
-        ...,
         description="User role - determines access to requests",
         default=UserRole.OPERATOR,
     )
@@ -213,7 +210,6 @@ class ResumeDeploymentRequest(BaseModel):
     user_id: UUID = Field(..., description="Reference to the user requesting tokens")
 
     user_role: UserRole = Field(
-        ...,
         description="User role - determines access to requests",
         default=UserRole.OPERATOR,
     )
@@ -248,7 +244,6 @@ class DeploymentConfigCreate(BaseModel):
     user_id: UUID = Field(..., description="Reference to the user requesting tokens")
 
     user_role: UserRole = Field(
-        ...,
         description="User role - determines access to requests",
         default=UserRole.ADMIN,
     )
@@ -356,7 +351,6 @@ class DeploymentConfigUpdate(BaseModel):
     user_id: UUID = Field(..., description="Reference to the user requesting tokens")
 
     user_role: UserRole = Field(
-        ...,
         description="User role - determines access to requests",
         default=UserRole.ADMIN,
     )

@@ -1,7 +1,14 @@
 """
-Request Models - Token Resource Allocation Manager
-===================================================
-Token capacity reservation system for multi-provider LLM deployments.
+LLM Token Management Request Models
+===================================
+
+This module defines Pydantic request models for Large Language Model (LLM)
+token resource allocation management across multiple cloud providers and model types.
+
+Key Capabilities:
+- Request Model for Token capacity allocation and release operations
+- Request Model for Multi-provider LLM configuration Registration
+- RBAC based request validation for each request type
 """
 
 from typing import Optional, Dict, Any

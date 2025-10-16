@@ -27,6 +27,22 @@ class ProviderType(str, Enum):
     ON_PREMISE = "on_premise"
 
 
+class UserRole(str, Enum):
+    """User roles for role-based access control"""
+
+    USER = "user"  # End users - can request/release tokens only
+    # Requests: TokenAllocationRequest, TokenReleaseRequest
+
+    OPERATOR = "operator"  # Operations team - can manage deployments
+    # Requests: PauseDeploymentRequest, ResumeDeploymentRequest
+
+    ADMIN = "admin"  # System administrators - can configure deployments
+    # Requests: DeploymentConfigCreate, DeploymentConfigUpdate
+
+    OWNER = "owner"  # Full system access - can perform all requests
+    # Requests: All requests
+
+
 class TokenAllocationRequest(BaseModel):
     """
     Reserve token capacity before making LLM calls.
@@ -35,6 +51,12 @@ class TokenAllocationRequest(BaseModel):
     """
 
     user_id: UUID = Field(..., description="Reference to the user requesting tokens")
+
+    user_role: UserRole = Field(
+        ...,
+        description="User role - determines access to requests",
+        default=UserRole.USER,
+    )
 
     provider: ProviderType = Field(
         ..., description="LLM provider type - determines routing"
@@ -113,6 +135,12 @@ class TokenReleaseRequest(BaseModel):
 
     token_req_id: str = Field(..., description="Token request ID to release")
 
+    user_role: UserRole = Field(
+        ...,
+        description="User role - determines access to requests",
+        default=UserRole.USER,
+    )
+
     class Config:
         json_schema_extra = {"example": {"token_req_id": "abc123def456"}}
 
@@ -123,6 +151,14 @@ class PauseDeploymentRequest(BaseModel):
 
     Use when: Provider outage, rate limits, high errors, maintenance.
     """
+
+    user_id: UUID = Field(..., description="Reference to the user requesting tokens")
+
+    user_role: UserRole = Field(
+        ...,
+        description="User role - determines access to requests",
+        default=UserRole.OPERATOR,
+    )
 
     provider: ProviderType = Field(..., description="Provider to pause")
 
@@ -167,6 +203,14 @@ class ResumeDeploymentRequest(BaseModel):
     Use when: Issue resolved - manually un-pause before auto-expiry.
     """
 
+    user_id: UUID = Field(..., description="Reference to the user requesting tokens")
+
+    user_role: UserRole = Field(
+        ...,
+        description="User role - determines access to requests",
+        default=UserRole.OPERATOR,
+    )
+
     provider: ProviderType = Field(..., description="Provider to resume")
 
     model_name: str = Field(
@@ -193,6 +237,14 @@ class DeploymentConfigCreate(BaseModel):
 
     Use when: Admin adds new provider endpoint to the pool.
     """
+
+    user_id: UUID = Field(..., description="Reference to the user requesting tokens")
+
+    user_role: UserRole = Field(
+        ...,
+        description="User role - determines access to requests",
+        default=UserRole.ADMIN,
+    )
 
     provider: ProviderType = Field(..., description="LLM provider type")
 
@@ -293,6 +345,14 @@ class DeploymentConfigUpdate(BaseModel):
     Use when: Modify rate limits, defaults, endpoints, or toggle active status.
     All fields are optional - only provided fields will be updated.
     """
+
+    user_id: UUID = Field(..., description="Reference to the user requesting tokens")
+
+    user_role: UserRole = Field(
+        ...,
+        description="User role - determines access to requests",
+        default=UserRole.ADMIN,
+    )
 
     model_name: Optional[str] = Field(
         default=None,

@@ -5,7 +5,7 @@ Pydantic models for API response validation.
 Simple, focused schemas for returning data to clients.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -390,10 +390,18 @@ class HealthStatus(BaseModel):
     )
 
     status: str = Field(..., description="Token allocation service health status")
-    timestamp: datetime = Field(
-        default_factory=datetime.utcnow, description="Health check timestamp"
-    )
     version: Optional[str] = Field(default=None, description="Application version")
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Health check timestamp",
+    )
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_timestamp(cls, value: datetime) -> datetime:
+        if value > datetime.now(timezone.utc):
+            raise ValueError("Timestamp cannot be in the future")
+        return value
 
     @field_validator("status")
     @classmethod
@@ -401,11 +409,4 @@ class HealthStatus(BaseModel):
         valid_values = [member.value for member in Health]
         if value not in valid_values:
             raise ValueError(f"Status must be one of: {', '.join(valid_values)}")
-        return value
-
-    @field_validator("timestamp")
-    @classmethod
-    def validate_timestamp(cls, value: datetime) -> datetime:
-        if value > datetime.utcnow():
-            raise ValueError("Timestamp cannot be in the future")
         return value

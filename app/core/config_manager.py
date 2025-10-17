@@ -24,7 +24,7 @@ class ApplicationSettings(BaseSettings):
     log_level: str = Field(default="INFO", description="Logging level")
 
     # FastAPI server configuration
-    fastapi_host: str = Field(default="0.0.0.0", description="FastAPI host")
+    fastapi_host: str = Field(default="localhost", description="FastAPI host")
     fastapi_port: int = Field(default=8000, description="FastAPI port")
 
     # PostgreSQL database configuration

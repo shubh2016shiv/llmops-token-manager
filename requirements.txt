@@ -18,6 +18,7 @@ hiredis==3.0.0                    # High-performance Redis protocol parser
 ############################################################
 psycopg[binary,pool]==3.2.1       # PostgreSQL database adapter with async support
 sqlalchemy==2.0.44                # SQLAlchemy for database ORM
+asyncpg==0.29.0                   # High-performance PostgreSQL client for asyncio
 
 
 ############################################################

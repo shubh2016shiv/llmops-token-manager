@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
+from sqlalchemy import text
 
 from app.core.config_manager import settings
 from app.core.database_connection import db_manager
@@ -19,32 +20,22 @@ from app.api import health_endpoints, user_endpoints
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Application lifespan manager.
-    Handles startup and shutdown events.
+    """Application lifespan manager with proper health checks."""
 
-    Startup:
-        - Initialize database connection pool
-        - Initialize Redis connection pool
-        - Log application start
-
-    Shutdown:
-        - Close database connections
-        - Close Redis connections
-        - Log application shutdown
-    """
     # Startup
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Debug mode: {settings.debug}")
 
     try:
-        # Initialize database
+        # Initialize database with connectivity check
         await db_manager.initialize()
-        logger.info("Database initialized")
+        await _verify_database_connectivity()  # NEW: Actual connection test
+        logger.info("[SUCCESS] Database connected and ready")
 
-        # Initialize Redis
+        # Initialize Redis with connectivity check
         redis_manager.initialize()
-        logger.info("Redis initialized")
+        await _verify_redis_connectivity()  # NEW: Actual connection test
+        logger.info("[SUCCESS] Redis connected and ready")
 
         # Display service URLs in formatted tables
         # Use print for properly aligned tables, with consistent width
@@ -97,11 +88,12 @@ async def lifespan(app: FastAPI):
         # Still log a simple message for the log file
         logger.info("Service endpoints and connection information displayed")
 
-        logger.info("Application startup complete")
+        logger.info("[SUCCESS] Application startup complete - all services verified")
 
     except Exception as e:
-        logger.error(f"Startup failed: {e}")
-        raise
+        logger.error(f"[ERROR] Startup failed: {e}")
+        logger.error("Application cannot start without all required services")
+        raise  # Fail fast - don't start with broken dependencies
 
     yield
 
@@ -119,6 +111,27 @@ async def lifespan(app: FastAPI):
 
     except Exception as e:
         logger.error(f"Shutdown error: {e}")
+
+
+async def _verify_database_connectivity():
+    """Verify database is actually reachable."""
+    try:
+        async with db_manager.get_session() as session:
+            result = await session.execute(text("SELECT 1"))
+            if result.scalar() != 1:
+                raise Exception("Database connectivity test failed")
+    except Exception as e:
+        raise Exception(f"Database connectivity check failed: {e}")
+
+
+async def _verify_redis_connectivity():
+    """Verify Redis is actually reachable."""
+    try:
+        # Use the ping method directly from the redis_manager
+        if not await redis_manager.ping():
+            raise Exception("Redis server did not respond to ping")
+    except Exception as e:
+        raise Exception(f"Redis connectivity check failed: {e}")
 
 
 # Create FastAPI application

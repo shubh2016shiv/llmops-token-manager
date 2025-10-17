@@ -1,7 +1,11 @@
+"""
+Unit tests for DatabaseManager using SQLAlchemy async engine
+"""
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import psycopg
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.database_connection import DatabaseManager
 
@@ -14,16 +18,18 @@ class TestDatabaseManager:
         """Set up and clean up test fixtures."""
         # Reset the singleton instance before each test
         DatabaseManager._instance = None
-        DatabaseManager._pool = None
+        DatabaseManager._engine = None
+        DatabaseManager._sessionmaker = None
         yield
         # Clean up after each test
-        if DatabaseManager._pool is not None:
+        if DatabaseManager._engine is not None:
             try:
-                await DatabaseManager._pool.close()
+                await DatabaseManager._engine.dispose()
             except Exception:
                 pass
         DatabaseManager._instance = None
-        DatabaseManager._pool = None
+        DatabaseManager._engine = None
+        DatabaseManager._sessionmaker = None
 
     def test_singleton_pattern(self):
         """Test that DatabaseManager implements singleton pattern."""
@@ -34,14 +40,17 @@ class TestDatabaseManager:
         # Assert
         assert instance1 is instance2
 
-    @patch("app.core.database_connection.AsyncConnectionPool")
+    @patch("app.core.database_connection.create_async_engine")
+    @patch("app.core.database_connection.async_sessionmaker")
     @pytest.mark.asyncio
-    async def test_initialize(self, mock_pool_class):
-        """Test that initialize creates a connection pool."""
+    async def test_initialize(self, mock_sessionmaker, mock_create_engine):
+        """Test that initialize creates a SQLAlchemy async engine."""
         # Arrange
-        mock_pool_instance = AsyncMock()
-        mock_pool_instance.open = AsyncMock()
-        mock_pool_class.return_value = mock_pool_instance
+        mock_engine = AsyncMock()
+        mock_create_engine.return_value = mock_engine
+        mock_session_factory = MagicMock()
+        mock_sessionmaker.return_value = mock_session_factory
+
         db_manager = DatabaseManager()
 
         # Act
@@ -52,37 +61,36 @@ class TestDatabaseManager:
                 "dbname": "test_db",
                 "user": "test_user",
                 "password": "test_password",
-                "min_connections": 1,
-                "max_connections": 10,
+                "min_connections": 5,
+                "max_connections": 15,
             }
         )
 
         # Assert
-        mock_pool_class.assert_called_once_with(
-            min_size=1,
-            max_size=10,
-            kwargs={
-                "host": "localhost",
-                "port": 5432,
-                "dbname": "test_db",
-                "user": "test_user",
-                "password": "test_password",
-            },
+        mock_create_engine.assert_called_once()
+        call_args = mock_create_engine.call_args
+        assert (
+            "postgresql+asyncpg://test_user:test_password@localhost:5432/test_db"
+            in call_args[0]
         )
-        mock_pool_instance.open.assert_called_once()
-        assert db_manager._pool is not None
-        assert db_manager._pool == mock_pool_instance
+        assert call_args[1]["pool_size"] == 5
+        assert call_args[1]["max_overflow"] == 10
+        assert call_args[1]["pool_pre_ping"] is True
 
-    @patch("app.core.database_connection.AsyncConnectionPool")
+        mock_sessionmaker.assert_called_once()
+        assert db_manager._engine is not None
+        assert db_manager._sessionmaker is not None
+
+    @patch("app.core.database_connection.create_async_engine")
     @pytest.mark.asyncio
-    async def test_initialize_with_error(self, mock_pool_class):
+    async def test_initialize_with_error(self, mock_create_engine):
         """Test that initialize handles errors."""
         # Arrange
-        mock_pool_class.side_effect = psycopg.Error("Connection error")
+        mock_create_engine.side_effect = SQLAlchemyError("Connection error")
         db_manager = DatabaseManager()
 
         # Act & Assert
-        with pytest.raises(psycopg.Error):
+        with pytest.raises(Exception):
             await db_manager.initialize(
                 config={
                     "host": "localhost",
@@ -93,89 +101,34 @@ class TestDatabaseManager:
                 }
             )
 
-    @patch("app.core.database_connection.AsyncConnectionPool")
+    @patch("app.core.database_connection.create_async_engine")
     @pytest.mark.asyncio
-    async def test_get_connection(self, mock_pool_class):
-        """Test that get_connection returns a connection from the pool."""
+    async def test_initialize_already_initialized(self, mock_create_engine):
+        """Test that initialize warns when already initialized."""
         # Arrange
-        mock_connection = AsyncMock()
-        mock_pool_instance = AsyncMock()
-        mock_pool_instance.getconn = AsyncMock(return_value=mock_connection)
-        mock_pool_instance.open = AsyncMock()
-        mock_pool_class.return_value = mock_pool_instance
+        mock_engine = AsyncMock()
+        mock_create_engine.return_value = mock_engine
         db_manager = DatabaseManager()
-
-        # Initialize the connection pool
-        await db_manager.initialize(
-            config={
-                "host": "localhost",
-                "port": 5432,
-                "dbname": "test_db",
-                "user": "test_user",
-                "password": "test_password",
-            }
-        )
+        db_manager._engine = mock_engine  # Already initialized
 
         # Act
-        connection = await db_manager.get_connection()
+        await db_manager.initialize()
 
-        # Assert
-        assert connection == mock_connection
-        mock_pool_instance.getconn.assert_called_once()
+        # Assert - should not create a new engine
+        mock_create_engine.assert_not_called()
 
+    @patch("app.core.database_connection.create_async_engine")
+    @patch("app.core.database_connection.async_sessionmaker")
     @pytest.mark.asyncio
-    async def test_get_connection_not_initialized(self):
-        """Test that get_connection raises error when not initialized."""
+    async def test_close(self, mock_sessionmaker, mock_create_engine):
+        """Test that close disposes the engine."""
         # Arrange
+        mock_engine = AsyncMock()
+        mock_engine.dispose = AsyncMock()
+        mock_create_engine.return_value = mock_engine
+        mock_sessionmaker.return_value = MagicMock()
+
         db_manager = DatabaseManager()
-
-        # Act & Assert
-        with pytest.raises(RuntimeError) as exc_info:
-            await db_manager.get_connection()
-
-        assert "not initialized" in str(exc_info.value)
-
-    @patch("app.core.database_connection.AsyncConnectionPool")
-    @pytest.mark.asyncio
-    async def test_release_connection(self, mock_pool_class):
-        """Test that release_connection returns a connection to the pool."""
-        # Arrange
-        mock_connection = AsyncMock()
-        mock_pool_instance = AsyncMock()
-        mock_pool_instance.putconn = AsyncMock()
-        mock_pool_instance.open = AsyncMock()
-        mock_pool_class.return_value = mock_pool_instance
-        db_manager = DatabaseManager()
-
-        # Initialize the connection pool
-        await db_manager.initialize(
-            config={
-                "host": "localhost",
-                "port": 5432,
-                "dbname": "test_db",
-                "user": "test_user",
-                "password": "test_password",
-            }
-        )
-
-        # Act
-        await db_manager.release_connection(mock_connection)
-
-        # Assert
-        mock_pool_instance.putconn.assert_called_once_with(mock_connection)
-
-    @patch("app.core.database_connection.AsyncConnectionPool")
-    @pytest.mark.asyncio
-    async def test_close(self, mock_pool_class):
-        """Test that close closes all connections in the pool."""
-        # Arrange
-        mock_pool_instance = AsyncMock()
-        mock_pool_instance.close = AsyncMock()
-        mock_pool_instance.open = AsyncMock()
-        mock_pool_class.return_value = mock_pool_instance
-        db_manager = DatabaseManager()
-
-        # Initialize the connection pool
         await db_manager.initialize(
             config={
                 "host": "localhost",
@@ -190,53 +143,40 @@ class TestDatabaseManager:
         await db_manager.close()
 
         # Assert
-        mock_pool_instance.close.assert_called_once()
-        assert DatabaseManager._pool is None
+        mock_engine.dispose.assert_called_once()
+        assert DatabaseManager._engine is None
+        assert DatabaseManager._sessionmaker is None
 
+    @pytest.mark.asyncio
+    async def test_get_session_not_initialized(self):
+        """Test that get_session raises error when not initialized."""
+        # Arrange
+        db_manager = DatabaseManager()
 
-class TestDatabaseManagerQueries:
-    """Test cases for query execution in DatabaseManager."""
-
-    @pytest.fixture(autouse=True)
-    async def setup_and_teardown(self):
-        """Set up and clean up test fixtures."""
-        # Reset the singleton instance before each test
-        DatabaseManager._instance = None
-        DatabaseManager._pool = None
-        yield
-        # Clean up after each test
-        if DatabaseManager._pool is not None:
-            try:
-                await DatabaseManager._pool.close()
-            except Exception:
+        # Act & Assert
+        with pytest.raises(RuntimeError) as exc_info:
+            async with db_manager.get_session():
                 pass
-        DatabaseManager._instance = None
-        DatabaseManager._pool = None
 
-    @patch("app.core.database_connection.AsyncConnectionPool")
+        assert "not initialized" in str(exc_info.value).lower()
+
+    @patch("app.core.database_connection.create_async_engine")
+    @patch("app.core.database_connection.async_sessionmaker")
     @pytest.mark.asyncio
-    async def test_execute_query_fetch_all(self, mock_pool_class):
-        """Test executing a query and fetching all results."""
+    async def test_get_session_success(self, mock_sessionmaker, mock_create_engine):
+        """Test that get_session returns a session and commits on success."""
         # Arrange
-        mock_connection = AsyncMock()
-        mock_cursor = AsyncMock()
-        mock_cursor.fetchall = AsyncMock(
-            return_value=[{"id": 1, "name": "Test1"}, {"id": 2, "name": "Test2"}]
-        )
-        mock_cursor.execute = AsyncMock()
+        mock_engine = AsyncMock()
+        mock_create_engine.return_value = mock_engine
 
-        # Mock the cursor context manager properly
-        cursor_context = AsyncMock()
-        cursor_context.__aenter__ = AsyncMock(return_value=mock_cursor)
-        cursor_context.__aexit__ = AsyncMock(return_value=False)
-        mock_connection.cursor = MagicMock(return_value=cursor_context)
-        mock_connection.commit = AsyncMock()
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.commit = AsyncMock()
+        mock_session.rollback = AsyncMock()
+        mock_session.close = AsyncMock()
 
-        mock_pool_instance = AsyncMock()
-        mock_pool_instance.getconn = AsyncMock(return_value=mock_connection)
-        mock_pool_instance.putconn = AsyncMock()
-        mock_pool_instance.open = AsyncMock()
-        mock_pool_class.return_value = mock_pool_instance
+        mock_session_factory = MagicMock()
+        mock_session_factory.return_value = mock_session
+        mock_sessionmaker.return_value = mock_session_factory
 
         db_manager = DatabaseManager()
         await db_manager.initialize(
@@ -250,162 +190,33 @@ class TestDatabaseManagerQueries:
         )
 
         # Act
-        result = await db_manager.execute_query("SELECT * FROM test_table", fetch="all")
+        async with db_manager.get_session() as session:
+            assert session == mock_session
 
         # Assert
-        assert result == [{"id": 1, "name": "Test1"}, {"id": 2, "name": "Test2"}]
-        mock_cursor.execute.assert_called_once_with("SELECT * FROM test_table", None)
-        mock_cursor.fetchall.assert_called_once()
-        mock_pool_instance.putconn.assert_called_once_with(mock_connection)
+        mock_session.commit.assert_called_once()
+        mock_session.close.assert_called_once()
+        mock_session.rollback.assert_not_called()
 
-    @patch("app.core.database_connection.AsyncConnectionPool")
+    @patch("app.core.database_connection.create_async_engine")
+    @patch("app.core.database_connection.async_sessionmaker")
     @pytest.mark.asyncio
-    async def test_execute_query_fetch_one(self, mock_pool_class):
-        """Test executing a query and fetching one result."""
+    async def test_get_session_rollback_on_error(
+        self, mock_sessionmaker, mock_create_engine
+    ):
+        """Test that get_session rolls back on exception."""
         # Arrange
-        mock_connection = AsyncMock()
-        mock_cursor = AsyncMock()
-        mock_cursor.fetchone = AsyncMock(return_value={"id": 1, "name": "Test"})
-        mock_cursor.execute = AsyncMock()
-        cursor_context = AsyncMock()
-        cursor_context.__aenter__ = AsyncMock(return_value=mock_cursor)
-        cursor_context.__aexit__ = AsyncMock(return_value=False)
-        mock_connection.cursor = MagicMock(return_value=cursor_context)
-        mock_connection.commit = AsyncMock()
+        mock_engine = AsyncMock()
+        mock_create_engine.return_value = mock_engine
 
-        mock_pool_instance = AsyncMock()
-        mock_pool_instance.getconn = AsyncMock(return_value=mock_connection)
-        mock_pool_instance.putconn = AsyncMock()
-        mock_pool_instance.open = AsyncMock()
-        mock_pool_class.return_value = mock_pool_instance
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.commit = AsyncMock()
+        mock_session.rollback = AsyncMock()
+        mock_session.close = AsyncMock()
 
-        db_manager = DatabaseManager()
-        await db_manager.initialize(
-            config={
-                "host": "localhost",
-                "port": 5432,
-                "dbname": "test_db",
-                "user": "test_user",
-                "password": "test_password",
-            }
-        )
-
-        # Act
-        result = await db_manager.execute_query(
-            "SELECT * FROM test_table WHERE id = %s", params=(1,), fetch="one"
-        )
-
-        # Assert
-        assert result == {"id": 1, "name": "Test"}
-        mock_cursor.execute.assert_called_once_with(
-            "SELECT * FROM test_table WHERE id = %s", (1,)
-        )
-        mock_cursor.fetchone.assert_called_once()
-        mock_pool_instance.putconn.assert_called_once_with(mock_connection)
-
-    @patch("app.core.database_connection.AsyncConnectionPool")
-    @pytest.mark.asyncio
-    async def test_execute_query_fetch_count(self, mock_pool_class):
-        """Test executing a query and getting row count."""
-        # Arrange
-        mock_connection = AsyncMock()
-        mock_cursor = AsyncMock()
-        mock_cursor.rowcount = 5
-        mock_cursor.execute = AsyncMock()
-        cursor_context = AsyncMock()
-        cursor_context.__aenter__ = AsyncMock(return_value=mock_cursor)
-        cursor_context.__aexit__ = AsyncMock(return_value=False)
-        mock_connection.cursor = MagicMock(return_value=cursor_context)
-        mock_connection.commit = AsyncMock()
-
-        mock_pool_instance = AsyncMock()
-        mock_pool_instance.getconn = AsyncMock(return_value=mock_connection)
-        mock_pool_instance.putconn = AsyncMock()
-        mock_pool_instance.open = AsyncMock()
-        mock_pool_class.return_value = mock_pool_instance
-
-        db_manager = DatabaseManager()
-        await db_manager.initialize(
-            config={
-                "host": "localhost",
-                "port": 5432,
-                "dbname": "test_db",
-                "user": "test_user",
-                "password": "test_password",
-            }
-        )
-
-        # Act
-        result = await db_manager.execute_query(
-            "UPDATE test_table SET name = %s", params=("NewName",), fetch="count"
-        )
-
-        # Assert
-        assert result == 5
-        mock_cursor.execute.assert_called_once()
-        mock_pool_instance.putconn.assert_called_once_with(mock_connection)
-
-    @patch("app.core.database_connection.AsyncConnectionPool")
-    @pytest.mark.asyncio
-    async def test_execute_query_no_fetch(self, mock_pool_class):
-        """Test executing a query without fetching results."""
-        # Arrange
-        mock_connection = AsyncMock()
-        mock_cursor = AsyncMock()
-        mock_cursor.execute = AsyncMock()
-        cursor_context = AsyncMock()
-        cursor_context.__aenter__ = AsyncMock(return_value=mock_cursor)
-        cursor_context.__aexit__ = AsyncMock(return_value=False)
-        mock_connection.cursor = MagicMock(return_value=cursor_context)
-        mock_connection.commit = AsyncMock()
-
-        mock_pool_instance = AsyncMock()
-        mock_pool_instance.getconn = AsyncMock(return_value=mock_connection)
-        mock_pool_instance.putconn = AsyncMock()
-        mock_pool_instance.open = AsyncMock()
-        mock_pool_class.return_value = mock_pool_instance
-
-        db_manager = DatabaseManager()
-        await db_manager.initialize(
-            config={
-                "host": "localhost",
-                "port": 5432,
-                "dbname": "test_db",
-                "user": "test_user",
-                "password": "test_password",
-            }
-        )
-
-        # Act
-        result = await db_manager.execute_query(
-            "INSERT INTO test_table (name) VALUES (%s)", params=("Test",), fetch=None
-        )
-
-        # Assert
-        assert result is None
-        mock_cursor.execute.assert_called_once()
-        mock_connection.commit.assert_called_once()
-        mock_pool_instance.putconn.assert_called_once_with(mock_connection)
-
-    @patch("app.core.database_connection.AsyncConnectionPool")
-    @pytest.mark.asyncio
-    async def test_execute_query_with_error(self, mock_pool_class):
-        """Test that execute_query handles errors."""
-        # Arrange
-        mock_connection = AsyncMock()
-        mock_cursor = AsyncMock()
-        mock_cursor.execute = AsyncMock(side_effect=psycopg.Error("Query error"))
-        cursor_context = AsyncMock()
-        cursor_context.__aenter__ = AsyncMock(return_value=mock_cursor)
-        cursor_context.__aexit__ = AsyncMock(return_value=False)
-        mock_connection.cursor = MagicMock(return_value=cursor_context)
-        mock_connection.rollback = AsyncMock()
-
-        mock_pool_instance = AsyncMock()
-        mock_pool_instance.getconn = AsyncMock(return_value=mock_connection)
-        mock_pool_instance.putconn = AsyncMock()
-        mock_pool_instance.open = AsyncMock()
-        mock_pool_class.return_value = mock_pool_instance
+        mock_session_factory = MagicMock()
+        mock_session_factory.return_value = mock_session
+        mock_sessionmaker.return_value = mock_session_factory
 
         db_manager = DatabaseManager()
         await db_manager.initialize(
@@ -419,11 +230,265 @@ class TestDatabaseManagerQueries:
         )
 
         # Act & Assert
-        with pytest.raises(psycopg.Error):
-            await db_manager.execute_query("INVALID SQL")
+        with pytest.raises(ValueError):
+            async with db_manager.get_session() as _:
+                raise ValueError("Test error")
 
-        mock_connection.rollback.assert_called_once()
-        mock_pool_instance.putconn.assert_called_once_with(mock_connection)
+        # Assert
+        mock_session.rollback.assert_called_once()
+        mock_session.close.assert_called_once()
+        mock_session.commit.assert_not_called()
+
+
+class TestDatabaseManagerQueries:
+    """Test cases for query execution in DatabaseManager."""
+
+    @pytest.fixture(autouse=True)
+    async def setup_and_teardown(self):
+        """Set up and clean up test fixtures."""
+        DatabaseManager._instance = None
+        DatabaseManager._engine = None
+        DatabaseManager._sessionmaker = None
+        yield
+        if DatabaseManager._engine is not None:
+            try:
+                await DatabaseManager._engine.dispose()
+            except Exception:
+                pass
+        DatabaseManager._instance = None
+        DatabaseManager._engine = None
+        DatabaseManager._sessionmaker = None
+
+    @patch("app.core.database_connection.create_async_engine")
+    @patch("app.core.database_connection.async_sessionmaker")
+    @pytest.mark.asyncio
+    async def test_execute_raw_query_fetch_all(
+        self, mock_sessionmaker, mock_create_engine
+    ):
+        """Test executing a query and fetching all results."""
+        # Arrange
+        mock_engine = AsyncMock()
+        mock_create_engine.return_value = mock_engine
+
+        # Mock result object
+        mock_row1 = {"id": 1, "name": "Test1"}
+        mock_row2 = {"id": 2, "name": "Test2"}
+        mock_mappings = MagicMock()
+        mock_mappings.all.return_value = [mock_row1, mock_row2]
+
+        mock_result = MagicMock()
+        mock_result.mappings.return_value = mock_mappings
+
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+        mock_session.close = AsyncMock()
+
+        mock_session_factory = MagicMock()
+        mock_session_factory.return_value = mock_session
+        mock_sessionmaker.return_value = mock_session_factory
+
+        db_manager = DatabaseManager()
+        await db_manager.initialize(
+            config={
+                "host": "localhost",
+                "port": 5432,
+                "dbname": "test_db",
+                "user": "test_user",
+                "password": "test_password",
+            }
+        )
+
+        # Act
+        result = await db_manager.execute_raw_query(
+            "SELECT * FROM test_table", fetch_mode="all"
+        )
+
+        # Assert
+        assert result == [mock_row1, mock_row2]
+        mock_session.execute.assert_called_once()
+
+    @patch("app.core.database_connection.create_async_engine")
+    @patch("app.core.database_connection.async_sessionmaker")
+    @pytest.mark.asyncio
+    async def test_execute_raw_query_fetch_one(
+        self, mock_sessionmaker, mock_create_engine
+    ):
+        """Test executing a query and fetching one result."""
+        # Arrange
+        mock_engine = AsyncMock()
+        mock_create_engine.return_value = mock_engine
+
+        mock_row = {"id": 1, "name": "Test"}
+        mock_mappings = MagicMock()
+        mock_mappings.one_or_none.return_value = mock_row
+
+        mock_result = MagicMock()
+        mock_result.mappings.return_value = mock_mappings
+
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+        mock_session.close = AsyncMock()
+
+        mock_session_factory = MagicMock()
+        mock_session_factory.return_value = mock_session
+        mock_sessionmaker.return_value = mock_session_factory
+
+        db_manager = DatabaseManager()
+        await db_manager.initialize(
+            config={
+                "host": "localhost",
+                "port": 5432,
+                "dbname": "test_db",
+                "user": "test_user",
+                "password": "test_password",
+            }
+        )
+
+        # Act
+        result = await db_manager.execute_raw_query(
+            "SELECT * FROM test_table WHERE id = :id",
+            params={"id": 1},
+            fetch_mode="one",
+        )
+
+        # Assert
+        assert result == mock_row
+        mock_session.execute.assert_called_once()
+
+    @patch("app.core.database_connection.create_async_engine")
+    @patch("app.core.database_connection.async_sessionmaker")
+    @pytest.mark.asyncio
+    async def test_execute_raw_query_fetch_scalar(
+        self, mock_sessionmaker, mock_create_engine
+    ):
+        """Test executing a query and fetching a scalar value."""
+        # Arrange
+        mock_engine = AsyncMock()
+        mock_create_engine.return_value = mock_engine
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = 42
+
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+        mock_session.close = AsyncMock()
+
+        mock_session_factory = MagicMock()
+        mock_session_factory.return_value = mock_session
+        mock_sessionmaker.return_value = mock_session_factory
+
+        db_manager = DatabaseManager()
+        await db_manager.initialize(
+            config={
+                "host": "localhost",
+                "port": 5432,
+                "dbname": "test_db",
+                "user": "test_user",
+                "password": "test_password",
+            }
+        )
+
+        # Act
+        result = await db_manager.execute_raw_query(
+            "SELECT COUNT(*) FROM test_table", fetch_mode="scalar"
+        )
+
+        # Assert
+        assert result == 42
+        mock_session.execute.assert_called_once()
+
+    @patch("app.core.database_connection.create_async_engine")
+    @patch("app.core.database_connection.async_sessionmaker")
+    @pytest.mark.asyncio
+    async def test_execute_raw_query_fetch_count(
+        self, mock_sessionmaker, mock_create_engine
+    ):
+        """Test executing a query and getting row count."""
+        # Arrange
+        mock_engine = AsyncMock()
+        mock_create_engine.return_value = mock_engine
+
+        mock_result = MagicMock()
+        mock_result.rowcount = 5
+
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+        mock_session.close = AsyncMock()
+
+        mock_session_factory = MagicMock()
+        mock_session_factory.return_value = mock_session
+        mock_sessionmaker.return_value = mock_session_factory
+
+        db_manager = DatabaseManager()
+        await db_manager.initialize(
+            config={
+                "host": "localhost",
+                "port": 5432,
+                "dbname": "test_db",
+                "user": "test_user",
+                "password": "test_password",
+            }
+        )
+
+        # Act
+        result = await db_manager.execute_raw_query(
+            "UPDATE test_table SET name = :name",
+            params={"name": "NewName"},
+            fetch_mode="count",
+        )
+
+        # Assert
+        assert result == 5
+        mock_session.execute.assert_called_once()
+
+    @patch("app.core.database_connection.create_async_engine")
+    @patch("app.core.database_connection.async_sessionmaker")
+    @pytest.mark.asyncio
+    async def test_execute_raw_query_no_fetch(
+        self, mock_sessionmaker, mock_create_engine
+    ):
+        """Test executing a query without fetching results."""
+        # Arrange
+        mock_engine = AsyncMock()
+        mock_create_engine.return_value = mock_engine
+
+        mock_result = MagicMock()
+
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+        mock_session.close = AsyncMock()
+
+        mock_session_factory = MagicMock()
+        mock_session_factory.return_value = mock_session
+        mock_sessionmaker.return_value = mock_session_factory
+
+        db_manager = DatabaseManager()
+        await db_manager.initialize(
+            config={
+                "host": "localhost",
+                "port": 5432,
+                "dbname": "test_db",
+                "user": "test_user",
+                "password": "test_password",
+            }
+        )
+
+        # Act
+        result = await db_manager.execute_raw_query(
+            "INSERT INTO test_table (name) VALUES (:name)",
+            params={"name": "Test"},
+            fetch_mode=None,
+        )
+
+        # Assert
+        assert result is None
+        mock_session.execute.assert_called_once()
+        mock_session.commit.assert_called_once()
 
 
 class TestDatabaseManagerTransactions:
@@ -432,39 +497,38 @@ class TestDatabaseManagerTransactions:
     @pytest.fixture(autouse=True)
     async def setup_and_teardown(self):
         """Set up and clean up test fixtures."""
-        # Reset the singleton instance before each test
         DatabaseManager._instance = None
-        DatabaseManager._pool = None
+        DatabaseManager._engine = None
+        DatabaseManager._sessionmaker = None
         yield
-        # Clean up after each test
-        if DatabaseManager._pool is not None:
+        if DatabaseManager._engine is not None:
             try:
-                await DatabaseManager._pool.close()
+                await DatabaseManager._engine.dispose()
             except Exception:
                 pass
         DatabaseManager._instance = None
-        DatabaseManager._pool = None
+        DatabaseManager._engine = None
+        DatabaseManager._sessionmaker = None
 
-    @patch("app.core.database_connection.AsyncConnectionPool")
+    @patch("app.core.database_connection.create_async_engine")
+    @patch("app.core.database_connection.async_sessionmaker")
     @pytest.mark.asyncio
-    async def test_execute_transaction(self, mock_pool_class):
+    async def test_execute_transaction(self, mock_sessionmaker, mock_create_engine):
         """Test successful transaction execution."""
         # Arrange
-        mock_connection = AsyncMock()
-        mock_cursor = AsyncMock()
-        mock_cursor.execute = AsyncMock()
-        cursor_context = AsyncMock()
-        cursor_context.__aenter__ = AsyncMock(return_value=mock_cursor)
-        cursor_context.__aexit__ = AsyncMock(return_value=False)
-        mock_connection.cursor = MagicMock(return_value=cursor_context)
-        mock_connection.__aenter__ = AsyncMock(return_value=mock_connection)
-        mock_connection.__aexit__ = AsyncMock(return_value=False)
+        mock_engine = AsyncMock()
+        mock_create_engine.return_value = mock_engine
 
-        mock_pool_instance = AsyncMock()
-        mock_pool_instance.getconn = AsyncMock(return_value=mock_connection)
-        mock_pool_instance.putconn = AsyncMock()
-        mock_pool_instance.open = AsyncMock()
-        mock_pool_class.return_value = mock_pool_instance
+        mock_result = MagicMock()
+
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+        mock_session.close = AsyncMock()
+
+        mock_session_factory = MagicMock()
+        mock_session_factory.return_value = mock_session
+        mock_sessionmaker.return_value = mock_session_factory
 
         db_manager = DatabaseManager()
         await db_manager.initialize(
@@ -478,8 +542,14 @@ class TestDatabaseManagerTransactions:
         )
 
         queries = [
-            ("INSERT INTO test_table (name) VALUES (%s)", ("Test",)),
-            ("UPDATE test_table SET name = %s WHERE id = %s", ("Updated", 1)),
+            {
+                "query": "INSERT INTO test_table (name) VALUES (:name)",
+                "params": {"name": "Test"},
+            },
+            {
+                "query": "UPDATE test_table SET name = :name WHERE id = :id",
+                "params": {"name": "Updated", "id": 1},
+            },
         ]
 
         # Act
@@ -487,31 +557,30 @@ class TestDatabaseManagerTransactions:
 
         # Assert
         assert result is True
-        assert mock_cursor.execute.call_count == 2
-        mock_pool_instance.putconn.assert_called_once_with(mock_connection)
+        assert mock_session.execute.call_count == 2
+        mock_session.commit.assert_called_once()
 
-    @patch("app.core.database_connection.AsyncConnectionPool")
+    @patch("app.core.database_connection.create_async_engine")
+    @patch("app.core.database_connection.async_sessionmaker")
     @pytest.mark.asyncio
-    async def test_execute_transaction_with_error(self, mock_pool_class):
+    async def test_execute_transaction_with_error(
+        self, mock_sessionmaker, mock_create_engine
+    ):
         """Test transaction rollback on error."""
         # Arrange
-        mock_connection = AsyncMock()
-        mock_cursor = AsyncMock()
-        mock_cursor.execute = AsyncMock(side_effect=psycopg.Error("Transaction error"))
-        mock_connection.cursor.return_value.__aenter__ = AsyncMock(
-            return_value=mock_cursor
-        )
-        mock_connection.cursor.return_value.__aexit__ = AsyncMock(return_value=False)
-        mock_connection.__aenter__ = AsyncMock(
-            side_effect=psycopg.Error("Transaction error")
-        )
-        mock_connection.__aexit__ = AsyncMock(return_value=False)
+        mock_engine = AsyncMock()
+        mock_create_engine.return_value = mock_engine
 
-        mock_pool_instance = AsyncMock()
-        mock_pool_instance.getconn = AsyncMock(return_value=mock_connection)
-        mock_pool_instance.putconn = AsyncMock()
-        mock_pool_instance.open = AsyncMock()
-        mock_pool_class.return_value = mock_pool_instance
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.execute = AsyncMock(
+            side_effect=SQLAlchemyError("Transaction error")
+        )
+        mock_session.rollback = AsyncMock()
+        mock_session.close = AsyncMock()
+
+        mock_session_factory = MagicMock()
+        mock_session_factory.return_value = mock_session
+        mock_sessionmaker.return_value = mock_session_factory
 
         db_manager = DatabaseManager()
         await db_manager.initialize(
@@ -525,7 +594,10 @@ class TestDatabaseManagerTransactions:
         )
 
         queries = [
-            ("INSERT INTO test_table (name) VALUES (%s)", ("Test",)),
+            {
+                "query": "INSERT INTO test_table (name) VALUES (:name)",
+                "params": {"name": "Test"},
+            },
         ]
 
         # Act
@@ -533,7 +605,7 @@ class TestDatabaseManagerTransactions:
 
         # Assert
         assert result is False
-        mock_pool_instance.putconn.assert_called_once_with(mock_connection)
+        mock_session.rollback.assert_called_once()
 
 
 # Run with: pytest tests/test_psql_db_services/test_database_connection.py -v

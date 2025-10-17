@@ -116,7 +116,6 @@ class UserUpdateRequest(BaseModel):
     status: Optional[UserStatus] = Field(
         None, description="New status: active, suspended, or inactive"
     )
-    updated_at: datetime = Field(..., description="Timestamp when the user was updated")
 
     class Config:
         json_schema_extra = {
@@ -127,7 +126,6 @@ class UserUpdateRequest(BaseModel):
                 "username": "john.doe",
                 "role": UserRole.ADMIN,
                 "status": "active",
-                "updated_at": "2025-10-17T10:30:00Z",
             }
         }
 

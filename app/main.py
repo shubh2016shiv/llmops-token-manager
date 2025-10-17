@@ -37,6 +37,10 @@ async def lifespan(app: FastAPI):
         await _verify_redis_connectivity()  # NEW: Actual connection test
         logger.info("[SUCCESS] Redis connected and ready")
 
+        # Verify RabbitMQ connectivity
+        await _verify_rabbitmq_connectivity()  # NEW: Actual connection test
+        logger.info("[SUCCESS] RabbitMQ connected and ready")
+
         # Display service URLs in formatted tables
         # Use print for properly aligned tables, with consistent width
         border_line = "═" * 80
@@ -132,6 +136,20 @@ async def _verify_redis_connectivity():
             raise Exception("Redis server did not respond to ping")
     except Exception as e:
         raise Exception(f"Redis connectivity check failed: {e}")
+
+
+async def _verify_rabbitmq_connectivity():
+    """Verify RabbitMQ broker is actually reachable."""
+    try:
+        from app.workers.celery_app import celery_app
+
+        # Check broker connection directly instead of worker inspection
+        # This verifies RabbitMQ server is accessible, not worker availability
+        with celery_app.connection() as conn:
+            conn.ensure_connection(max_retries=3)
+            # If we can establish a connection, RabbitMQ broker is working
+    except Exception as e:
+        raise Exception(f"RabbitMQ broker connectivity check failed: {e}")
 
 
 # Create FastAPI application

@@ -68,7 +68,8 @@ class TokenAllocationRequest(BaseModel):
         ..., description="LLM provider type - determines routing"
     )
 
-    model_name: str = Field(
+    # Renamed from model_name to llm_name to avoid Pydantic namespace conflicts
+    llm_name: str = Field(
         ...,
         description=(
             "The LOGICAL model identifier representing the AI capability requested "
@@ -78,6 +79,7 @@ class TokenAllocationRequest(BaseModel):
         ),
         min_length=1,
         max_length=100,
+        alias="model_name",  # Maps to database column 'model_name'
     )
 
     token_count: int = Field(
@@ -120,10 +122,14 @@ class TokenAllocationRequest(BaseModel):
         return v
 
     class Config:
+        # Disable protected namespaces to avoid conflicts with model_ prefix fields
+        protected_namespaces = ()
+        # Allow population by field name or alias
+        populate_by_name = True
         json_schema_extra = {
             "example": {
                 "provider": "azure_openai",
-                "model_name": "gpt-4-turbo-2024-04-09-gp",
+                "llm_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
                 "token_count": 5000,
                 "deployment_name": None,
                 "region": "eastus2",
@@ -166,8 +172,13 @@ class PauseDeploymentRequest(BaseModel):
 
     provider: ProviderType = Field(..., description="Provider to pause")
 
-    model_name: str = Field(
-        ..., description="Model to pause", min_length=1, max_length=100
+    # Renamed from model_name to llm_name to avoid Pydantic namespace conflicts
+    llm_name: str = Field(
+        ...,
+        description="Model to pause",
+        min_length=1,
+        max_length=100,
+        alias="model_name",  # Maps to database column 'model_name'
     )
 
     api_base: Optional[str] = Field(
@@ -189,11 +200,15 @@ class PauseDeploymentRequest(BaseModel):
     )
 
     class Config:
+        # Disable protected namespaces to avoid conflicts with model_ prefix fields
+        protected_namespaces = ()
+        # Allow population by field name or alias
+        populate_by_name = True
         json_schema_extra = {
             "example": {
                 "provider": "azure_openai",
-                "model_name": "gpt-4-turbo-2024-04-09-gp",
-                "api_base": "https://dev-cd-rx-aoi-eastus2.openai.azure.com/",
+                "llm_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
+                "api_base": "https://<deployment>-<region>.openai.azure.com/",
                 "pause_reason": "Azure region outage - 503 errors",
                 "pause_duration_minutes": 60,
             }
@@ -216,8 +231,13 @@ class ResumeDeploymentRequest(BaseModel):
 
     provider: ProviderType = Field(..., description="Provider to resume")
 
-    model_name: str = Field(
-        ..., description="Model to resume", min_length=1, max_length=100
+    # Renamed from model_name to llm_name to avoid Pydantic namespace conflicts
+    llm_name: str = Field(
+        ...,
+        description="Model to resume",
+        min_length=1,
+        max_length=100,
+        alias="model_name",  # Maps to database column 'model_name'
     )
 
     api_base: str = Field(
@@ -225,11 +245,15 @@ class ResumeDeploymentRequest(BaseModel):
     )
 
     class Config:
+        # Disable protected namespaces to avoid conflicts with model_ prefix fields
+        protected_namespaces = ()
+        # Allow population by field name or alias
+        populate_by_name = True
         json_schema_extra = {
             "example": {
                 "provider": "azure_openai",
-                "model_name": "gpt-4-turbo-2024-04-09-gp",
-                "api_base": "https://dev-cd-rx-aoi-eastus2.openai.azure.com/",
+                "llm_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
+                "api_base": "https://<deployment>-<region>.openai.azure.com/",
             }
         }
 
@@ -250,8 +274,13 @@ class DeploymentConfigCreate(BaseModel):
 
     provider: ProviderType = Field(..., description="LLM provider type")
 
-    model_name: str = Field(
-        ..., description="Model identifier", min_length=1, max_length=100
+    # Renamed from model_name to llm_name to avoid Pydantic namespace conflicts
+    llm_name: str = Field(
+        ...,
+        description="Model identifier",
+        min_length=1,
+        max_length=100,
+        alias="model_name",  # Maps to database column 'model_name'
     )
 
     api_version: str = Field(
@@ -321,13 +350,17 @@ class DeploymentConfigCreate(BaseModel):
     )
 
     class Config:
+        # Disable protected namespaces to avoid conflicts with model_ prefix fields
+        protected_namespaces = ()
+        # Allow population by field name or alias
+        populate_by_name = True
         json_schema_extra = {
             "example": {
                 "provider": "azure_openai",
-                "model_name": "gpt-4-turbo-2024-04-09-gp",
+                "llm_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
                 "api_version": "2023-03-15",
                 "deployment_name": "gpt-4-turbo-2024-04-09-gp",
-                "api_base": "https://dev-cd-rx-aoi-eastus2.openai.azure.com/",
+                "api_base": "https://<deployment>-<region>.openai.azure.com/",
                 "api_key_identifier": "AZURE_OPENAI_API_KEY_GPT4T",
                 "region": "eastus2",
                 "max_tokens": 120000,
@@ -355,11 +388,13 @@ class DeploymentConfigUpdate(BaseModel):
         default=UserRole.ADMIN,
     )
 
-    model_name: Optional[str] = Field(
+    # Renamed from model_name to llm_name to avoid Pydantic namespace conflicts
+    llm_name: Optional[str] = Field(
         default=None,
         description="Updated model identifier",
         min_length=1,
         max_length=100,
+        alias="model_name",  # Maps to database column 'model_name'
     )
 
     api_version: Optional[str] = Field(
@@ -427,13 +462,17 @@ class DeploymentConfigUpdate(BaseModel):
     )
 
     class Config:
+        # Disable protected namespaces to avoid conflicts with model_ prefix fields
+        protected_namespaces = ()
+        # Allow population by field name or alias
+        populate_by_name = True
         json_schema_extra = {
             "examples": [
                 # Update rate limits only
                 {"max_tokens": 150000, "is_active": True},
                 # Update endpoint and credentials
                 {
-                    "api_base": "https://new-endpoint.openai.azure.com/",
+                    "api_base": "https://<deployment>-<region>.openai.azure.com/",
                     "api_key_identifier": "AZURE_OPENAI_API_KEY_GPT4T_V2",
                 },
                 # Update defaults

@@ -14,16 +14,27 @@ class TokenAllocation(BaseModel):
 
     Note: This table is named 'token_manager' in the database but represents
     token allocations, so the model is named TokenAllocation for clarity.
+
+    IMPORTANT: Field names with 'model_' prefix have been renamed to 'llm_*' to avoid
+    conflicts with Pydantic's protected namespaces. These fields map to the database
+    columns with their original names.
     """
 
     token_request_id: str = Field(
         ..., description="Unique identifier for the token allocation request"
     )
     user_id: UUID = Field(..., description="Reference to the user requesting tokens")
-    model_name: str = Field(..., description="Name of the LLM model (e.g., GPT-4)")
-    model_id: Optional[UUID] = Field(
+    # Renamed from model_name to llm_name
+    llm_name: str = Field(
+        ...,
+        description="Name of the LLM model (e.g., GPT-4)",
+        alias="model_name",  # Maps to database column 'model_name'
+    )
+    # Renamed from model_id to llm_id
+    llm_id: Optional[UUID] = Field(
         default=None,
         description="Reference to the specific LLM model in llm_models table",
+        alias="model_id",  # Maps to database column 'model_id'
     )
     deployment_name: Optional[str] = Field(
         default=None, description="Specific deployment of the model, if applicable"
@@ -88,11 +99,15 @@ class TokenAllocation(BaseModel):
         """Pydantic configuration."""
 
         from_attributes = True
+        # Disable protected namespaces to avoid conflicts with model_ prefix fields
+        protected_namespaces = ()
+        # Allow population by field name or alias
+        populate_by_name = True
         json_schema_extra = {
             "example": {
                 "token_request_id": "req_abc123",
                 "user_id": "550e8400-e29b-41d4-a716-446655440000",
-                "model_name": "gpt-4",
+                "llm_name": "gpt-4",  # Updated field name
                 "token_count": 1000,
                 "allocation_status": "ACQUIRED",
                 "allocated_at": "2025-10-13T23:00:00Z",

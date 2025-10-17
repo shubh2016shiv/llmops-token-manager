@@ -14,13 +14,21 @@ from pydantic import BaseModel, Field
 class TokenAllocationResponse(BaseModel):
     """
     Response schema for successful token allocation.
+
+    IMPORTANT: Field names with 'model_' prefix have been renamed to 'llm_*' to avoid
+    conflicts with Pydantic's protected namespaces.
     """
 
     token_request_id: str = Field(
         ..., description="Unique identifier for this allocation"
     )
     user_id: UUID = Field(..., description="User who received the allocation")
-    model_name: str = Field(..., description="Model name for this allocation")
+    # Renamed from model_name to llm_name
+    llm_name: str = Field(
+        ...,
+        description="Model name for this allocation",
+        alias="model_name",  # Maps to database column 'model_name'
+    )
     token_count: int = Field(..., description="Number of tokens allocated")
     allocation_status: str = Field(..., description="Current allocation status")
     allocated_at: datetime = Field(..., description="When tokens were allocated")
@@ -33,11 +41,15 @@ class TokenAllocationResponse(BaseModel):
     )
 
     class Config:
+        # Disable protected namespaces to avoid conflicts with model_ prefix fields
+        protected_namespaces = ()
+        # Allow population by field name or alias
+        populate_by_name = True
         json_schema_extra = {
             "example": {
                 "token_request_id": "req_abc123xyz",
                 "user_id": "550e8400-e29b-41d4-a716-446655440000",
-                "model_name": "gpt-4",
+                "llm_name": "gpt-4",  # Updated field name
                 "token_count": 2000,
                 "allocation_status": "ACQUIRED",
                 "allocated_at": "2025-10-13T10:30:00Z",
@@ -95,11 +107,24 @@ class UserResponse(BaseModel):
 class LLMModelResponse(BaseModel):
     """
     Response schema for LLM model data.
+
+    IMPORTANT: Field names with 'model_' prefix have been renamed to 'llm_*' to avoid
+    conflicts with Pydantic's protected namespaces.
     """
 
-    model_id: UUID = Field(..., description="Model's unique identifier")
+    # Renamed from model_id to llm_id
+    llm_id: UUID = Field(
+        ...,
+        description="Model's unique identifier",
+        alias="model_id",  # Maps to database column 'model_id'
+    )
     provider: str = Field(..., description="LLM provider")
-    model_name: str = Field(..., description="Model name")
+    # Renamed from model_name to llm_name
+    llm_name: str = Field(
+        ...,
+        description="Model name",
+        alias="model_name",  # Maps to database column 'model_name'
+    )
     deployment_name: Optional[str] = Field(default=None, description="Deployment name")
     api_endpoint: Optional[str] = Field(default=None, description="API endpoint")
     max_tokens: Optional[int] = Field(
@@ -115,11 +140,15 @@ class LLMModelResponse(BaseModel):
     )
 
     class Config:
+        # Disable protected namespaces to avoid conflicts with model_ prefix fields
+        protected_namespaces = ()
+        # Allow population by field name or alias
+        populate_by_name = True
         json_schema_extra = {
             "example": {
-                "model_id": "650e8400-e29b-41d4-a716-446655440000",
+                "llm_id": "650e8400-e29b-41d4-a716-446655440000",  # Updated field name
                 "provider": "openai",
-                "model_name": "gpt-4",
+                "llm_name": "gpt-4",  # Updated field name
                 "deployment_name": "gpt-4-turbo",
                 "api_endpoint": "https://api.openai.com/v1",
                 "max_tokens": 8192,
@@ -177,7 +206,7 @@ class AllocationListResponse(BaseModel):
                     {
                         "token_request_id": "req_abc123",
                         "user_id": "550e8400-e29b-41d4-a716-446655440000",
-                        "model_name": "gpt-4",
+                        "llm_name": "gpt-4",  # Updated field name
                         "token_count": 2000,
                         "allocation_status": "ACQUIRED",
                         "allocated_at": "2025-10-13T10:30:00Z",
@@ -186,6 +215,133 @@ class AllocationListResponse(BaseModel):
                 "total_count": 125,
                 "page": 1,
                 "page_size": 50,
+            }
+        }
+
+
+class HealthStatus(BaseModel):
+    """
+    Health status response model.
+    """
+
+    status: str = Field(..., description="Service health status")
+    timestamp: datetime = Field(..., description="Health check timestamp")
+    version: str = Field(..., description="Application version")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "status": "healthy",
+                "timestamp": "2025-10-13T10:30:00Z",
+                "version": "1.0.0",
+            }
+        }
+
+
+class DependencyHealth(BaseModel):
+    """
+    Dependency health response model.
+    """
+
+    database: bool = Field(..., description="Database health status")
+    redis: bool = Field(..., description="Redis health status")
+    rabbitmq: bool = Field(..., description="RabbitMQ health status")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "database": True,
+                "redis": True,
+                "rabbitmq": True,
+            }
+        }
+
+
+class LLMRequestResponse(BaseModel):
+    """
+    Response schema for LLM request submission.
+    """
+
+    request_id: str = Field(..., description="Unique request identifier")
+    status: str = Field(..., description="Request status")
+    message: str = Field(..., description="Status message")
+    estimated_completion: Optional[datetime] = Field(
+        default=None, description="Estimated completion time"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "request_id": "req_abc123xyz",
+                "status": "queued",
+                "message": "Request queued for processing",
+                "estimated_completion": "2025-10-13T10:35:00Z",
+            }
+        }
+
+
+class LLMTaskStatus(BaseModel):
+    """
+    LLM task status response model.
+    """
+
+    request_id: str = Field(..., description="Request identifier")
+    status: str = Field(
+        ..., description="Task status: pending, processing, completed, failed"
+    )
+    progress: Optional[float] = Field(
+        default=None, description="Progress percentage (0-100)"
+    )
+    created_at: datetime = Field(..., description="When task was created")
+    started_at: Optional[datetime] = Field(
+        default=None, description="When processing started"
+    )
+    completed_at: Optional[datetime] = Field(
+        default=None, description="When processing completed"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "request_id": "req_abc123xyz",
+                "status": "processing",
+                "progress": 75.0,
+                "created_at": "2025-10-13T10:30:00Z",
+                "started_at": "2025-10-13T10:30:05Z",
+                "completed_at": None,
+            }
+        }
+
+
+class LLMTaskResult(BaseModel):
+    """
+    LLM task result response model.
+    """
+
+    request_id: str = Field(..., description="Request identifier")
+    status: str = Field(..., description="Final task status")
+    result: Optional[str] = Field(default=None, description="Generated response text")
+    tokens_used: Optional[int] = Field(
+        default=None, description="Number of tokens used"
+    )
+    processing_time: Optional[float] = Field(
+        default=None, description="Processing time in seconds"
+    )
+    error_message: Optional[str] = Field(
+        default=None, description="Error message if failed"
+    )
+    completed_at: datetime = Field(..., description="When task completed")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "request_id": "req_abc123xyz",
+                "status": "completed",
+                "result": "Quantum computing is a revolutionary approach...",
+                "tokens_used": 150,
+                "processing_time": 2.5,
+                "error_message": None,
+                "completed_at": "2025-10-13T10:30:10Z",
             }
         }
 

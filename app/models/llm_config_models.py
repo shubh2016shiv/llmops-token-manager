@@ -10,15 +10,27 @@ class LLMModel(BaseModel):
 
     Catalog of LLM models with configurations and usage metrics.
     Maps to: llm_models_config_schema.sql
+
+    IMPORTANT: Field names with 'model_' prefix have been renamed to 'llm_*' to avoid
+    conflicts with Pydantic's protected namespaces. These fields map to the database
+    columns with their original names.
     """
 
-    model_id: Optional[UUID] = Field(
-        default=None, description="Unique identifier for the LLM model (auto-generated)"
+    # Renamed from model_id to llm_id to avoid Pydantic namespace conflict
+    llm_id: Optional[UUID] = Field(
+        default=None,
+        description="Unique identifier for the LLM model (auto-generated)",
+        alias="model_id",  # Maps to database column 'model_id'
     )
     provider: str = Field(
         default="openai", description="LLM provider: openai, gemini, or anthropic"
     )
-    model_name: str = Field(..., description="Name of the LLM model (e.g., GPT-4)")
+    # Renamed from model_name to llm_name
+    llm_name: str = Field(
+        ...,
+        description="Name of the LLM model (e.g., GPT-4)",
+        alias="model_name",  # Maps to database column 'model_name'
+    )
     deployment_name: Optional[str] = Field(
         default=None, description="Name of the LLM deployment (e.g., gpt-4o)"
     )
@@ -28,8 +40,11 @@ class LLMModel(BaseModel):
     api_endpoint: Optional[str] = Field(
         default=None, description="API endpoint for the selected LLM instance"
     )
-    model_version: Optional[str] = Field(
-        default=None, description="Specific version of the model"
+    # Renamed from model_version to llm_version
+    llm_version: Optional[str] = Field(
+        default=None,
+        description="Specific version of the model",
+        alias="model_version",  # Maps to database column 'model_version'
     )
     max_tokens: Optional[int] = Field(
         default=None,
@@ -83,10 +98,14 @@ class LLMModel(BaseModel):
         """Pydantic configuration."""
 
         from_attributes = True
+        # Disable protected namespaces to avoid conflicts with model_ prefix fields
+        protected_namespaces = ()
+        # Allow population by field name or alias
+        populate_by_name = True
         json_schema_extra = {
             "example": {
                 "provider": "openai",
-                "model_name": "gpt-4",
+                "llm_name": "gpt-4",  # Updated field name
                 "deployment_name": "gpt-4-turbo",
                 "max_tokens": 8192,
                 "is_active": True,

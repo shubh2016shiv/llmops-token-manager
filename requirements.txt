@@ -84,3 +84,9 @@ commitizen                        # Enforce conventional commits and versioning
 ############################################################
 rich                              # Beautiful console output for debugging/logs
 ipython                           # Enhanced interactive shell
+
+
+############################################################
+# PASSWORD HASHING
+############################################################
+bcrypt==4.3.0                     # Password hashing library

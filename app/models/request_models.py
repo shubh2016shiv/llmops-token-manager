@@ -12,7 +12,7 @@ Key Capabilities:
 """
 
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, EmailStr
 from enum import Enum
 from uuid import UUID
 from datetime import datetime
@@ -37,7 +37,7 @@ class ProviderType(str, Enum):
 class UserRole(str, Enum):
     """User roles for role-based access control"""
 
-    USER = "user"  # End users - can request/release tokens only
+    DEVELOPER = "developer"  # End users - can request/release tokens only
     # Requests: TokenAllocationRequest, TokenReleaseRequest
 
     OPERATOR = "operator"  # Operations team - can manage deployments
@@ -48,6 +48,88 @@ class UserRole(str, Enum):
 
     OWNER = "owner"  # Full system access - can perform all requests
     # Requests: All requests
+
+
+class UserStatus(str, Enum):
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    INACTIVE = "inactive"
+
+
+class UserCreateRequest(BaseModel):
+    """Request model for creating a new user with additional fields."""
+
+    """API request model - only fields client provides"""
+
+    first_name: str = Field(..., min_length=1, max_length=50)
+    last_name: str = Field(..., min_length=1, max_length=50)
+    username: str = Field(..., min_length=3, max_length=50)
+    email: EmailStr = Field(...)
+    password: str = Field(..., min_length=8)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: EmailStr) -> EmailStr:
+        return v.lower().strip()
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, v: str) -> str:
+        # Only alphanumeric, underscore, and hyphen
+        import re
+
+        if not re.match(r"^[a-zA-Z0-9_-]+$", v):
+            raise ValueError(
+                "Username can only contain letters, numbers, underscore, and hyphen"
+            )
+        return v.lower().strip()
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "first_name": "John",
+                "last_name": "Doe",
+                "username": "johndoe",
+                "email": "john.doe@example.com",
+                "password": "SecurePass123",
+            }
+        }
+
+
+class UserUpdateRequest(BaseModel):
+    """Request model for updating user information."""
+
+    email: Optional[EmailStr] = Field(None, description="New email address")
+    first_name: Optional[str] = Field(
+        None, description="New first name", min_length=1, max_length=50
+    )
+    last_name: Optional[str] = Field(
+        None, description="New last name", min_length=1, max_length=50
+    )
+    username: Optional[str] = Field(
+        None, description="New username", min_length=1, max_length=50
+    )
+    password: Optional[str] = Field(None, description="New password", min_length=8)
+    role: Optional[UserRole] = Field(
+        None, description="New role: owner, admin, developer, or viewer"
+    )
+    status: Optional[UserStatus] = Field(
+        None, description="New status: active, suspended, or inactive"
+    )
+    updated_at: datetime = Field(..., description="Timestamp when the user was updated")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "email": "john.updated@example.com",
+                "first_name": "John",
+                "last_name": "Doe",
+                "username": "john.doe",
+                "role": UserRole.ADMIN,
+                "status": "active",
+                "updated_at": "2025-10-17T10:30:00Z",
+            }
+        }
 
 
 class TokenAllocationRequest(BaseModel):

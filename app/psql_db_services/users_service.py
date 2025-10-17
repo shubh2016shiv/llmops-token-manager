@@ -10,6 +10,7 @@ Production-ready database service for user management operations including:
 
 from typing import Optional, List, Dict, Any
 from uuid import UUID
+from datetime import datetime
 
 from sqlalchemy import text
 from loguru import logger
@@ -27,70 +28,43 @@ class UsersService(BaseDatabaseService):
 
     Supports:
     - CRUD operations for user records
-    - Role-based access control (owner, admin, developer, viewer)
+    - Role-based access control
     - User status management (active, suspended, inactive)
     - Efficient pagination and filtering
     - Thread-safe operations for high-concurrency scenarios
     """
 
-    # Define valid enum values as class constants for reusability
-    VALID_USER_ROLES = ["owner", "admin", "developer", "viewer"]
+    VALID_USER_ROLES = ["developer", "operator", "admin", "owner"]
     VALID_USER_STATUSES = ["active", "suspended", "inactive"]
 
-    DEFAULT_USER_ROLE = "developer"
-    DEFAULT_USER_STATUS = "active"
-
     def __init__(self, database_manager: Optional[DatabaseManager] = None):
-        """
-        Initialize the users service with database manager.
-
-        Args:
-            database_manager: Optional DatabaseManager instance (uses singleton if not provided)
-        """
         super().__init__(database_manager)
 
-    def validate_user_role(self, user_role: str) -> None:
-        """
-        Validate that a user role is one of the allowed values.
+    # ========================================================================
+    # VALIDATION HELPERS
+    # ========================================================================
 
-        Args:
-            user_role: User role to validate
+    async def check_email_exists(self, email: str) -> bool:
+        """Check if email already exists in database"""
+        try:
+            async with self.get_session() as session:
+                sql_query = "SELECT 1 FROM users WHERE email = :email LIMIT 1"
+                result = await session.execute(text(sql_query), {"email": email})
+                return result.first() is not None
+        except Exception as e:
+            logger.error(f"Error checking email existence: {e}")
+            raise
 
-        Raises:
-            ValueError: If role is not in the list of valid roles
-        """
-        self.validate_enum_value(user_role, self.VALID_USER_ROLES, "user role")
-
-    def validate_user_status(self, user_status: str) -> None:
-        """
-        Validate that a user status is one of the allowed values.
-
-        Args:
-            user_status: User status to validate
-
-        Raises:
-            ValueError: If status is not in the list of valid statuses
-        """
-        self.validate_enum_value(user_status, self.VALID_USER_STATUSES, "user status")
-
-    def validate_email_address(self, email_address: str) -> None:
-        """
-        Validate that an email address is properly formatted.
-
-        Args:
-            email_address: Email address to validate
-
-        Raises:
-            ValueError: If email is invalid or empty
-        """
-        self.validate_string_not_empty(email_address, "email address")
-
-        # Add email format validation
-        import re
-
-        email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-        if not re.match(email_pattern, email_address):
-            raise ValueError(f"Invalid email address format: {email_address}")
+    async def check_username_exists(self, username: str) -> bool:
+        """Check if username already exists in database"""
+        try:
+            async with self.get_session() as session:
+                sql_query = "SELECT 1 FROM users WHERE username = :username LIMIT 1"
+                result = await session.execute(text(sql_query), {"username": username})
+                return result.first() is not None
+        except Exception as e:
+            logger.error(f"Error checking username existence: {e}")
+            raise
 
     # ========================================================================
     # CREATE OPERATIONS
@@ -98,42 +72,76 @@ class UsersService(BaseDatabaseService):
 
     async def create_user(
         self,
-        email_address: str,
-        user_role: str = DEFAULT_USER_ROLE,
-        user_status: str = DEFAULT_USER_STATUS,
+        user_id: UUID,
+        username: str,
+        email: str,
+        first_name: str,
+        last_name: str,
+        password_hash: str,
+        user_role: str = "developer",
+        user_status: str = "active",
+        created_at: datetime = None,
+        updated_at: datetime = None,
     ) -> Dict[str, Any]:
         """
         Create a new user record in the database.
 
         Args:
-            email_address: User's email address (must be unique)
-            user_role: User role (owner, admin, developer, viewer). Defaults to 'developer'
-            user_status: User status (active, suspended, inactive). Defaults to 'active'
+            user_id: Unique user identifier (UUID)
+            username: Unique username
+            email: User's email address (must be unique)
+            first_name: User's first name
+            last_name: User's last name
+            password_hash: Hashed password
+            user_role: User role. Defaults to 'developer'
+            user_status: User status. Defaults to 'active'
+            created_at: Creation timestamp (defaults to now)
+            updated_at: Update timestamp (defaults to now)
 
         Returns:
-            Dictionary containing the created user record with all fields
+            Dictionary containing the created user record
 
         Raises:
-            sqlalchemy.exc.IntegrityError: If email already exists (unique constraint violation)
-            sqlalchemy.exc.SQLAlchemyError: On other database errors
-            ValueError: On invalid input parameters
+            ValueError: If email or username already exists
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
-        self.validate_email_address(email_address)
-        self.validate_user_role(user_role)
-        self.validate_user_status(user_status)
+        # Check uniqueness
+        if await self.check_email_exists(email):
+            raise ValueError(f"Email '{email}' already exists")
+
+        if await self.check_username_exists(username):
+            raise ValueError(f"Username '{username}' already exists")
+
+        now = datetime.utcnow()
+        created_at = created_at or now
+        updated_at = updated_at or now
 
         try:
             async with self.get_session() as session:
                 sql_query = """
-                    INSERT INTO users (email, role, status)
-                    VALUES (:email, :role, :status)
-                    RETURNING *
+                    INSERT INTO users (
+                        user_id, username, email, first_name, last_name,
+                        password_hash, role, status, created_at, updated_at
+                    )
+                    VALUES (
+                        :user_id, :username, :email, :first_name, :last_name,
+                        :password_hash, :role, :status, :created_at, :updated_at
+                    )
+                    RETURNING user_id, username, email, first_name, last_name,
+                              role, status, created_at, updated_at
                 """
 
                 params = {
-                    "email": email_address,
+                    "user_id": user_id,
+                    "username": username,
+                    "email": email,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "password_hash": password_hash,
                     "role": user_role,
                     "status": user_status,
+                    "created_at": created_at,
+                    "updated_at": updated_at,
                 }
 
                 result = await session.execute(text(sql_query), params)
@@ -142,10 +150,12 @@ class UsersService(BaseDatabaseService):
                 if not created_user:
                     raise RuntimeError("Failed to create user record")
 
-                self.log_operation("CREATE", email_address, success=True)
+                await session.commit()
+                logger.info(f"User created successfully: {email}")
                 return dict(created_user)
+
         except Exception as e:
-            logger.error(f"Error creating user {email_address}: {e}")
+            logger.error(f"Error creating user {email}: {e}")
             raise
 
     # ========================================================================

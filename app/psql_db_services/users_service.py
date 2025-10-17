@@ -17,6 +17,8 @@ from loguru import logger
 
 from app.core.database_connection import DatabaseManager
 from app.psql_db_services.base_service import BaseDatabaseService
+from functools import lru_cache
+from email_validator import validate_email, EmailNotValidError
 
 
 class UsersService(BaseDatabaseService):
@@ -65,6 +67,28 @@ class UsersService(BaseDatabaseService):
         except Exception as e:
             logger.error(f"Error checking username existence: {e}")
             raise
+
+    @lru_cache(maxsize=1000)  # Cache validation results
+    def validate_email_address(self, email_address: str) -> None:
+        """
+        Validate email address with caching for performance.
+
+        Args:
+            email_address: Email address to validate
+
+        Raises:
+            ValueError: If email format is invalid
+        """
+        if not email_address:
+            raise ValueError("Email address cannot be empty")
+
+        try:
+            # Normalize and validate
+            validated = validate_email(email_address, check_deliverability=False)
+            # Use normalized email
+            return validated.email
+        except EmailNotValidError as e:
+            raise ValueError(f"Invalid email: {str(e)}")
 
     # ========================================================================
     # CREATE OPERATIONS

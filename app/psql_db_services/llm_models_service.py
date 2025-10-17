@@ -12,8 +12,7 @@ Production-ready database service for LLM model configuration and tracking inclu
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 
-import psycopg
-from psycopg.rows import dict_row
+from sqlalchemy import text
 from loguru import logger
 
 from app.core.database_connection import DatabaseManager
@@ -153,8 +152,8 @@ class LLMModelsService(BaseDatabaseService):
             Dictionary containing the created model record with all fields
 
         Raises:
-            psycopg.IntegrityError: If model configuration already exists
-            psycopg.Error: On other database errors
+            sqlalchemy.exc.IntegrityError: If model configuration already exists
+            sqlalchemy.exc.SQLAlchemyError: On other database errors
             ValueError: On invalid input parameters
         """
         self.validate_llm_provider(provider_name)
@@ -168,55 +167,48 @@ class LLMModelsService(BaseDatabaseService):
         )
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    sql_query = """
-                        INSERT INTO llm_models (
-                            provider, model_name, deployment_name, api_key_vault_id,
-                            api_endpoint, model_version, max_tokens, tokens_per_minute_limit,
-                            requests_per_minute_limit, is_active, temperature, seed, region
-                        ) VALUES (
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                        )
-                        RETURNING *
-                    """
-
-                    await cursor.execute(
-                        sql_query,
-                        (
-                            provider_name,
-                            model_name,
-                            deployment_name,
-                            api_key_vault_identifier,
-                            api_endpoint_url,
-                            model_version,
-                            maximum_tokens,
-                            tokens_per_minute_limit,
-                            requests_per_minute_limit,
-                            is_active_status,
-                            temperature_value,
-                            random_seed,
-                            geographic_region,
-                        ),
+            async with self.get_session() as session:
+                sql_query = """
+                    INSERT INTO llm_models (
+                        provider, model_name, deployment_name, api_key_vault_id,
+                        api_endpoint, model_version, max_tokens, tokens_per_minute_limit,
+                        requests_per_minute_limit, is_active, temperature, seed, region
+                    ) VALUES (
+                        :provider, :model_name, :deployment_name, :api_key_vault_id,
+                        :api_endpoint, :model_version, :max_tokens, :tokens_per_minute_limit,
+                        :requests_per_minute_limit, :is_active, :temperature, :seed, :region
                     )
+                    RETURNING *
+                """
 
-                    created_model = await cursor.fetchone()
-                    if not created_model:
-                        raise RuntimeError("Failed to create model record")
+                params = {
+                    "provider": provider_name,
+                    "model_name": model_name,
+                    "deployment_name": deployment_name,
+                    "api_key_vault_id": api_key_vault_identifier,
+                    "api_endpoint": api_endpoint_url,
+                    "model_version": model_version,
+                    "max_tokens": maximum_tokens,
+                    "tokens_per_minute_limit": tokens_per_minute_limit,
+                    "requests_per_minute_limit": requests_per_minute_limit,
+                    "is_active": is_active_status,
+                    "temperature": temperature_value,
+                    "seed": random_seed,
+                    "region": geographic_region,
+                }
 
-                    self.log_operation(
-                        "CREATE", f"{provider_name}/{model_name}", success=True
-                    )
-                    return dict(created_model)
-        except psycopg.IntegrityError as integrity_error:
-            logger.error(
-                f"Integrity error creating model {model_name}: {integrity_error}"
-            )
-            raise
-        except psycopg.Error as database_error:
-            logger.error(
-                f"Database error creating model {model_name}: {database_error}"
-            )
+                result = await session.execute(text(sql_query), params)
+                created_model = result.mappings().one_or_none()
+
+                if not created_model:
+                    raise RuntimeError("Failed to create model record")
+
+                self.log_operation(
+                    "CREATE", f"{provider_name}/{model_name}", success=True
+                )
+                return dict(created_model)
+        except Exception as e:
+            logger.error(f"Error creating model {model_name}: {e}")
             raise
 
     # ========================================================================
@@ -234,23 +226,22 @@ class LLMModelsService(BaseDatabaseService):
             Dictionary containing model record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If model_id is invalid
         """
         self.validate_uuid(model_id, "model_id")
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    sql_query = """
-                        SELECT * FROM llm_models
-                        WHERE model_id = %s
-                    """
-                    await cursor.execute(sql_query, (model_id,))
-                    model_record = await cursor.fetchone()
-                    return dict(model_record) if model_record else None
-        except psycopg.Error as database_error:
-            logger.error(f"Error fetching model {model_id}: {database_error}")
+            async with self.get_session() as session:
+                sql_query = """
+                    SELECT * FROM llm_models
+                    WHERE model_id = :model_id
+                """
+                result = await session.execute(text(sql_query), {"model_id": model_id})
+                model_record = result.mappings().one_or_none()
+                return dict(model_record) if model_record else None
+        except Exception as e:
+            logger.error(f"Error fetching model {model_id}: {e}")
             raise
 
     async def get_llm_model_by_name_and_endpoint(
@@ -269,25 +260,25 @@ class LLMModelsService(BaseDatabaseService):
             Dictionary containing model record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If parameters are invalid
         """
         self.validate_string_not_empty(model_name, "model_name")
         self.validate_string_not_empty(api_endpoint_url, "api_endpoint_url")
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    sql_query = """
-                        SELECT * FROM llm_models
-                        WHERE model_name = %s AND api_endpoint = %s
-                    """
-                    await cursor.execute(sql_query, (model_name, api_endpoint_url))
-                    model_record = await cursor.fetchone()
-                    return dict(model_record) if model_record else None
-        except psycopg.Error as database_error:
+            async with self.get_session() as session:
+                sql_query = """
+                    SELECT * FROM llm_models
+                    WHERE model_name = :model_name AND api_endpoint = :api_endpoint
+                """
+                params = {"model_name": model_name, "api_endpoint": api_endpoint_url}
+                result = await session.execute(text(sql_query), params)
+                model_record = result.mappings().one_or_none()
+                return dict(model_record) if model_record else None
+        except Exception as e:
             logger.error(
-                f"Error fetching model {model_name} at {api_endpoint_url}: {database_error}"
+                f"Error fetching model {model_name} at {api_endpoint_url}: {e}"
             )
             raise
 
@@ -313,7 +304,7 @@ class LLMModelsService(BaseDatabaseService):
             List of model records ordered by creation date (newest first)
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid pagination or filter parameters
         """
         self.validate_pagination_parameters(limit, offset)
@@ -322,28 +313,28 @@ class LLMModelsService(BaseDatabaseService):
             self.validate_llm_provider(provider_filter)
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    sql_query = "SELECT * FROM llm_models WHERE 1=1"
-                    query_parameters: List[Any] = []
+            async with self.get_session() as session:
+                sql_query = "SELECT * FROM llm_models WHERE 1=1"
+                params = {}
 
-                    if provider_filter:
-                        sql_query += " AND provider = %s"
-                        query_parameters.append(provider_filter)
+                if provider_filter:
+                    sql_query += " AND provider = :provider"
+                    params["provider"] = provider_filter
 
-                    if active_status_filter is not None:
-                        sql_query += " AND is_active = %s"
-                        query_parameters.append(active_status_filter)
+                if active_status_filter is not None:
+                    sql_query += " AND is_active = :is_active"
+                    params["is_active"] = active_status_filter
 
-                    sql_query += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
-                    query_parameters.extend([limit, offset])
+                sql_query += " ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+                params["limit"] = limit
+                params["offset"] = offset
 
-                    await cursor.execute(sql_query, query_parameters)
-                    model_records = await cursor.fetchall()
-                    logger.debug(f"Retrieved {len(model_records)} models")
-                    return [dict(row) for row in model_records]
-        except psycopg.Error as database_error:
-            logger.error(f"Error fetching models: {database_error}")
+                result = await session.execute(text(sql_query), params)
+                model_records = result.mappings().all()
+                logger.debug(f"Retrieved {len(model_records)} models")
+                return [dict(row) for row in model_records]
+        except Exception as e:
+            logger.error(f"Error fetching models: {e}")
             raise
 
     async def get_active_llm_models(
@@ -360,7 +351,7 @@ class LLMModelsService(BaseDatabaseService):
             List of active model records
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid pagination parameters
         """
         return await self.get_all_llm_models(
@@ -382,7 +373,7 @@ class LLMModelsService(BaseDatabaseService):
             List of model records for the specified provider
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid parameters
         """
         return await self.get_all_llm_models(
@@ -404,31 +395,29 @@ class LLMModelsService(BaseDatabaseService):
             List of model records with the same name
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid parameters
         """
         self.validate_string_not_empty(model_name, "model_name")
         self.validate_pagination_parameters(limit, offset)
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    sql_query = """
-                        SELECT * FROM llm_models
-                        WHERE model_name = %s
-                        ORDER BY created_at DESC
-                        LIMIT %s OFFSET %s
-                    """
-                    await cursor.execute(sql_query, (model_name, limit, offset))
-                    model_records = await cursor.fetchall()
-                    logger.debug(
-                        f"Found {len(model_records)} configurations for model {model_name}"
-                    )
-                    return [dict(row) for row in model_records]
-        except psycopg.Error as database_error:
-            logger.error(
-                f"Error fetching models by name {model_name}: {database_error}"
-            )
+            async with self.get_session() as session:
+                sql_query = """
+                    SELECT * FROM llm_models
+                    WHERE model_name = :model_name
+                    ORDER BY created_at DESC
+                    LIMIT :limit OFFSET :offset
+                """
+                params = {"model_name": model_name, "limit": limit, "offset": offset}
+                result = await session.execute(text(sql_query), params)
+                model_records = result.mappings().all()
+                logger.debug(
+                    f"Found {len(model_records)} configurations for model {model_name}"
+                )
+                return [dict(row) for row in model_records]
+        except Exception as e:
+            logger.error(f"Error fetching models by name {model_name}: {e}")
             raise
 
     async def count_llm_models_by_provider(self, provider_name: str) -> int:
@@ -442,25 +431,23 @@ class LLMModelsService(BaseDatabaseService):
             Number of models for the specified provider
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If provider is invalid
         """
         self.validate_llm_provider(provider_name)
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor() as cursor:
-                    sql_query = """
-                        SELECT COUNT(*) FROM llm_models
-                        WHERE provider = %s
-                    """
-                    await cursor.execute(sql_query, (provider_name,))
-                    count_result = await cursor.fetchone()
-                    return count_result[0] if count_result else 0
-        except psycopg.Error as database_error:
-            logger.error(
-                f"Error counting models for provider {provider_name}: {database_error}"
-            )
+            async with self.get_session() as session:
+                sql_query = """
+                    SELECT COUNT(*) FROM llm_models
+                    WHERE provider = :provider
+                """
+                result = await session.execute(
+                    text(sql_query), {"provider": provider_name}
+                )
+                return result.scalar_one_or_none() or 0
+        except Exception as e:
+            logger.error(f"Error counting models for provider {provider_name}: {e}")
             raise
 
     # ========================================================================
@@ -509,8 +496,8 @@ class LLMModelsService(BaseDatabaseService):
             Updated model record dictionary or None if model not found
 
         Raises:
-            psycopg.IntegrityError: If update violates constraints
-            psycopg.Error: On other database errors
+            sqlalchemy.exc.IntegrityError: If update violates constraints
+            sqlalchemy.exc.SQLAlchemyError: On other database errors
             ValueError: On invalid input parameters
         """
         self.validate_uuid(model_id, "model_id")
@@ -562,28 +549,22 @@ class LLMModelsService(BaseDatabaseService):
             sql_query, query_parameters = self.build_dynamic_update_query(
                 table_name="llm_models",
                 update_fields=update_fields_dict,
-                where_clause="model_id = %s",
-                where_parameters=(model_id,),
+                where_clause="model_id = :model_id",
+                where_parameters={"model_id": model_id},
             )
 
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    await cursor.execute(sql_query, query_parameters)
-                    updated_model = await cursor.fetchone()
+            async with self.get_session() as session:
+                result = await session.execute(text(sql_query), query_parameters)
+                updated_model = result.mappings().one_or_none()
 
-                    if updated_model:
-                        self.log_operation("UPDATE", model_id, success=True)
-                        return dict(updated_model)
+                if updated_model:
+                    self.log_operation("UPDATE", model_id, success=True)
+                    return dict(updated_model)
 
-                    logger.warning(f"Model {model_id} not found for update")
-                    return None
-        except psycopg.IntegrityError as integrity_error:
-            logger.error(
-                f"Integrity error updating model {model_id}: {integrity_error}"
-            )
-            raise
-        except psycopg.Error as database_error:
-            logger.error(f"Error updating model {model_id}: {database_error}")
+                logger.warning(f"Model {model_id} not found for update")
+                return None
+        except Exception as e:
+            logger.error(f"Error updating model {model_id}: {e}")
             raise
 
     async def update_llm_model_status(
@@ -600,7 +581,7 @@ class LLMModelsService(BaseDatabaseService):
             Updated model record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If model_id is invalid
         """
         return await self.update_llm_model(
@@ -618,7 +599,7 @@ class LLMModelsService(BaseDatabaseService):
             Updated model record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If model_id is invalid
         """
         return await self.update_llm_model_status(
@@ -636,7 +617,7 @@ class LLMModelsService(BaseDatabaseService):
             Updated model record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If model_id is invalid
         """
         return await self.update_llm_model_status(
@@ -663,7 +644,7 @@ class LLMModelsService(BaseDatabaseService):
             Updated model record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid increment values or model_id
         """
         self.validate_uuid(model_id, "model_id")
@@ -675,35 +656,35 @@ class LLMModelsService(BaseDatabaseService):
         )
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    sql_query = """
-                        UPDATE llm_models
-                        SET
-                            total_requests = total_requests + %s,
-                            total_tokens_processed = total_tokens_processed + %s,
-                            last_used_at = CURRENT_TIMESTAMP,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE model_id = %s
-                        RETURNING *
-                    """
+            async with self.get_session() as session:
+                sql_query = """
+                    UPDATE llm_models
+                    SET
+                        total_requests = total_requests + :request_count,
+                        total_tokens_processed = total_tokens_processed + :token_count,
+                        last_used_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE model_id = :model_id
+                    RETURNING *
+                """
 
-                    await cursor.execute(
-                        sql_query,
-                        (request_count_increment, token_count_increment, model_id),
-                    )
-                    updated_model = await cursor.fetchone()
+                params = {
+                    "request_count": request_count_increment,
+                    "token_count": token_count_increment,
+                    "model_id": model_id,
+                }
 
-                    if updated_model:
-                        logger.debug(f"Updated usage stats for model {model_id}")
-                        return dict(updated_model)
+                result = await session.execute(text(sql_query), params)
+                updated_model = result.mappings().one_or_none()
 
-                    logger.warning(f"Model {model_id} not found for usage update")
-                    return None
-        except psycopg.Error as database_error:
-            logger.error(
-                f"Error updating usage stats for model {model_id}: {database_error}"
-            )
+                if updated_model:
+                    logger.debug(f"Updated usage stats for model {model_id}")
+                    return dict(updated_model)
+
+                logger.warning(f"Model {model_id} not found for usage update")
+                return None
+        except Exception as e:
+            logger.error(f"Error updating usage stats for model {model_id}: {e}")
             raise
 
     # ========================================================================
@@ -724,29 +705,28 @@ class LLMModelsService(BaseDatabaseService):
             True if model was deleted, False if model was not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If model_id is invalid
         """
         self.validate_uuid(model_id, "model_id")
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor() as cursor:
-                    sql_query = """
-                        DELETE FROM llm_models
-                        WHERE model_id = %s
-                    """
-                    await cursor.execute(sql_query, (model_id,))
-                    was_deleted = cursor.rowcount > 0
+            async with self.get_session() as session:
+                sql_query = """
+                    DELETE FROM llm_models
+                    WHERE model_id = :model_id
+                """
+                result = await session.execute(text(sql_query), {"model_id": model_id})
+                was_deleted = result.rowcount > 0
 
-                    if was_deleted:
-                        self.log_operation("DELETE", model_id, success=True)
-                    else:
-                        logger.debug(f"Model not found for deletion: {model_id}")
+                if was_deleted:
+                    self.log_operation("DELETE", model_id, success=True)
+                else:
+                    logger.debug(f"Model not found for deletion: {model_id}")
 
-                    return bool(was_deleted)
-        except psycopg.Error as database_error:
-            logger.error(f"Error deleting model {model_id}: {database_error}")
+                return bool(was_deleted)
+        except Exception as e:
+            logger.error(f"Error deleting model {model_id}: {e}")
             raise
 
     async def delete_llm_models_by_provider(self, provider_name: str) -> int:
@@ -762,34 +742,33 @@ class LLMModelsService(BaseDatabaseService):
             Number of deleted model records
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If provider is invalid
         """
         self.validate_llm_provider(provider_name)
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor() as cursor:
-                    sql_query = """
-                        DELETE FROM llm_models
-                        WHERE provider = %s
-                    """
-                    await cursor.execute(sql_query, (provider_name,))
-                    deleted_count = cursor.rowcount
+            async with self.get_session() as session:
+                sql_query = """
+                    DELETE FROM llm_models
+                    WHERE provider = :provider
+                """
+                result = await session.execute(
+                    text(sql_query), {"provider": provider_name}
+                )
+                deleted_count = result.rowcount
 
-                    if deleted_count > 0:
-                        self.log_operation(
-                            "DELETE_BULK",
-                            provider_name,
-                            success=True,
-                            additional_context=f"{deleted_count} models deleted",
-                        )
-                    else:
-                        logger.debug(f"No models found for provider {provider_name}")
+                if deleted_count > 0:
+                    self.log_operation(
+                        "DELETE_BULK",
+                        provider_name,
+                        success=True,
+                        additional_context=f"{deleted_count} models deleted",
+                    )
+                else:
+                    logger.debug(f"No models found for provider {provider_name}")
 
-                    return int(deleted_count)
-        except psycopg.Error as database_error:
-            logger.error(
-                f"Error deleting models for provider {provider_name}: {database_error}"
-            )
+                return int(deleted_count)
+        except Exception as e:
+            logger.error(f"Error deleting models for provider {provider_name}: {e}")
             raise

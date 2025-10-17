@@ -11,8 +11,7 @@ Production-ready database service for user management operations including:
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 
-import psycopg
-from psycopg.rows import dict_row
+from sqlalchemy import text
 from loguru import logger
 
 from app.core.database_connection import DatabaseManager
@@ -115,8 +114,8 @@ class UsersService(BaseDatabaseService):
             Dictionary containing the created user record with all fields
 
         Raises:
-            psycopg.IntegrityError: If email already exists (unique constraint violation)
-            psycopg.Error: On other database errors
+            sqlalchemy.exc.IntegrityError: If email already exists (unique constraint violation)
+            sqlalchemy.exc.SQLAlchemyError: On other database errors
             ValueError: On invalid input parameters
         """
         self.validate_email_address(email_address)
@@ -124,33 +123,29 @@ class UsersService(BaseDatabaseService):
         self.validate_user_status(user_status)
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    sql_query = """
-                        INSERT INTO users (email, role, status)
-                        VALUES (%s, %s, %s)
-                        RETURNING *
-                    """
+            async with self.get_session() as session:
+                sql_query = """
+                    INSERT INTO users (email, role, status)
+                    VALUES (:email, :role, :status)
+                    RETURNING *
+                """
 
-                    await cursor.execute(
-                        sql_query, (email_address, user_role, user_status)
-                    )
-                    created_user = await cursor.fetchone()
+                params = {
+                    "email": email_address,
+                    "role": user_role,
+                    "status": user_status,
+                }
 
-                    if not created_user:
-                        raise RuntimeError("Failed to create user record")
+                result = await session.execute(text(sql_query), params)
+                created_user = result.mappings().one_or_none()
 
-                    self.log_operation("CREATE", email_address, success=True)
-                    return dict(created_user)
-        except psycopg.IntegrityError as integrity_error:
-            logger.error(
-                f"Integrity error creating user {email_address}: {integrity_error}"
-            )
-            raise
-        except psycopg.Error as database_error:
-            logger.error(
-                f"Database error creating user {email_address}: {database_error}"
-            )
+                if not created_user:
+                    raise RuntimeError("Failed to create user record")
+
+                self.log_operation("CREATE", email_address, success=True)
+                return dict(created_user)
+        except Exception as e:
+            logger.error(f"Error creating user {email_address}: {e}")
             raise
 
     # ========================================================================
@@ -168,23 +163,22 @@ class UsersService(BaseDatabaseService):
             Dictionary containing user record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If user_id is invalid
         """
         self.validate_uuid(user_id, "user_id")
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    sql_query = """
-                        SELECT * FROM users
-                        WHERE user_id = %s
-                    """
-                    await cursor.execute(sql_query, (user_id,))
-                    user_record = await cursor.fetchone()
-                    return dict(user_record) if user_record else None
-        except psycopg.Error as database_error:
-            logger.error(f"Error fetching user {user_id}: {database_error}")
+            async with self.get_session() as session:
+                sql_query = """
+                    SELECT * FROM users
+                    WHERE user_id = :user_id
+                """
+                result = await session.execute(text(sql_query), {"user_id": user_id})
+                user_record = result.mappings().one_or_none()
+                return dict(user_record) if user_record else None
+        except Exception as e:
+            logger.error(f"Error fetching user {user_id}: {e}")
             raise
 
     async def get_user_by_email(self, email_address: str) -> Optional[Dict[str, Any]]:
@@ -198,25 +192,24 @@ class UsersService(BaseDatabaseService):
             Dictionary containing user record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If email is invalid
         """
         self.validate_email_address(email_address)
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    sql_query = """
-                        SELECT * FROM users
-                        WHERE email = %s
-                    """
-                    await cursor.execute(sql_query, (email_address,))
-                    user_record = await cursor.fetchone()
-                    return dict(user_record) if user_record else None
-        except psycopg.Error as database_error:
-            logger.error(
-                f"Error fetching user by email {email_address}: {database_error}"
-            )
+            async with self.get_session() as session:
+                sql_query = """
+                    SELECT * FROM users
+                    WHERE email = :email
+                """
+                result = await session.execute(
+                    text(sql_query), {"email": email_address}
+                )
+                user_record = result.mappings().one_or_none()
+                return dict(user_record) if user_record else None
+        except Exception as e:
+            logger.error(f"Error fetching user by email {email_address}: {e}")
             raise
 
     async def get_all_users(
@@ -241,7 +234,7 @@ class UsersService(BaseDatabaseService):
             List of user records ordered by creation date (newest first)
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid pagination or filter parameters
         """
         self.validate_pagination_parameters(limit, offset)
@@ -252,28 +245,28 @@ class UsersService(BaseDatabaseService):
             self.validate_user_status(status_filter)
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    sql_query = "SELECT * FROM users WHERE 1=1"
-                    query_parameters: List[Any] = []
+            async with self.get_session() as session:
+                sql_query = "SELECT * FROM users WHERE 1=1"
+                params = {}
 
-                    if role_filter:
-                        sql_query += " AND role = %s"
-                        query_parameters.append(role_filter)
+                if role_filter:
+                    sql_query += " AND role = :role"
+                    params["role"] = role_filter
 
-                    if status_filter:
-                        sql_query += " AND status = %s"
-                        query_parameters.append(status_filter)
+                if status_filter:
+                    sql_query += " AND status = :status"
+                    params["status"] = status_filter
 
-                    sql_query += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
-                    query_parameters.extend([limit, offset])
+                sql_query += " ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+                params["limit"] = limit
+                params["offset"] = offset
 
-                    await cursor.execute(sql_query, query_parameters)
-                    user_records = await cursor.fetchall()
-                    logger.debug(f"Retrieved {len(user_records)} users")
-                    return [dict(row) for row in user_records]
-        except psycopg.Error as database_error:
-            logger.error(f"Error fetching users: {database_error}")
+                result = await session.execute(text(sql_query), params)
+                user_records = result.mappings().all()
+                logger.debug(f"Retrieved {len(user_records)} users")
+                return [dict(row) for row in user_records]
+        except Exception as e:
+            logger.error(f"Error fetching users: {e}")
             raise
 
     async def get_users_by_role(
@@ -291,7 +284,7 @@ class UsersService(BaseDatabaseService):
             List of user records with the specified role
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid parameters
         """
         return await self.get_all_users(
@@ -312,7 +305,7 @@ class UsersService(BaseDatabaseService):
             List of active user records
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid pagination parameters
         """
         return await self.get_all_users(
@@ -330,25 +323,21 @@ class UsersService(BaseDatabaseService):
             Number of users with the specified status
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If status is invalid
         """
         self.validate_user_status(user_status)
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor() as cursor:
-                    sql_query = """
-                        SELECT COUNT(*) FROM users
-                        WHERE status = %s
-                    """
-                    await cursor.execute(sql_query, (user_status,))
-                    count_result = await cursor.fetchone()
-                    return count_result[0] if count_result else 0
-        except psycopg.Error as database_error:
-            logger.error(
-                f"Error counting users by status {user_status}: {database_error}"
-            )
+            async with self.get_session() as session:
+                sql_query = """
+                    SELECT COUNT(*) FROM users
+                    WHERE status = :status
+                """
+                result = await session.execute(text(sql_query), {"status": user_status})
+                return result.scalar_one_or_none() or 0
+        except Exception as e:
+            logger.error(f"Error counting users by status {user_status}: {e}")
             raise
 
     # ========================================================================
@@ -377,8 +366,8 @@ class UsersService(BaseDatabaseService):
             Updated user record dictionary or None if user not found
 
         Raises:
-            psycopg.IntegrityError: If email already exists
-            psycopg.Error: On other database errors
+            sqlalchemy.exc.IntegrityError: If email already exists
+            sqlalchemy.exc.SQLAlchemyError: On other database errors
             ValueError: On invalid input parameters
         """
         self.validate_uuid(user_id, "user_id")
@@ -407,26 +396,22 @@ class UsersService(BaseDatabaseService):
             sql_query, query_parameters = self.build_dynamic_update_query(
                 table_name="users",
                 update_fields=update_fields_dict,
-                where_clause="user_id = %s",
-                where_parameters=(user_id,),
+                where_clause="user_id = :user_id",
+                where_parameters={"user_id": user_id},
             )
 
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    await cursor.execute(sql_query, query_parameters)
-                    updated_user = await cursor.fetchone()
+            async with self.get_session() as session:
+                result = await session.execute(text(sql_query), query_parameters)
+                updated_user = result.mappings().one_or_none()
 
-                    if updated_user:
-                        self.log_operation("UPDATE", user_id, success=True)
-                        return dict(updated_user)
+                if updated_user:
+                    self.log_operation("UPDATE", user_id, success=True)
+                    return dict(updated_user)
 
-                    logger.warning(f"User {user_id} not found for update")
-                    return None
-        except psycopg.IntegrityError as integrity_error:
-            logger.error(f"Integrity error updating user {user_id}: {integrity_error}")
-            raise
-        except psycopg.Error as database_error:
-            logger.error(f"Error updating user {user_id}: {database_error}")
+                logger.warning(f"User {user_id} not found for update")
+                return None
+        except Exception as e:
+            logger.error(f"Error updating user {user_id}: {e}")
             raise
 
     async def update_user_role(
@@ -443,7 +428,7 @@ class UsersService(BaseDatabaseService):
             Updated user record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid parameters
         """
         return await self.update_user(user_id=user_id, user_role=new_user_role)
@@ -462,7 +447,7 @@ class UsersService(BaseDatabaseService):
             Updated user record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid parameters
         """
         return await self.update_user(user_id=user_id, user_status=new_user_status)
@@ -478,7 +463,7 @@ class UsersService(BaseDatabaseService):
             Updated user record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If user_id is invalid
         """
         return await self.update_user_status(
@@ -496,7 +481,7 @@ class UsersService(BaseDatabaseService):
             Updated user record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If user_id is invalid
         """
         return await self.update_user_status(user_id=user_id, new_user_status="active")
@@ -519,29 +504,28 @@ class UsersService(BaseDatabaseService):
             True if user was deleted, False if user was not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If user_id is invalid
         """
         self.validate_uuid(user_id, "user_id")
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor() as cursor:
-                    sql_query = """
-                        DELETE FROM users
-                        WHERE user_id = %s
-                    """
-                    await cursor.execute(sql_query, (user_id,))
-                    was_deleted = cursor.rowcount > 0
+            async with self.get_session() as session:
+                sql_query = """
+                    DELETE FROM users
+                    WHERE user_id = :user_id
+                """
+                result = await session.execute(text(sql_query), {"user_id": user_id})
+                was_deleted = result.rowcount > 0
 
-                    if was_deleted:
-                        self.log_operation("DELETE", user_id, success=True)
-                    else:
-                        logger.debug(f"User not found for deletion: {user_id}")
+                if was_deleted:
+                    self.log_operation("DELETE", user_id, success=True)
+                else:
+                    logger.debug(f"User not found for deletion: {user_id}")
 
-                    return bool(was_deleted)
-        except psycopg.Error as database_error:
-            logger.error(f"Error deleting user {user_id}: {database_error}")
+                return bool(was_deleted)
+        except Exception as e:
+            logger.error(f"Error deleting user {user_id}: {e}")
             raise
 
     async def delete_user_by_email(self, email_address: str) -> bool:
@@ -558,31 +542,30 @@ class UsersService(BaseDatabaseService):
             True if user was deleted, False if user was not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If email is invalid
         """
         self.validate_email_address(email_address)
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor() as cursor:
-                    sql_query = """
-                        DELETE FROM users
-                        WHERE email = %s
-                    """
-                    await cursor.execute(sql_query, (email_address,))
-                    was_deleted = cursor.rowcount > 0
+            async with self.get_session() as session:
+                sql_query = """
+                    DELETE FROM users
+                    WHERE email = :email
+                """
+                result = await session.execute(
+                    text(sql_query), {"email": email_address}
+                )
+                was_deleted = result.rowcount > 0
 
-                    if was_deleted:
-                        self.log_operation("DELETE", email_address, success=True)
-                    else:
-                        logger.debug(
-                            f"User with email {email_address} not found for deletion"
-                        )
+                if was_deleted:
+                    self.log_operation("DELETE", email_address, success=True)
+                else:
+                    logger.debug(
+                        f"User with email {email_address} not found for deletion"
+                    )
 
-                    return bool(was_deleted)
-        except psycopg.Error as database_error:
-            logger.error(
-                f"Error deleting user by email {email_address}: {database_error}"
-            )
+                return bool(was_deleted)
+        except Exception as e:
+            logger.error(f"Error deleting user by email {email_address}: {e}")
             raise

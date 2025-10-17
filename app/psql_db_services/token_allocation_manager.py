@@ -14,9 +14,7 @@ from datetime import datetime, timedelta
 import uuid
 from uuid import UUID
 
-import psycopg
-from psycopg.rows import dict_row
-from psycopg.types.json import Json
+from sqlalchemy import text
 from loguru import logger
 
 from app.core.database_connection import DatabaseManager
@@ -119,8 +117,8 @@ class TokenAllocationService(BaseDatabaseService):
             Dictionary containing the created allocation record with all fields
 
         Raises:
-            psycopg.IntegrityError: If allocation with same ID already exists
-            psycopg.Error: On other database errors
+            sqlalchemy.exc.IntegrityError: If allocation with same ID already exists
+            sqlalchemy.exc.SQLAlchemyError: On other database errors
             ValueError: On invalid input parameters
         """
         self.validate_string_not_empty(
@@ -135,59 +133,53 @@ class TokenAllocationService(BaseDatabaseService):
             self.validate_uuid(model_id, "model_id")
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    sql_query = """
-                        INSERT INTO token_allocations (
-                            token_request_id, user_id, model_name, model_id,
-                            deployment_name, cloud_provider, api_endpoint, region,
-                            token_count, allocation_status, allocated_at, expires_at,
-                            request_context
-                        ) VALUES (
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                        )
-                        RETURNING *
-                    """
-
-                    await cursor.execute(
-                        sql_query,
-                        (
-                            token_request_identifier,
-                            user_id,
-                            model_name,
-                            model_id,
-                            deployment_name,
-                            cloud_provider_name,
-                            api_endpoint_url,
-                            geographic_region,
-                            token_count,
-                            allocation_status,
-                            allocation_timestamp or datetime.now(),
-                            expiration_timestamp,
-                            Json(request_metadata) if request_metadata else None,
-                        ),
+            async with self.get_session() as session:
+                sql_query = """
+                    INSERT INTO token_allocations (
+                        token_request_id, user_id, model_name, model_id,
+                        deployment_name, cloud_provider, api_endpoint, region,
+                        token_count, allocation_status, allocated_at, expires_at,
+                        request_context
+                    ) VALUES (
+                        :token_request_id, :user_id, :model_name, :model_id,
+                        :deployment_name, :cloud_provider, :api_endpoint, :region,
+                        :token_count, :allocation_status, :allocated_at, :expires_at,
+                        :request_context
                     )
+                    RETURNING *
+                """
 
-                    created_allocation = await cursor.fetchone()
-                    if not created_allocation:
-                        raise RuntimeError("Failed to create allocation record")
+                params = {
+                    "token_request_id": token_request_identifier,
+                    "user_id": user_id,
+                    "model_name": model_name,
+                    "model_id": model_id,
+                    "deployment_name": deployment_name,
+                    "cloud_provider": cloud_provider_name,
+                    "api_endpoint": api_endpoint_url,
+                    "region": geographic_region,
+                    "token_count": token_count,
+                    "allocation_status": allocation_status,
+                    "allocated_at": allocation_timestamp or datetime.now(),
+                    "expires_at": expiration_timestamp,
+                    "request_context": request_metadata,
+                }
 
-                    self.log_operation(
-                        "CREATE",
-                        token_request_identifier,
-                        success=True,
-                        additional_context=f"{token_count} tokens for {model_name}",
-                    )
-                    return dict(created_allocation)
-        except psycopg.IntegrityError as integrity_error:
-            logger.error(
-                f"Integrity error creating allocation {token_request_identifier}: {integrity_error}"
-            )
-            raise
-        except psycopg.Error as database_error:
-            logger.error(
-                f"Database error creating allocation {token_request_identifier}: {database_error}"
-            )
+                result = await session.execute(text(sql_query), params)
+                created_allocation = result.mappings().one_or_none()
+
+                if not created_allocation:
+                    raise RuntimeError("Failed to create allocation record")
+
+                self.log_operation(
+                    "CREATE",
+                    token_request_identifier,
+                    success=True,
+                    additional_context=f"{token_count} tokens for {model_name}",
+                )
+                return dict(created_allocation)
+        except Exception as e:
+            logger.error(f"Error creating allocation {token_request_identifier}: {e}")
             raise
 
     # ========================================================================
@@ -207,7 +199,7 @@ class TokenAllocationService(BaseDatabaseService):
             Dictionary containing allocation record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If token_request_identifier is invalid
         """
         self.validate_string_not_empty(
@@ -215,19 +207,18 @@ class TokenAllocationService(BaseDatabaseService):
         )
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    sql_query = """
-                        SELECT * FROM token_allocations
-                        WHERE token_request_id = %s
-                    """
-                    await cursor.execute(sql_query, (token_request_identifier,))
-                    allocation_record = await cursor.fetchone()
-                    return dict(allocation_record) if allocation_record else None
-        except psycopg.Error as database_error:
-            logger.error(
-                f"Error fetching allocation {token_request_identifier}: {database_error}"
-            )
+            async with self.get_session() as session:
+                sql_query = """
+                    SELECT * FROM token_allocations
+                    WHERE token_request_id = :token_request_id
+                """
+                result = await session.execute(
+                    text(sql_query), {"token_request_id": token_request_identifier}
+                )
+                allocation_record = result.mappings().one_or_none()
+                return dict(allocation_record) if allocation_record else None
+        except Exception as e:
+            logger.error(f"Error fetching allocation {token_request_identifier}: {e}")
             raise
 
     async def get_total_allocated_tokens_by_model(
@@ -250,7 +241,7 @@ class TokenAllocationService(BaseDatabaseService):
             sorted by total_tokens ascending (least loaded first)
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If model_name is invalid
         """
         self.validate_string_not_empty(model_name, "model_name")
@@ -263,36 +254,36 @@ class TokenAllocationService(BaseDatabaseService):
             self.validate_allocation_status(status)
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor(row_factory=dict_row) as cursor:
-                    sql_query = """
-                        SELECT
-                            model_name,
-                            api_endpoint,
-                            region,
-                            cloud_provider,
-                            SUM(token_count) as total_tokens,
-                            COUNT(*) as allocation_count
-                        FROM token_allocations
-                        WHERE
-                            model_name = %s
-                            AND allocation_status = ANY(%s)
-                            AND (expires_at IS NULL OR expires_at > NOW())
-                        GROUP BY model_name, api_endpoint, region, cloud_provider
-                        ORDER BY total_tokens ASC
-                    """
+            async with self.get_session() as session:
+                sql_query = """
+                    SELECT
+                        model_name,
+                        api_endpoint,
+                        region,
+                        cloud_provider,
+                        SUM(token_count) as total_tokens,
+                        COUNT(*) as allocation_count
+                    FROM token_allocations
+                    WHERE
+                        model_name = :model_name
+                        AND allocation_status = ANY(:included_statuses)
+                        AND (expires_at IS NULL OR expires_at > NOW())
+                    GROUP BY model_name, api_endpoint, region, cloud_provider
+                    ORDER BY total_tokens ASC
+                """
 
-                    await cursor.execute(sql_query, (model_name, included_statuses))
-                    endpoint_statistics = cursor.fetchall()
+                result = await session.execute(
+                    text(sql_query),
+                    {"model_name": model_name, "included_statuses": included_statuses},
+                )
+                endpoint_statistics = result.mappings().all()
 
-                    logger.debug(
-                        f"Found {len(endpoint_statistics)} endpoints for model {model_name}"
-                    )
-                    return [dict(row) for row in endpoint_statistics]
-        except psycopg.Error as database_error:
-            logger.error(
-                f"Error fetching allocations for model {model_name}: {database_error}"
-            )
+                logger.debug(
+                    f"Found {len(endpoint_statistics)} endpoints for model {model_name}"
+                )
+                return [dict(row) for row in endpoint_statistics]
+        except Exception as e:
+            logger.error(f"Error fetching allocations for model {model_name}: {e}")
             raise
 
     async def get_total_allocated_tokens_for_endpoint(
@@ -311,32 +302,32 @@ class TokenAllocationService(BaseDatabaseService):
             Total number of allocated tokens (0 if none found)
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If parameters are invalid
         """
         self.validate_string_not_empty(model_name, "model_name")
         self.validate_string_not_empty(api_endpoint_url, "api_endpoint_url")
 
         try:
-            async with self.get_database_connection() as database_connection:
-                async with database_connection.cursor() as cursor:
-                    sql_query = """
-                        SELECT COALESCE(SUM(token_count), 0) as total_tokens
-                        FROM token_allocations
-                        WHERE
-                            model_name = %s
-                            AND api_endpoint = %s
-                            AND allocation_status IN ('ACQUIRED', 'PAUSED')
-                            AND (expires_at IS NULL OR expires_at > NOW())
-                    """
+            async with self.get_session() as session:
+                sql_query = """
+                    SELECT COALESCE(SUM(token_count), 0) as total_tokens
+                    FROM token_allocations
+                    WHERE
+                        model_name = :model_name
+                        AND api_endpoint = :api_endpoint
+                        AND allocation_status IN ('ACQUIRED', 'PAUSED')
+                        AND (expires_at IS NULL OR expires_at > NOW())
+                """
 
-                    await cursor.execute(sql_query, (model_name, api_endpoint_url))
-                    count_result = cursor.fetchone()
-                    return count_result[0] if count_result else 0
-        except psycopg.Error as database_error:
-            logger.error(
-                f"Error fetching tokens for endpoint {api_endpoint_url}: {database_error}"
-            )
+                result = await session.execute(
+                    text(sql_query),
+                    {"model_name": model_name, "api_endpoint": api_endpoint_url},
+                )
+                count_result = result.scalar_one_or_none()
+                return count_result if count_result else 0
+        except Exception as e:
+            logger.error(f"Error fetching tokens for endpoint {api_endpoint_url}: {e}")
             raise
 
     async def get_user_allocations(
@@ -354,32 +345,40 @@ class TokenAllocationService(BaseDatabaseService):
             List of allocation records ordered by most recent first
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         try:
-            async with self.get_database_connection() as conn:
-                with conn.cursor(row_factory=dict_row) as cur:
-                    if status_filter:
-                        query = """
-                            SELECT * FROM token_allocations
-                            WHERE user_id = %s AND allocation_status = ANY(%s)
-                            ORDER BY allocated_at DESC
-                            LIMIT %s
-                        """
-                        cur.execute(query, (user_id, status_filter, limit))
-                    else:
-                        query = """
-                            SELECT * FROM token_allocations
-                            WHERE user_id = %s
-                            ORDER BY allocated_at DESC
-                            LIMIT %s
-                        """
-                        cur.execute(query, (user_id, limit))
+            async with self.get_session() as session:
+                if status_filter:
+                    query = """
+                        SELECT * FROM token_allocations
+                        WHERE user_id = :user_id AND allocation_status = ANY(:status_filter)
+                        ORDER BY allocated_at DESC
+                        LIMIT :limit
+                    """
+                    result = await session.execute(
+                        text(query),
+                        {
+                            "user_id": user_id,
+                            "status_filter": status_filter,
+                            "limit": limit,
+                        },
+                    )
+                else:
+                    query = """
+                        SELECT * FROM token_allocations
+                        WHERE user_id = :user_id
+                        ORDER BY allocated_at DESC
+                        LIMIT :limit
+                    """
+                    result = await session.execute(
+                        text(query), {"user_id": user_id, "limit": limit}
+                    )
 
-                    results = cur.fetchall()
-                    logger.debug(f"Found {len(results)} allocations for user {user_id}")
-                    return [dict(row) for row in results]
-        except psycopg.Error as e:
+                results = result.mappings().all()
+                logger.debug(f"Found {len(results)} allocations for user {user_id}")
+                return [dict(row) for row in results]
+        except Exception as e:
             logger.error(f"Error fetching user allocations for {user_id}: {e}")
             raise
 
@@ -394,23 +393,21 @@ class TokenAllocationService(BaseDatabaseService):
             Count of active allocations (0 if none found)
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         try:
-            async with self.get_database_connection() as conn:
-                with conn.cursor() as cur:
-                    query = """
-                        SELECT COUNT(*)
-                        FROM token_allocations
-                        WHERE
-                            model_name = %s
-                            AND allocation_status IN ('ACQUIRED', 'PAUSED')
-                            AND (expires_at IS NULL OR expires_at > NOW())
-                    """
-                    cur.execute(query, (model_name,))
-                    result = cur.fetchone()
-                    return result[0] if result else 0
-        except psycopg.Error as e:
+            async with self.get_session() as session:
+                query = """
+                    SELECT COUNT(*)
+                    FROM token_allocations
+                    WHERE
+                        model_name = :model_name
+                        AND allocation_status IN ('ACQUIRED', 'PAUSED')
+                        AND (expires_at IS NULL OR expires_at > NOW())
+                """
+                result = await session.execute(text(query), {"model_name": model_name})
+                return result.scalar_one_or_none() or 0
+        except Exception as e:
             logger.error(f"Error counting active allocations for {model_name}: {e}")
             raise
 
@@ -444,58 +441,56 @@ class TokenAllocationService(BaseDatabaseService):
             Updated record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         try:
-            async with self.get_database_connection() as conn:
-                with conn.cursor(row_factory=dict_row) as cur:
-                    # Build dynamic update query
-                    update_fields = ["allocation_status = %s"]
-                    params: List[Any] = [new_status]
+            async with self.get_session() as session:
+                # Build dynamic update query
+                update_fields = ["allocation_status = :new_status"]
+                params = {
+                    "new_status": new_status,
+                    "token_request_id": token_request_id,
+                }
 
-                    if api_endpoint is not None:
-                        update_fields.append("api_endpoint = %s")
-                        params.append(api_endpoint)
+                if api_endpoint is not None:
+                    update_fields.append("api_endpoint = :api_endpoint")
+                    params["api_endpoint"] = api_endpoint
 
-                    if region is not None:
-                        update_fields.append("region = %s")
-                        params.append(region)
+                if region is not None:
+                    update_fields.append("region = :region")
+                    params["region"] = region
 
-                    if expires_at is not None:
-                        update_fields.append("expires_at = %s")
-                        params.append(expires_at)
+                if expires_at is not None:
+                    update_fields.append("expires_at = :expires_at")
+                    params["expires_at"] = expires_at
 
-                    if completed_at is not None:
-                        update_fields.append("completed_at = %s")
-                        params.append(completed_at)
+                if completed_at is not None:
+                    update_fields.append("completed_at = :completed_at")
+                    params["completed_at"] = completed_at
 
-                    if latency_ms is not None:
-                        update_fields.append("latency_ms = %s")
-                        params.append(latency_ms)
+                if latency_ms is not None:
+                    update_fields.append("latency_ms = :latency_ms")
+                    params["latency_ms"] = latency_ms
 
-                    params.append(token_request_id)
+                query = f"""
+                    UPDATE token_allocations
+                    SET {", ".join(update_fields)}
+                    WHERE token_request_id = :token_request_id
+                    RETURNING *
+                """
 
-                    query = f"""
-                        UPDATE token_allocations
-                        SET {", ".join(update_fields)}
-                        WHERE token_request_id = %s
-                        RETURNING *
-                    """
+                result = await session.execute(text(query), params)
+                updated_record = result.mappings().one_or_none()
 
-                    cur.execute(query, params)
-                    result = cur.fetchone()
-
-                    if result:
-                        logger.info(
-                            f"Updated allocation {token_request_id} to status {new_status}"
-                        )
-                        return dict(result)
-
-                    logger.warning(
-                        f"Allocation {token_request_id} not found for update"
+                if updated_record:
+                    logger.info(
+                        f"Updated allocation {token_request_id} to status {new_status}"
                     )
-                    return None
-        except psycopg.Error as e:
+                    return dict(updated_record)
+
+                logger.warning(f"Allocation {token_request_id} not found for update")
+                return None
+        except Exception as e:
             logger.error(f"Error updating allocation {token_request_id}: {e}")
             raise
 
@@ -520,40 +515,45 @@ class TokenAllocationService(BaseDatabaseService):
             Updated record or None if transition failed (not in WAITING state)
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         try:
-            async with self.get_database_connection() as conn:
-                with conn.cursor(row_factory=dict_row) as cur:
-                    query = """
-                        UPDATE token_allocations
-                        SET
-                            allocation_status = 'ACQUIRED',
-                            api_endpoint = %s,
-                            region = %s,
-                            expires_at = %s
-                        WHERE
-                            token_request_id = %s
-                            AND allocation_status = 'WAITING'
-                        RETURNING *
-                    """
+            async with self.get_session() as session:
+                query = """
+                    UPDATE token_allocations
+                    SET
+                        allocation_status = 'ACQUIRED',
+                        api_endpoint = :api_endpoint,
+                        region = :region,
+                        expires_at = :expires_at
+                    WHERE
+                        token_request_id = :token_request_id
+                        AND allocation_status = 'WAITING'
+                    RETURNING *
+                """
 
-                    cur.execute(
-                        query, (api_endpoint, region, expires_at, token_request_id)
+                result = await session.execute(
+                    text(query),
+                    {
+                        "api_endpoint": api_endpoint,
+                        "region": region,
+                        "expires_at": expires_at,
+                        "token_request_id": token_request_id,
+                    },
+                )
+                updated_record = result.mappings().one_or_none()
+
+                if updated_record:
+                    logger.info(
+                        f"Transitioned {token_request_id} from WAITING to ACQUIRED"
                     )
-                    result = cur.fetchone()
+                    return dict(updated_record)
 
-                    if result:
-                        logger.info(
-                            f"Transitioned {token_request_id} from WAITING to ACQUIRED"
-                        )
-                        return dict(result)
-
-                    logger.debug(
-                        f"Transition failed for {token_request_id} (not in WAITING state)"
-                    )
-                    return None
-        except psycopg.Error as e:
+                logger.debug(
+                    f"Transition failed for {token_request_id} (not in WAITING state)"
+                )
+                return None
+        except Exception as e:
             logger.error(f"Error transitioning allocation {token_request_id}: {e}")
             raise
 
@@ -571,40 +571,47 @@ class TokenAllocationService(BaseDatabaseService):
             Updated record or None if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         try:
-            async with self.get_database_connection() as conn:
-                with conn.cursor(row_factory=dict_row) as cur:
-                    if latency_ms is None:
-                        # Calculate latency from allocated_at to now
-                        query = """
-                            UPDATE token_allocations
-                            SET
-                                allocation_status = 'RELEASED',
-                                completed_at = NOW(),
-                                latency_ms = EXTRACT(EPOCH FROM (NOW() - allocated_at)) * 1000
-                            WHERE token_request_id = %s
-                            RETURNING *
-                        """
-                        cur.execute(query, (token_request_id,))
-                    else:
-                        query = """
-                            UPDATE token_allocations
-                            SET
-                                allocation_status = 'RELEASED',
-                                completed_at = NOW(),
-                                latency_ms = %s
-                            WHERE token_request_id = %s
-                            RETURNING *
-                        """
-                        cur.execute(query, (latency_ms, token_request_id))
+            async with self.get_session() as session:
+                if latency_ms is None:
+                    # Calculate latency from allocated_at to now
+                    query = """
+                        UPDATE token_allocations
+                        SET
+                            allocation_status = 'RELEASED',
+                            completed_at = NOW(),
+                            latency_ms = EXTRACT(EPOCH FROM (NOW() - allocated_at)) * 1000
+                        WHERE token_request_id = :token_request_id
+                        RETURNING *
+                    """
+                    result = await session.execute(
+                        text(query), {"token_request_id": token_request_id}
+                    )
+                else:
+                    query = """
+                        UPDATE token_allocations
+                        SET
+                            allocation_status = 'RELEASED',
+                            completed_at = NOW(),
+                            latency_ms = :latency_ms
+                        WHERE token_request_id = :token_request_id
+                        RETURNING *
+                    """
+                    result = await session.execute(
+                        text(query),
+                        {
+                            "latency_ms": latency_ms,
+                            "token_request_id": token_request_id,
+                        },
+                    )
 
-                    result = cur.fetchone()
-                    if result:
-                        logger.info(f"Completed allocation {token_request_id}")
-                    return dict(result) if result else None
-        except psycopg.Error as e:
+                updated_record = result.mappings().one_or_none()
+                if updated_record:
+                    logger.info(f"Completed allocation {token_request_id}")
+                return dict(updated_record) if updated_record else None
+        except Exception as e:
             logger.error(f"Error completing allocation {token_request_id}: {e}")
             raise
 
@@ -623,27 +630,28 @@ class TokenAllocationService(BaseDatabaseService):
             True if deleted, False if not found
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         try:
-            async with self.get_database_connection() as conn:
-                with conn.cursor() as cur:
-                    query = """
-                        DELETE FROM token_allocations
-                        WHERE token_request_id = %s
-                    """
-                    cur.execute(query, (token_request_id,))
-                    deleted = cur.rowcount > 0
+            async with self.get_session() as session:
+                query = """
+                    DELETE FROM token_allocations
+                    WHERE token_request_id = :token_request_id
+                """
+                result = await session.execute(
+                    text(query), {"token_request_id": token_request_id}
+                )
+                deleted = result.rowcount > 0
 
-                    if deleted:
-                        logger.info(f"Deleted allocation: {token_request_id}")
-                    else:
-                        logger.debug(
-                            f"Allocation not found for deletion: {token_request_id}"
-                        )
+                if deleted:
+                    logger.info(f"Deleted allocation: {token_request_id}")
+                else:
+                    logger.debug(
+                        f"Allocation not found for deletion: {token_request_id}"
+                    )
 
-                    return bool(deleted)
-        except psycopg.Error as e:
+                return bool(deleted)
+        except Exception as e:
             logger.error(f"Error deleting allocation {token_request_id}: {e}")
             raise
 
@@ -655,28 +663,27 @@ class TokenAllocationService(BaseDatabaseService):
             Number of deleted records
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         try:
-            async with self.get_database_connection() as conn:
-                with conn.cursor() as cur:
-                    query = """
-                        DELETE FROM token_allocations
-                        WHERE
-                            expires_at IS NOT NULL
-                            AND expires_at < NOW()
-                            AND allocation_status IN ('ACQUIRED', 'PAUSED', 'WAITING')
-                    """
-                    cur.execute(query)
-                    deleted_count = cur.rowcount
+            async with self.get_session() as session:
+                query = """
+                    DELETE FROM token_allocations
+                    WHERE
+                        expires_at IS NOT NULL
+                        AND expires_at < NOW()
+                        AND allocation_status IN ('ACQUIRED', 'PAUSED', 'WAITING')
+                """
+                result = await session.execute(text(query))
+                deleted_count = result.rowcount
 
-                    if deleted_count > 0:
-                        logger.info(f"Cleaned up {deleted_count} expired allocations")
-                    else:
-                        logger.debug("No expired allocations to clean up")
+                if deleted_count > 0:
+                    logger.info(f"Cleaned up {deleted_count} expired allocations")
+                else:
+                    logger.debug("No expired allocations to clean up")
 
-                    return int(deleted_count)
-        except psycopg.Error as e:
+                return int(deleted_count)
+        except Exception as e:
             logger.error(f"Error deleting expired allocations: {e}")
             raise
 
@@ -694,30 +701,29 @@ class TokenAllocationService(BaseDatabaseService):
             Number of deleted records
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         try:
-            async with self.get_database_connection() as conn:
-                with conn.cursor() as cur:
-                    if status:
-                        query = """
-                            DELETE FROM token_allocations
-                            WHERE user_id = %s AND allocation_status = %s
-                        """
-                        cur.execute(query, (user_id, status))
-                    else:
-                        query = """
-                            DELETE FROM token_allocations
-                            WHERE user_id = %s
-                        """
-                        cur.execute(query, (user_id,))
-
-                    deleted_count = cur.rowcount
-                    logger.info(
-                        f"Deleted {deleted_count} allocations for user {user_id}"
+            async with self.get_session() as session:
+                if status:
+                    query = """
+                        DELETE FROM token_allocations
+                        WHERE user_id = :user_id AND allocation_status = :status
+                    """
+                    result = await session.execute(
+                        text(query), {"user_id": user_id, "status": status}
                     )
-                    return int(deleted_count)
-        except psycopg.Error as e:
+                else:
+                    query = """
+                        DELETE FROM token_allocations
+                        WHERE user_id = :user_id
+                    """
+                    result = await session.execute(text(query), {"user_id": user_id})
+
+                deleted_count = result.rowcount
+                logger.info(f"Deleted {deleted_count} allocations for user {user_id}")
+                return int(deleted_count)
+        except Exception as e:
             logger.error(f"Error deleting allocations for user {user_id}: {e}")
             raise
 
@@ -747,30 +753,32 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             ValueError: If model or deployment not found
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         try:
             # Find the model configuration for this deployment
-            async with self.get_database_connection() as conn:
-                with conn.cursor(row_factory=dict_row) as cur:
-                    query = """
-                        SELECT *
-                        FROM llm_models
-                        WHERE model_name = %s AND api_base = %s AND is_active = TRUE
-                    """
-                    cur.execute(query, (model_name, api_endpoint))
-                    chosen_model_config = cur.fetchone()
+            async with self.get_session() as session:
+                query = """
+                    SELECT *
+                    FROM llm_models
+                    WHERE model_name = :model_name AND api_base = :api_endpoint AND is_active = TRUE
+                """
+                result = await session.execute(
+                    text(query),
+                    {"model_name": model_name, "api_endpoint": api_endpoint},
+                )
+                chosen_model_config = result.mappings().one_or_none()
 
-                    if not chosen_model_config:
-                        logger.warning(
-                            f"Deployment not found: {model_name} at {api_endpoint}"
-                        )
-                        return {
-                            "alloc_status": "NOT_FOUND",
-                            "model_name": model_name,
-                            "api_base": api_endpoint,
-                            "reason": "Deployment not found",
-                        }
+                if not chosen_model_config:
+                    logger.warning(
+                        f"Deployment not found: {model_name} at {api_endpoint}"
+                    )
+                    return {
+                        "alloc_status": "NOT_FOUND",
+                        "model_name": model_name,
+                        "api_base": api_endpoint,
+                        "reason": "Deployment not found",
+                    }
 
             # Get the max token limit for this model
             max_token_limit = chosen_model_config.get("max_tokens", 100000)
@@ -807,12 +815,9 @@ class TokenAllocationService(BaseDatabaseService):
         except ValueError as e:
             logger.error(f"Value error in pause_deployment: {e}")
             raise
-        except psycopg.Error as e:
+        except Exception as e:
             logger.error(f"Database error in pause_deployment: {e}")
             raise
-        except Exception as e:
-            logger.error(f"Unexpected error in pause_deployment: {e}")
-            raise ValueError(f"Failed to pause deployment: {e}")
 
     async def create_pause_allocation(
         self,
@@ -846,7 +851,7 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             ValueError: On invalid input parameters
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         if max_token_limit <= 0:
             raise ValueError(f"Token limit must be positive, got {max_token_limit}")
@@ -890,36 +895,35 @@ class TokenAllocationService(BaseDatabaseService):
             Dictionary with counts and totals by status
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         try:
-            async with self.get_database_connection() as conn:
-                with conn.cursor(row_factory=dict_row) as cur:
-                    query = """
-                        SELECT
-                            allocation_status,
-                            COUNT(*) as count,
-                            SUM(token_count) as total_tokens,
-                            AVG(token_count) as avg_tokens
-                        FROM token_allocations
-                        WHERE
-                            model_name = %s
-                            AND (expires_at IS NULL OR expires_at > NOW())
-                        GROUP BY allocation_status
-                    """
-                    cur.execute(query, (model_name,))
-                    results = cur.fetchall()
+            async with self.get_session() as session:
+                query = """
+                    SELECT
+                        allocation_status,
+                        COUNT(*) as count,
+                        SUM(token_count) as total_tokens,
+                        AVG(token_count) as avg_tokens
+                    FROM token_allocations
+                    WHERE
+                        model_name = :model_name
+                        AND (expires_at IS NULL OR expires_at > NOW())
+                    GROUP BY allocation_status
+                """
+                result = await session.execute(text(query), {"model_name": model_name})
+                results = result.mappings().all()
 
-                    summary = {
-                        "model_name": model_name,
-                        "by_status": [dict(row) for row in results],
-                    }
+                summary = {
+                    "model_name": model_name,
+                    "by_status": [dict(row) for row in results],
+                }
 
-                    logger.debug(
-                        f"Generated summary for model {model_name}: {len(results)} statuses"
-                    )
-                    return summary
-        except psycopg.Error as e:
+                logger.debug(
+                    f"Generated summary for model {model_name}: {len(results)} statuses"
+                )
+                return summary
+        except Exception as e:
             logger.error(f"Error generating summary for model {model_name}: {e}")
             raise
 
@@ -934,29 +938,28 @@ class TokenAllocationService(BaseDatabaseService):
             Dictionary with usage statistics (empty dict if no data)
 
         Raises:
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         try:
-            async with self.get_database_connection() as conn:
-                with conn.cursor(row_factory=dict_row) as cur:
-                    query = """
-                        SELECT
-                            COUNT(*) as total_requests,
-                            SUM(token_count) as total_tokens,
-                            AVG(token_count) as avg_tokens_per_request,
-                            AVG(latency_ms) as avg_latency_ms,
-                            COUNT(CASE WHEN allocation_status = 'RELEASED' THEN 1 END) as completed_requests,
-                            COUNT(CASE WHEN allocation_status = 'FAILED' THEN 1 END) as failed_requests
-                        FROM token_allocations
-                        WHERE user_id = %s
-                    """
-                    cur.execute(query, (user_id,))
-                    result = cur.fetchone()
+            async with self.get_session() as session:
+                query = """
+                    SELECT
+                        COUNT(*) as total_requests,
+                        SUM(token_count) as total_tokens,
+                        AVG(token_count) as avg_tokens_per_request,
+                        AVG(latency_ms) as avg_latency_ms,
+                        COUNT(CASE WHEN allocation_status = 'RELEASED' THEN 1 END) as completed_requests,
+                        COUNT(CASE WHEN allocation_status = 'FAILED' THEN 1 END) as failed_requests
+                    FROM token_allocations
+                    WHERE user_id = :user_id
+                """
+                result = await session.execute(text(query), {"user_id": user_id})
+                result_row = result.mappings().one_or_none()
 
-                    stats = dict(result) if result else {}
-                    logger.debug(f"Generated usage stats for user {user_id}")
-                    return stats
-        except psycopg.Error as e:
+                stats = dict(result_row) if result_row else {}
+                logger.debug(f"Generated usage stats for user {user_id}")
+                return stats
+        except Exception as e:
             logger.error(f"Error getting usage stats for user {user_id}: {e}")
             raise
 
@@ -979,7 +982,7 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             ValueError: If token request not found or invalid
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         try:
             # Get the allocation record
@@ -1056,12 +1059,9 @@ class TokenAllocationService(BaseDatabaseService):
         except ValueError as e:
             logger.error(f"Value error in retry_acquire_tokens: {e}")
             raise
-        except psycopg.Error as e:
+        except Exception as e:
             logger.error(f"Database error in retry_acquire_tokens: {e}")
             raise
-        except Exception as e:
-            logger.error(f"Unexpected error in retry_acquire_tokens: {e}")
-            raise ValueError(f"Failed to retry acquire tokens: {e}")
 
     async def acquire_tokens(
         self,
@@ -1085,7 +1085,7 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             ValueError: If token count exceeds limit or no deployments found
-            psycopg.Error: On database errors
+            sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         if token_count <= 0:
             raise ValueError(f"Token count must be positive, got {token_count}")
@@ -1175,12 +1175,9 @@ class TokenAllocationService(BaseDatabaseService):
         except ValueError as e:
             logger.error(f"Value error in acquire_tokens: {e}")
             raise
-        except psycopg.Error as e:
+        except Exception as e:
             logger.error(f"Database error in acquire_tokens: {e}")
             raise
-        except Exception as e:
-            logger.error(f"Unexpected error in acquire_tokens: {e}")
-            raise ValueError(f"Failed to acquire tokens: {e}")
 
     async def get_least_loaded_deployment(
         self, model_name: str
@@ -1200,87 +1197,87 @@ class TokenAllocationService(BaseDatabaseService):
         """
         try:
             # Get all active deployments for this model
-            async with self.get_database_connection() as conn:
-                with conn.cursor(row_factory=dict_row) as cur:
-                    # First, get all active deployments for this model
-                    deployments_query = """
-                        SELECT *
-                        FROM llm_models
-                        WHERE model_name = %s AND is_active = TRUE
-                    """
-                    cur.execute(deployments_query, (model_name,))
-                    model_deployments = cur.fetchall()
+            async with self.get_session() as session:
+                # First, get all active deployments for this model
+                deployments_query = """
+                    SELECT *
+                    FROM llm_models
+                    WHERE model_name = :model_name AND is_active = TRUE
+                """
+                result = await session.execute(
+                    text(deployments_query), {"model_name": model_name}
+                )
+                model_deployments = result.mappings().all()
 
-                    if not model_deployments:
-                        raise ValueError(
-                            f"No model deployments found for model_name = {model_name}"
-                        )
+                if not model_deployments:
+                    raise ValueError(
+                        f"No model deployments found for model_name = {model_name}"
+                    )
 
-                    # Get current allocations grouped by model_name and api_base
-                    allocations_query = """
-                        SELECT
-                            model_name,
-                            api_endpoint,
-                            SUM(token_count) as total_tokens
-                        FROM token_allocations
-                        WHERE
-                            model_name = %s
-                            AND allocation_status IN ('ACQUIRED', 'PAUSED')
-                            AND (expires_at IS NULL OR expires_at > NOW())
-                        GROUP BY model_name, api_endpoint
-                        ORDER BY total_tokens ASC
-                    """
-                    cur.execute(allocations_query, (model_name,))
-                    allocation_results = cur.fetchall()
+                # Get current allocations grouped by model_name and api_base
+                allocations_query = """
+                    SELECT
+                        model_name,
+                        api_endpoint,
+                        SUM(token_count) as total_tokens
+                    FROM token_allocations
+                    WHERE
+                        model_name = :model_name
+                        AND allocation_status IN ('ACQUIRED', 'PAUSED')
+                        AND (expires_at IS NULL OR expires_at > NOW())
+                    GROUP BY model_name, api_endpoint
+                    ORDER BY total_tokens ASC
+                """
+                result = await session.execute(
+                    text(allocations_query), {"model_name": model_name}
+                )
+                allocation_results = result.mappings().all()
 
-                    chosen_model_config = None
+                chosen_model_config = None
 
-                    # Check if any deployment's api_base is not in the allocation results
-                    # This means it's unused and can be chosen immediately
-                    if allocation_results:
-                        used_endpoints = [r["api_endpoint"] for r in allocation_results]
-                        unused_deployments = [
-                            m
-                            for m in model_deployments
-                            if m["api_base"] not in used_endpoints
-                            and m["api_base"] is not None
-                        ]
+                # Check if any deployment's api_base is not in the allocation results
+                # This means it's unused and can be chosen immediately
+                if allocation_results:
+                    used_endpoints = [r["api_endpoint"] for r in allocation_results]
+                    unused_deployments = [
+                        m
+                        for m in model_deployments
+                        if m["api_base"] not in used_endpoints
+                        and m["api_base"] is not None
+                    ]
 
-                        if unused_deployments:
-                            # Choose the first unused deployment
-                            chosen_model_config = dict(unused_deployments[0])
-                            return 0, chosen_model_config
-
-                    # If no allocations found or no unused deployments, choose the first deployment
-                    if not allocation_results:
-                        chosen_model_config = dict(model_deployments[0])
+                    if unused_deployments:
+                        # Choose the first unused deployment
+                        chosen_model_config = dict(unused_deployments[0])
                         return 0, chosen_model_config
 
-                    # Otherwise, get the deployment with the lowest token count
-                    least_loaded = allocation_results[0]
-                    total_allocated_tokens = least_loaded["total_tokens"]
+                # If no allocations found or no unused deployments, choose the first deployment
+                if not allocation_results:
+                    chosen_model_config = dict(model_deployments[0])
+                    return 0, chosen_model_config
 
-                    # Find the matching deployment config
-                    for deployment in model_deployments:
-                        if deployment["api_base"] == least_loaded["api_endpoint"]:
-                            chosen_model_config = dict(deployment)
-                            break
+                # Otherwise, get the deployment with the lowest token count
+                least_loaded = allocation_results[0]
+                total_allocated_tokens = least_loaded["total_tokens"]
 
-                    # If no match found (shouldn't happen), use the first deployment
-                    if not chosen_model_config:
-                        chosen_model_config = dict(model_deployments[0])
-                        logger.warning(
-                            f"No matching deployment found for endpoint {least_loaded['api_endpoint']}"
-                        )
+                # Find the matching deployment config
+                for deployment in model_deployments:
+                    if deployment["api_base"] == least_loaded["api_endpoint"]:
+                        chosen_model_config = dict(deployment)
+                        break
 
-                    return total_allocated_tokens, chosen_model_config
+                # If no match found (shouldn't happen), use the first deployment
+                if not chosen_model_config:
+                    chosen_model_config = dict(model_deployments[0])
+                    logger.warning(
+                        f"No matching deployment found for endpoint {least_loaded['api_endpoint']}"
+                    )
 
-        except psycopg.Error as e:
-            logger.error(f"Database error in get_least_loaded_deployment: {e}")
-            raise
+                return total_allocated_tokens, chosen_model_config
+
         except Exception as e:
             logger.error(f"Error finding least loaded deployment for {model_name}: {e}")
-            raise ValueError(f"Failed to get deployment for model {model_name}: {e}")
+            raise
 
 
 # ============================================================================

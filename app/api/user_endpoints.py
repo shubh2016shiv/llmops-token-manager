@@ -5,7 +5,7 @@ Production-ready API endpoints for user CRUD operations.
 Provides essential user management functionality with robust error handling.
 """
 
-from uuid import uuid4
+from uuid import uuid4, UUID
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, status
 from loguru import logger
@@ -118,7 +118,7 @@ async def create_user(request: UserCreateRequest):
     summary="Get user by ID",
     description="Retrieve a specific user by their unique identifier.",
 )
-async def get_user(user_id: uuid4):
+async def get_user(user_id: UUID):
     """
     Retrieve a user by their ID.
 
@@ -285,7 +285,7 @@ async def get_user_by_email(email: str):
     summary="Update user",
     description="Update user information. Only provided fields will be updated.",
 )
-async def update_user(user_id: uuid4, request: UserUpdateRequest):
+async def update_user(user_id: UUID, request: UserUpdateRequest):
     """
     Update user information.
 
@@ -352,7 +352,7 @@ async def update_user(user_id: uuid4, request: UserUpdateRequest):
     summary="Suspend user",
     description="Suspend a user account by setting status to 'suspended'.",
 )
-async def suspend_user(user_id: uuid4):
+async def suspend_user(user_id: UUID):
     """
     Suspend a user account.
 
@@ -398,7 +398,7 @@ async def suspend_user(user_id: uuid4):
     summary="Activate user",
     description="Activate a user account by setting status to 'active'.",
 )
-async def activate_user(user_id: uuid4):
+async def activate_user(user_id: UUID):
     """
     Activate a user account.
 

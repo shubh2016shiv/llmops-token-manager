@@ -90,6 +90,36 @@ class UsersService(BaseDatabaseService):
         except EmailNotValidError as e:
             raise ValueError(f"Invalid email: {str(e)}")
 
+    def validate_user_role(self, user_role: str) -> None:
+        """
+        Validate user role.
+
+        Args:
+            user_role: User role to validate
+
+        Raises:
+            ValueError: If role is invalid
+        """
+        if user_role not in self.VALID_USER_ROLES:
+            raise ValueError(
+                f"Invalid user role '{user_role}'. Must be one of: {', '.join(self.VALID_USER_ROLES)}"
+            )
+
+    def validate_user_status(self, user_status: str) -> None:
+        """
+        Validate user status.
+
+        Args:
+            user_status: User status to validate
+
+        Raises:
+            ValueError: If status is invalid
+        """
+        if user_status not in self.VALID_USER_STATUSES:
+            raise ValueError(
+                f"Invalid user status '{user_status}'. Must be one of: {', '.join(self.VALID_USER_STATUSES)}"
+            )
+
     # ========================================================================
     # CREATE OPERATIONS
     # ========================================================================

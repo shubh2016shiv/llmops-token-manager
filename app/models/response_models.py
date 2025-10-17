@@ -8,7 +8,7 @@ Simple, focused schemas for returning data to clients.
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from enum import Enum
 
 
@@ -374,10 +374,20 @@ class Health(Enum):
         return self.value
 
 
-class HealthResponse(BaseModel):
+class HealthStatus(BaseModel):
     """
     Health check response schema.
     """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "status": "healthy",
+                "timestamp": "2025-10-13T10:30:00Z",
+                "version": "1.0.0",
+            }
+        }
+    )
 
     status: str = Field(..., description="Token allocation service health status")
     timestamp: datetime = Field(
@@ -385,27 +395,17 @@ class HealthResponse(BaseModel):
     )
     version: Optional[str] = Field(default=None, description="Application version")
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "status": Health.HEALTHY,
-                "timestamp": "2025-10-13T10:30:00Z",
-                "version": "1.0.0",
-            }
-        }
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        valid_values = [member.value for member in Health]
+        if value not in valid_values:
+            raise ValueError(f"Status must be one of: {', '.join(valid_values)}")
+        return value
 
-        @Field.validate("status")
-        @classmethod
-        def validate_status(cls, value: str) -> str:
-            if value not in Health._value2member_map_:
-                raise ValueError(
-                    f"Status must be one of: {', '.join(Health._value2member_map_)}"
-                )
-            return value
-
-        @Field.validate("timestamp")
-        @classmethod
-        def validate_timestamp(cls, value: datetime) -> datetime:
-            if value > datetime.utcnow():
-                raise ValueError("Timestamp cannot be in the future")
-            return value
+    @field_validator("timestamp")
+    @classmethod
+    def validate_timestamp(cls, value: datetime) -> datetime:
+        if value > datetime.utcnow():
+            raise ValueError("Timestamp cannot be in the future")
+        return value

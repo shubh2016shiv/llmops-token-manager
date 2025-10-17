@@ -143,7 +143,7 @@ class TokenAllocationRequest(BaseModel):
 
     user_role: UserRole = Field(
         description="User role - determines access to requests",
-        default=UserRole.USER,
+        default=UserRole.DEVELOPER,
     )
 
     provider: ProviderType = Field(
@@ -231,7 +231,7 @@ class TokenReleaseRequest(BaseModel):
 
     user_role: UserRole = Field(
         description="User role - determines access to requests",
-        default=UserRole.USER,
+        default=UserRole.DEVELOPER,
     )
 
     class Config:

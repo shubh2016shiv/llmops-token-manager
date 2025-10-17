@@ -13,7 +13,8 @@ from loguru import logger
 from app.utils.passwrd_hashing import PasswordHasher
 from app.psql_db_services.users_service import UsersService
 
-from app.models.request_models import UserCreateRequest, UserUpdateRequest, UserResponse
+from app.models.request_models import UserCreateRequest, UserUpdateRequest
+from app.models.response_models import UserResponse
 
 
 # ============================================================================

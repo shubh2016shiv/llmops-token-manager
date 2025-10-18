@@ -17,6 +17,7 @@ hiredis==3.0.0                    # High-performance Redis protocol parser
 # DATABASE & PERSISTENCE
 ############################################################
 psycopg[binary,pool]==3.2.1       # PostgreSQL database adapter with async support
+psycopg2-binary==2.9.9            # PostgreSQL adapter for health checks
 sqlalchemy==2.0.44                # SQLAlchemy for database ORM
 asyncpg==0.29.0                   # High-performance PostgreSQL client for asyncio
 
@@ -24,12 +25,12 @@ asyncpg==0.29.0                   # High-performance PostgreSQL client for async
 ############################################################
 # LLM PROVIDERS & AI SDKs
 ############################################################
-openai==1.55.3                    # OpenAI Python SDK
-google-generativeai==0.8.5        # Google Generative AI SDK (Gemini models)
+#openai==1.55.3                    # OpenAI Python SDK
+#google-generativeai==0.8.5        # Google Generative AI SDK (Gemini models)
 # google-genai==0.x.x             # (Future replacement for google-generativeai)
 # anthropic==0.39.0               # Anthropic Claude SDK (optional)
 tiktoken==0.8.0                   # Token counting utilities
-
+litellm==1.55.0                   # Unified LLM API with token counting support
 
 ############################################################
 # CONFIGURATION & DATA VALIDATION
@@ -49,7 +50,7 @@ loguru==0.7.2                     # Elegant logging utility
 # UTILITIES & NETWORKING
 ############################################################
 python-dotenv==1.0.1              # Loads environment variables from .env files
-httpx==0.28.0                     # Async HTTP client (used by OpenAI & APIs)
+httpx==0.27.2                     # Async HTTP client (used by OpenAI & APIs)
 tenacity==9.0.0                   # Retry logic with exponential backoff
 
 

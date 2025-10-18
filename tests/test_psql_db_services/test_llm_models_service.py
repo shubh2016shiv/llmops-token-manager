@@ -635,6 +635,140 @@ class TestLLMModelsServiceReadSingle:
         assert result == 5
         mock_session.execute.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_get_llm_model_by_provider_and_model_success(
+        self, llm_models_service, mock_db_manager, sample_model_data
+    ):
+        """Test successful retrieval of model by provider and model name."""
+        # Arrange
+        mock_session, mock_result = setup_mock_database_connection(
+            mock_db_manager, sample_model_data
+        )
+
+        # Act
+        result = await llm_models_service.get_llm_model_by_provider_and_model(
+            "openai", "gpt-4"
+        )
+
+        # Assert
+        assert result == sample_model_data
+        mock_session.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_llm_model_by_provider_and_model_with_version(
+        self, llm_models_service, mock_db_manager, sample_model_data
+    ):
+        """Test retrieval with version parameter."""
+        # Arrange
+        mock_session, mock_result = setup_mock_database_connection(
+            mock_db_manager, sample_model_data
+        )
+
+        # Act
+        result = await llm_models_service.get_llm_model_by_provider_and_model(
+            "openai", "gpt-4", "0613"
+        )
+
+        # Assert
+        assert result == sample_model_data
+        mock_session.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_llm_model_by_provider_and_model_database_error(
+        self, llm_models_service, mock_db_manager
+    ):
+        """Test database exception in get_llm_model_by_provider_and_model."""
+        # Arrange
+        mock_session, mock_result = setup_mock_database_connection(mock_db_manager)
+        mock_session.execute = AsyncMock(side_effect=psycopg.Error("Database error"))
+
+        # Act & Assert
+        with pytest.raises(psycopg.Error):
+            await llm_models_service.get_llm_model_by_provider_and_model(
+                "openai", "gpt-4"
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_llm_models_by_provider_with_active_only_true(
+        self, llm_models_service, mock_db_manager, sample_models_data
+    ):
+        """Test get_llm_models_by_provider with active_only=True filter."""
+        # Arrange
+        mock_session, mock_result = setup_mock_database_connection(
+            mock_db_manager, sample_models_data
+        )
+
+        # Act
+        result = await llm_models_service.get_llm_models_by_provider(
+            "openai", active_only=True
+        )
+
+        # Assert
+        assert result == sample_models_data
+        mock_session.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_llm_models_by_provider_with_active_only_false(
+        self, llm_models_service, mock_db_manager, sample_models_data
+    ):
+        """Test get_llm_models_by_provider with active_only=False filter."""
+        # Arrange
+        mock_session, mock_result = setup_mock_database_connection(
+            mock_db_manager, sample_models_data
+        )
+
+        # Act
+        result = await llm_models_service.get_llm_models_by_provider(
+            "openai", active_only=False
+        )
+
+        # Assert
+        assert result == sample_models_data
+        mock_session.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_llm_models_by_provider_database_error(
+        self, llm_models_service, mock_db_manager
+    ):
+        """Test database exception in get_llm_models_by_provider."""
+        # Arrange
+        mock_session, mock_result = setup_mock_database_connection(mock_db_manager)
+        mock_session.execute = AsyncMock(side_effect=psycopg.Error("Database error"))
+
+        # Act & Assert
+        with pytest.raises(psycopg.Error):
+            await llm_models_service.get_llm_models_by_provider("openai")
+
+    @pytest.mark.asyncio
+    async def test_get_active_llm_models_by_provider_success(
+        self, llm_models_service, mock_db_manager, sample_models_data
+    ):
+        """Test convenience method get_active_llm_models_by_provider."""
+        # Arrange
+        mock_session, mock_result = setup_mock_database_connection(
+            mock_db_manager, sample_models_data
+        )
+
+        # Act
+        result = await llm_models_service.get_active_llm_models_by_provider("openai")
+
+        # Assert
+        assert result == sample_models_data
+        mock_session.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_count_llm_models_by_provider_database_error(
+        self, llm_models_service, mock_db_manager
+    ):
+        """Test database exception in count_llm_models_by_provider."""
+        # Arrange
+        mock_session, mock_result = setup_mock_database_connection(mock_db_manager)
+        mock_session.execute = AsyncMock(side_effect=psycopg.Error("Database error"))
+
+        # Act & Assert
+        with pytest.raises(psycopg.Error):
+            await llm_models_service.count_llm_models_by_provider("openai")
+
     # SKIPPED: get_all_llm_models method no longer exists
     # @pytest.mark.asyncio
     # async def test_get_all_llm_models_invalid_limit(
@@ -973,6 +1107,85 @@ class TestLLMModelsServiceUpdate:
                 temperature=0.5,
             )
 
+    @pytest.mark.asyncio
+    async def test_update_llm_model_empty_provider_name(
+        self, llm_models_service, mock_db_manager
+    ):
+        """Test that empty provider_name raises ValueError."""
+        # Act & Assert
+        with pytest.raises(
+            ValueError, match="provider_name and llm_model_name must be provided"
+        ):
+            await llm_models_service.update_llm_model(
+                provider_name="",
+                llm_model_name="gpt-4",
+                temperature=0.5,
+            )
+
+    @pytest.mark.asyncio
+    async def test_update_llm_model_empty_model_name(
+        self, llm_models_service, mock_db_manager
+    ):
+        """Test that empty llm_model_name raises ValueError."""
+        # Act & Assert
+        with pytest.raises(
+            ValueError, match="provider_name and llm_model_name must be provided"
+        ):
+            await llm_models_service.update_llm_model(
+                provider_name="openai",
+                llm_model_name="",
+                temperature=0.5,
+            )
+
+    @pytest.mark.asyncio
+    async def test_update_llm_model_with_version_parameter(
+        self, llm_models_service, mock_db_manager, sample_model_data
+    ):
+        """Test update with version parameter."""
+        # Arrange
+        updated_data = sample_model_data.copy()
+        updated_data["temperature"] = 0.5
+        mock_session, mock_result = setup_mock_database_connection(
+            mock_db_manager, updated_data
+        )
+
+        # Act
+        result = await llm_models_service.update_llm_model(
+            provider_name="openai",
+            llm_model_name="gpt-4",
+            llm_model_version="0613",
+            temperature=0.5,
+        )
+
+        # Assert
+        assert result == updated_data
+        mock_session.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_llm_model_status_empty_identifiers(
+        self, llm_models_service, mock_db_manager
+    ):
+        """Test that empty identifiers in update_llm_model_status raise ValueError."""
+        # Act & Assert
+        with pytest.raises(
+            ValueError, match="provider_name and llm_model_name must be provided"
+        ):
+            await llm_models_service.update_llm_model_status(
+                provider_name="",
+                llm_model_name="gpt-4",
+                is_active_status=True,
+            )
+
+        # Test empty model name
+        with pytest.raises(
+            ValueError, match="provider_name and llm_model_name must be provided"
+        ):
+            await llm_models_service.update_llm_model_status(
+                provider_name="openai",
+                llm_model_name="",
+                is_active_status=True,
+            )
+
 
 class TestLLMModelsServiceDelete:
     """Test delete operations for LLMModelsService."""
@@ -1084,6 +1297,95 @@ class TestLLMModelsServiceDelete:
         # Act & Assert
         with pytest.raises(psycopg.Error):
             await llm_models_service.delete_llm_models_by_provider("openai")
+
+    @pytest.mark.asyncio
+    async def test_delete_llm_model_empty_provider_name(
+        self, llm_models_service, mock_db_manager
+    ):
+        """Test that empty provider_name raises ValueError."""
+        # Act & Assert
+        with pytest.raises(
+            ValueError, match="provider_name and llm_model_name must be provided"
+        ):
+            await llm_models_service.delete_llm_model(
+                provider_name="",
+                llm_model_name="gpt-4",
+            )
+
+    @pytest.mark.asyncio
+    async def test_delete_llm_model_empty_model_name(
+        self, llm_models_service, mock_db_manager
+    ):
+        """Test that empty llm_model_name raises ValueError."""
+        # Act & Assert
+        with pytest.raises(
+            ValueError, match="provider_name and llm_model_name must be provided"
+        ):
+            await llm_models_service.delete_llm_model(
+                provider_name="openai",
+                llm_model_name="",
+            )
+
+    @pytest.mark.asyncio
+    async def test_delete_llm_model_with_version_parameter(
+        self, llm_models_service, mock_db_manager
+    ):
+        """Test delete with version parameter."""
+        # Arrange
+        mock_session, mock_result = setup_mock_database_connection(mock_db_manager)
+        mock_result.rowcount = 1  # Simulate successful deletion
+
+        # Act
+        result = await llm_models_service.delete_llm_model(
+            provider_name="openai",
+            llm_model_name="gpt-4",
+            llm_model_version="0613",
+        )
+
+        # Assert
+        assert result is True
+        mock_session.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_llm_model_database_error(
+        self, llm_models_service, mock_db_manager
+    ):
+        """Test database exception in delete_llm_model."""
+        # Arrange
+        mock_session, mock_result = setup_mock_database_connection(mock_db_manager)
+        mock_session.execute = AsyncMock(side_effect=psycopg.Error("Database error"))
+
+        # Act & Assert
+        with pytest.raises(psycopg.Error):
+            await llm_models_service.delete_llm_model(
+                provider_name="openai",
+                llm_model_name="gpt-4",
+            )
+
+    @pytest.mark.asyncio
+    async def test_delete_llm_models_by_provider_no_models_found(
+        self, llm_models_service, mock_db_manager
+    ):
+        """Test bulk delete with no models found."""
+        # Arrange
+        mock_session, mock_result = setup_mock_database_connection(mock_db_manager)
+        mock_result.rowcount = 0  # Simulate no models found
+
+        # Act
+        result = await llm_models_service.delete_llm_models_by_provider("openai")
+
+        # Assert
+        assert result == 0
+        mock_session.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_llm_models_by_provider_invalid_provider(
+        self, llm_models_service, mock_db_manager
+    ):
+        """Test delete with invalid provider name."""
+        # Act & Assert
+        with pytest.raises(ValueError, match="Invalid LLM provider"):
+            await llm_models_service.delete_llm_models_by_provider("invalid_provider")
 
 
 # Run with: pytest tests/test_psql_db_services/test_llm_models_service.py -v

@@ -35,4 +35,10 @@ class PasswordHasher:
         Returns:
             True if password matches, False otherwise
         """
-        return bcrypt.checkpw(password.encode("utf-8"), hashed_password.encode("utf-8"))
+        try:
+            return bcrypt.checkpw(
+                password.encode("utf-8"), hashed_password.encode("utf-8")
+            )
+        except (ValueError, TypeError):
+            # Return False for invalid hash formats instead of raising exception
+            return False

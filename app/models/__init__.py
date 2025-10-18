@@ -5,7 +5,7 @@ Pydantic models that exactly match the PostgreSQL database schema.
 
 This package provides validated data models for:
 - User management (users table)
-- LLM model configurations (llm_models table)
+- LLM model configurations (llm_models table) - using response models
 - Token allocations (token_manager table)
 - API request/response models
 - Token estimation models
@@ -15,7 +15,6 @@ All models include field validation matching database CHECK constraints.
 
 # Core database models
 from app.models.users_model import User
-from app.models.llm_config_models import LLMModel
 from app.models.token_manager_models import TokenAllocation, TokenEstimation, InputType
 
 # Request models
@@ -50,6 +49,7 @@ from app.models.response_models import (
     AllocationListResponse,
     # LLM model responses
     LLMModelResponse,
+    LLMModelListResponse,
     # Health and error responses
     HealthStatus,
     DependencyHealth,
@@ -59,7 +59,6 @@ from app.models.response_models import (
 __all__ = [
     # Core database models
     "User",
-    "LLMModel",
     "TokenAllocation",
     "TokenEstimation",
     "InputType",
@@ -86,6 +85,7 @@ __all__ = [
     "DeploymentConfigUpdate",
     # LLM models
     "LLMModelResponse",
+    "LLMModelListResponse",
     # Health and errors
     "HealthStatus",
     "DependencyHealth",

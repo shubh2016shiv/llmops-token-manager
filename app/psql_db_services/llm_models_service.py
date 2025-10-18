@@ -238,7 +238,7 @@ class LLMModelsService(BaseDatabaseService):
             sqlalchemy.exc.SQLAlchemyError: On database errors.
             ValueError: If provider_name or llm_model_name is invalid or empty.
         """
-        self.validate_llm_provider(provider_name)
+        self.validate_llm_provider_name(provider_name)
         self.validate_string_not_empty(llm_model_name, "llm_model_name")
 
         try:
@@ -293,7 +293,7 @@ class LLMModelsService(BaseDatabaseService):
             sqlalchemy.exc.SQLAlchemyError: On database errors.
             ValueError: On invalid provider_name or pagination parameters.
         """
-        self.validate_llm_provider(provider_name)
+        self.validate_llm_provider_name(provider_name)
         self.validate_pagination_parameters(limit, offset)
 
         try:
@@ -367,7 +367,7 @@ class LLMModelsService(BaseDatabaseService):
             sqlalchemy.exc.SQLAlchemyError: On database errors.
             ValueError: If provider_name is invalid.
         """
-        self.validate_llm_provider(provider_name)
+        self.validate_llm_provider_name(provider_name)
 
         try:
             async with self.get_session() as session:
@@ -448,16 +448,7 @@ class LLMModelsService(BaseDatabaseService):
 
         # Validate new provider name if provided
         if new_provider_name:
-            self.validate_llm_provider(new_provider_name)
-
-        # Validate numerical parameters
-        self.validate_model_numerical_parameters(
-            max_tokens=max_tokens,
-            tokens_per_minute_limit=tokens_per_minute_limit,
-            requests_per_minute_limit=requests_per_minute_limit,
-            temperature=temperature,
-            random_seed=random_seed,
-        )
+            self.validate_llm_provider_name(new_provider_name)
 
         # Build update fields dictionary
         update_fields_dict: Dict[str, Any] = {}
@@ -666,7 +657,7 @@ class LLMModelsService(BaseDatabaseService):
             )
 
         if provider_name:
-            self.validate_llm_provider(provider_name)
+            self.validate_llm_provider_name(provider_name)
 
         try:
             async with self.get_session() as session:
@@ -722,7 +713,7 @@ class LLMModelsService(BaseDatabaseService):
             sqlalchemy.exc.SQLAlchemyError: On database errors.
             ValueError: If provider_name is invalid.
         """
-        self.validate_llm_provider(provider_name)
+        self.validate_llm_provider_name(provider_name)
 
         try:
             async with self.get_session() as session:

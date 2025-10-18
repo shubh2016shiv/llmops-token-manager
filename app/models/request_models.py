@@ -560,3 +560,281 @@ class DeploymentConfigUpdate(BaseModel):
             ],
             "example": {"max_tokens": 150000, "is_active": True},
         }
+
+
+# ============================================================================
+# LLM MODEL CONFIGURATION REQUEST MODELS
+# ============================================================================
+
+
+class LLMModelCreateRequest(BaseModel):
+    """
+    Request model for creating a new LLM model configuration.
+
+    This model defines all required and optional parameters for registering
+    a new LLM model in the system for token allocation and rate limiting.
+    """
+
+    provider_name: str = Field(
+        ...,
+        description="LLM provider name (e.g., 'openai', 'anthropic', 'gemini')",
+        min_length=1,
+        max_length=50,
+    )
+
+    llm_model_name: str = Field(
+        ...,
+        description="Name of the LLM model (e.g., 'gpt-4o', 'claude-3.5-sonnet')",
+        min_length=1,
+        max_length=100,
+    )
+
+    api_key_variable_name: str = Field(
+        ...,
+        description="Environment variable name for the API key (e.g., 'OPENAI_API_KEY_GPT4O')",
+        min_length=1,
+        max_length=200,
+    )
+
+    llm_model_version: Optional[str] = Field(
+        default=None,
+        description="Optional model version (e.g., '2024-08', 'v1.0')",
+        max_length=50,
+    )
+
+    max_tokens: int = Field(
+        ...,
+        description="Maximum tokens per request",
+        gt=0,
+        le=1000000,
+    )
+
+    tokens_per_minute_limit: int = Field(
+        ...,
+        description="Token rate limit per minute",
+        gt=0,
+        le=10000000,
+    )
+
+    requests_per_minute_limit: int = Field(
+        ...,
+        description="Request rate limit per minute",
+        gt=0,
+        le=10000,
+    )
+
+    deployment_name: Optional[str] = Field(
+        default=None,
+        description="Optional deployment identifier",
+        max_length=100,
+    )
+
+    api_endpoint_url: Optional[str] = Field(
+        default=None,
+        description="Optional API endpoint URL",
+        max_length=500,
+    )
+
+    is_active_status: bool = Field(
+        default=True,
+        description="Whether the model is active for token allocation",
+    )
+
+    temperature: Optional[float] = Field(
+        default=None,
+        description="Default temperature setting (0.0 to 2.0)",
+        ge=0.0,
+        le=2.0,
+    )
+
+    random_seed: Optional[int] = Field(
+        default=None,
+        description="Optional random seed for reproducible results",
+        ge=0,
+    )
+
+    deployment_region: Optional[str] = Field(
+        default=None,
+        description="Optional geographic deployment region",
+        max_length=50,
+    )
+
+    @field_validator("provider_name")
+    @classmethod
+    def validate_provider_name(cls, v: str) -> str:
+        """Validate that provider name is one of the supported providers."""
+        valid_providers = [
+            "openai",
+            "gemini",
+            "anthropic",
+            "mistral",
+            "cohere",
+            "xai",
+            "deepseek",
+            "meta",
+        ]
+        if v.lower() not in valid_providers:
+            raise ValueError(
+                f"Invalid provider name '{v}'. Must be one of: {', '.join(valid_providers)}"
+            )
+        return v.lower()
+
+    @field_validator("llm_model_name")
+    @classmethod
+    def validate_llm_model_name(cls, v: str) -> str:
+        """Validate LLM model name format."""
+        if not v or not v.strip():
+            raise ValueError("LLM model name cannot be empty")
+        # Allow alphanumeric, hyphens, underscores, and dots
+        import re
+
+        if not re.match(r"^[a-zA-Z0-9._-]+$", v):
+            raise ValueError(
+                "LLM model name can only contain letters, numbers, dots, underscores, and hyphens"
+            )
+        return v.strip()
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "provider_name": "openai",
+                "llm_model_name": "gpt-4o",
+                "api_key_variable_name": "OPENAI_API_KEY_GPT4O",
+                "llm_model_version": "2024-08",
+                "max_tokens": 8192,
+                "tokens_per_minute_limit": 100000,
+                "requests_per_minute_limit": 1000,
+                "deployment_name": "gpt-4o-eastus",
+                "api_endpoint_url": "https://api.openai.com/v1",
+                "is_active_status": True,
+                "temperature": 0.7,
+                "random_seed": 42,
+                "deployment_region": "eastus2",
+            }
+        }
+
+
+class LLMModelUpdateRequest(BaseModel):
+    """
+    Request model for updating an existing LLM model configuration.
+
+    All fields are optional - only provided fields will be updated.
+    Used for modifying rate limits, endpoints, settings, or activation status.
+    """
+
+    provider_name: Optional[str] = Field(
+        default=None,
+        description="Updated LLM provider name",
+        min_length=1,
+        max_length=50,
+    )
+
+    llm_model_name: Optional[str] = Field(
+        default=None,
+        description="Updated LLM model name",
+        min_length=1,
+        max_length=100,
+    )
+
+    api_key_variable_name: Optional[str] = Field(
+        default=None,
+        description="Updated API key environment variable name",
+        min_length=1,
+        max_length=200,
+    )
+
+    llm_model_version: Optional[str] = Field(
+        default=None,
+        description="Updated model version",
+        max_length=50,
+    )
+
+    max_tokens: Optional[int] = Field(
+        default=None,
+        description="Updated maximum tokens per request",
+        gt=0,
+        le=1000000,
+    )
+
+    tokens_per_minute_limit: Optional[int] = Field(
+        default=None,
+        description="Updated token rate limit per minute",
+        gt=0,
+        le=10000000,
+    )
+
+    requests_per_minute_limit: Optional[int] = Field(
+        default=None,
+        description="Updated request rate limit per minute",
+        gt=0,
+        le=10000,
+    )
+
+    deployment_name: Optional[str] = Field(
+        default=None,
+        description="Updated deployment identifier",
+        max_length=100,
+    )
+
+    api_endpoint_url: Optional[str] = Field(
+        default=None,
+        description="Updated API endpoint URL",
+        max_length=500,
+    )
+
+    is_active_status: Optional[bool] = Field(
+        default=None,
+        description="Updated activation status",
+    )
+
+    temperature: Optional[float] = Field(
+        default=None,
+        description="Updated temperature setting (0.0 to 2.0)",
+        ge=0.0,
+        le=2.0,
+    )
+
+    random_seed: Optional[int] = Field(
+        default=None,
+        description="Updated random seed for reproducible results",
+        ge=0,
+    )
+
+    deployment_region: Optional[str] = Field(
+        default=None,
+        description="Updated geographic deployment region",
+        max_length=50,
+    )
+
+    @field_validator("provider_name")
+    @classmethod
+    def validate_provider_name(cls, v: Optional[str]) -> Optional[str]:
+        """Validate that provider name is one of the supported providers."""
+        if v is None:
+            return v
+        valid_providers = [
+            "openai",
+            "gemini",
+            "anthropic",
+            "mistral",
+            "cohere",
+            "xai",
+            "deepseek",
+            "meta",
+        ]
+        if v.lower() not in valid_providers:
+            raise ValueError(
+                f"Invalid provider name '{v}'. Must be one of: {', '.join(valid_providers)}"
+            )
+        return v.lower()
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "max_tokens": 16384,
+                "tokens_per_minute_limit": 200000,
+                "is_active_status": True,
+                "temperature": 0.5,
+                "deployment_region": "westus2",
+            }
+        }

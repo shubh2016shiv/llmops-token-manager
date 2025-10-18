@@ -122,56 +122,119 @@ class LLMModelResponse(BaseModel):
     """
     Response schema for LLM model data.
 
-    IMPORTANT: Field names with 'model_' prefix have been renamed to 'llm_*' to avoid
-    conflicts with Pydantic's protected namespaces.
+    Based on the llm_models table schema with composite primary key
+    (provider_name, llm_model_name, llm_model_version).
     """
 
-    # Renamed from model_id to llm_id
-    llm_id: UUID = Field(
-        ...,
-        description="Model's unique identifier",
-        alias="model_id",  # Maps to database column 'model_id'
-    )
-    provider: str = Field(..., description="LLM provider")
-    # Renamed from model_name to llm_name
-    llm_name: str = Field(
-        ...,
-        description="Model name",
-        alias="model_name",  # Maps to database column 'model_name'
-    )
+    provider_name: str = Field(..., description="LLM provider name")
+    llm_model_name: str = Field(..., description="Name of the LLM model")
     deployment_name: Optional[str] = Field(default=None, description="Deployment name")
-    api_endpoint: Optional[str] = Field(default=None, description="API endpoint")
+    api_key_variable_name: Optional[str] = Field(
+        default=None, description="Environment variable name for API key"
+    )
+    api_endpoint_url: Optional[str] = Field(
+        default=None, description="API endpoint URL"
+    )
+    llm_model_version: Optional[str] = Field(default=None, description="Model version")
     max_tokens: Optional[int] = Field(
         default=None, description="Maximum tokens per request"
     )
-    is_active: bool = Field(..., description="Whether model is currently active")
-    region: Optional[str] = Field(default=None, description="Geographic region")
-    total_requests: int = Field(..., description="Total requests processed")
-    total_tokens_processed: int = Field(..., description="Total tokens processed")
+    tokens_per_minute_limit: Optional[int] = Field(
+        default=None, description="Token rate limit per minute"
+    )
+    requests_per_minute_limit: Optional[int] = Field(
+        default=None, description="Request rate limit per minute"
+    )
+    is_active_status: bool = Field(..., description="Whether model is currently active")
+    temperature: Optional[float] = Field(
+        default=None, description="Default temperature setting"
+    )
+    random_seed: Optional[int] = Field(
+        default=None, description="Random seed for reproducible results"
+    )
+    deployment_region: Optional[str] = Field(
+        default=None, description="Geographic deployment region"
+    )
     created_at: datetime = Field(..., description="When model was registered")
-    last_used_at: Optional[datetime] = Field(
-        default=None, description="Last usage timestamp"
+    updated_at: datetime = Field(..., description="When model was last updated")
+
+    class Config:
+        # Enable ORM mode for SQLAlchemy compatibility
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "provider_name": "openai",
+                "llm_model_name": "gpt-4o",
+                "deployment_name": "gpt-4o-eastus",
+                "api_key_variable_name": "OPENAI_API_KEY_GPT4O",
+                "api_endpoint_url": "https://api.openai.com/v1",
+                "llm_model_version": "2024-08",
+                "max_tokens": 8192,
+                "tokens_per_minute_limit": 100000,
+                "requests_per_minute_limit": 1000,
+                "is_active_status": True,
+                "temperature": 0.7,
+                "random_seed": 42,
+                "deployment_region": "eastus2",
+                "created_at": "2025-09-01T08:00:00Z",
+                "updated_at": "2025-10-13T10:30:00Z",
+            }
+        }
+
+
+class LLMModelListResponse(BaseModel):
+    """
+    Response schema for listing LLM models with pagination.
+
+    Used by: GET /api/v1/llm-models/provider/{provider} endpoint
+    Purpose: Returns a paginated list of LLM model configurations for a specific provider
+    Includes: Array of model objects, total count, pagination metadata, and navigation flags
+
+    When to use:
+    - When retrieving multiple LLM model configurations
+    - When implementing pagination for large result sets
+    - When providing navigation metadata (next/previous page availability)
+    - When filtering models by provider with optional active-only filtering
+    """
+
+    models: List[LLMModelResponse] = Field(
+        ..., description="List of LLM model configurations"
+    )
+    total_count: int = Field(..., description="Total number of models available")
+    page: int = Field(default=1, description="Current page number")
+    page_size: int = Field(default=50, description="Items per page")
+    has_next: bool = Field(..., description="Whether there are more results available")
+    has_previous: bool = Field(
+        ..., description="Whether there are previous results available"
     )
 
     class Config:
-        # Disable protected namespaces to avoid conflicts with model_ prefix fields
-        protected_namespaces = ()
-        # Allow population by field name or alias
-        populate_by_name = True
         json_schema_extra = {
             "example": {
-                "llm_id": "650e8400-e29b-41d4-a716-446655440000",  # Updated field name
-                "provider": "openai",
-                "llm_name": "gpt-4",  # Updated field name
-                "deployment_name": "gpt-4-turbo",
-                "api_endpoint": "https://api.openai.com/v1",
-                "max_tokens": 8192,
-                "is_active": True,
-                "region": "eastus2",
-                "total_requests": 1500,
-                "total_tokens_processed": 3000000,
-                "created_at": "2025-09-01T08:00:00Z",
-                "last_used_at": "2025-10-13T10:30:00Z",
+                "models": [
+                    {
+                        "provider_name": "openai",
+                        "llm_model_name": "gpt-4o",
+                        "deployment_name": "gpt-4o-eastus",
+                        "api_key_variable_name": "OPENAI_API_KEY_GPT4O",
+                        "api_endpoint_url": "https://api.openai.com/v1",
+                        "llm_model_version": "2024-08",
+                        "max_tokens": 8192,
+                        "tokens_per_minute_limit": 100000,
+                        "requests_per_minute_limit": 1000,
+                        "is_active_status": True,
+                        "temperature": 0.7,
+                        "random_seed": 42,
+                        "deployment_region": "eastus2",
+                        "created_at": "2025-09-01T08:00:00Z",
+                        "updated_at": "2025-10-13T10:30:00Z",
+                    }
+                ],
+                "total_count": 25,
+                "page": 1,
+                "page_size": 50,
+                "has_next": False,
+                "has_previous": False,
             }
         }
 

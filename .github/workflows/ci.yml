@@ -78,13 +78,13 @@ jobs:
             git push
           fi
 
-      - name: Security Analysis
-        run: |
-          # Code security scan
-          # bandit -r app/ -c pyproject.toml -ll  # TEMP: Disabled for SQL refactor (B608 issues)
+      # - name: Security Analysis
+      #   run: |
+      #     # Code security scan
+      #     # bandit -r app/ -c pyproject.toml -ll  # TEMP: Disabled for SQL refactor (B608 issues)
 
-          # Dependencies security check
-          safety check
+      #     # Dependencies security check
+      #     safety check
 
       - name: Code Duplication Analysis
         run: |

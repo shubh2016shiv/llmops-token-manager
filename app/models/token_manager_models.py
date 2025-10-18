@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, Dict, Any
 from uuid import UUID
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from enum import Enum
 
 
@@ -37,18 +37,17 @@ class TokenEstimation(BaseModel):
         ..., ge=0.0, description="Processing time in milliseconds"
     )
 
-    @field_validator("total_tokens")
-    @classmethod
-    def validate_total_tokens(cls, v: int, values: Dict[str, Any]) -> int:
+    @model_validator(mode="after")
+    def validate_total_tokens(self) -> "TokenEstimation":
         """Validate that total tokens equals sum of component tokens."""
-        text = values.get("text_tokens", 0)
-        image = values.get("image_tokens", 0)
-        tool = values.get("tool_tokens", 0)
-        if v != text + image + tool:
+        text = self.text_tokens
+        image = self.image_tokens
+        tool = self.tool_tokens
+        if self.total_tokens != text + image + tool:
             raise ValueError(
                 "Total tokens must equal sum of text, image and tool tokens"
             )
-        return v
+        return self
 
     def __str__(self) -> str:
         """Pretty print estimation result."""

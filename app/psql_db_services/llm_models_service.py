@@ -119,7 +119,6 @@ class LLMModelsService(BaseDatabaseService):
         provider_name: str,
         llm_model_name: str,
         api_key_variable_name: str,
-        llm_model_version: str,
         max_tokens: int,
         tokens_per_minute_limit: int,
         requests_per_minute_limit: int,
@@ -129,6 +128,7 @@ class LLMModelsService(BaseDatabaseService):
         temperature: Optional[float] = None,
         random_seed: Optional[int] = None,
         deployment_region: Optional[str] = None,
+        llm_model_version: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Create a new LLM model configuration in the database.

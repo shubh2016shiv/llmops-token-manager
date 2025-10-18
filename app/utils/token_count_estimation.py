@@ -141,6 +141,8 @@ class TokenEstimator:
             text_tokens = len(input_data) // chars_per_token
         else:
             # Sum all text content
+            if not isinstance(input_data, list):
+                raise ValueError("Expected list of messages for CHAT_MESSAGES type")
             total_chars = sum(len(str(msg.get("content", ""))) for msg in input_data)
             text_tokens = total_chars // chars_per_token
 
@@ -195,11 +197,15 @@ class TokenEstimator:
         try:
             # Step 3: Estimate tokens using LiteLLM (with implicit timeout via overall check)
             if input_type == InputType.SIMPLE_STRING:
+                if not isinstance(input_data, str):
+                    raise ValueError("Expected string for SIMPLE_STRING type")
                 total_tokens = litellm.token_counter(model=model, text=input_data)
                 message_count = 1
                 logger.info(f"✓ Simple string: {total_tokens} tokens")
 
             else:  # CHAT_MESSAGES
+                if not isinstance(input_data, list):
+                    raise ValueError("Expected list for CHAT_MESSAGES type")
                 total_tokens = litellm.token_counter(model=model, messages=input_data)
                 message_count = len(input_data)
                 image_count = cls._count_images(input_data)
@@ -214,11 +220,13 @@ class TokenEstimator:
                 f"LiteLLM estimation failed: {e}. Using fallback.", exc_info=False
             )
 
-            image_count = (
-                cls._count_images(input_data)
-                if input_type == InputType.CHAT_MESSAGES
-                else 0
-            )
+            if input_type == InputType.CHAT_MESSAGES:
+                if isinstance(input_data, list):
+                    image_count = cls._count_images(input_data)
+                else:
+                    image_count = 0
+            else:
+                image_count = 0
             total_tokens = cls._fallback_estimate(input_data, input_type, image_count)
             message_count = (
                 len(input_data) if input_type == InputType.CHAT_MESSAGES else 1

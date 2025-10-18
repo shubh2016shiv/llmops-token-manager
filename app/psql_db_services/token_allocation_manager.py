@@ -447,7 +447,7 @@ class TokenAllocationService(BaseDatabaseService):
             async with self.get_session() as session:
                 # Build dynamic update query
                 update_fields = ["allocation_status = :new_status"]
-                params = {
+                params: Dict[str, Any] = {
                     "new_status": new_status,
                     "token_request_id": token_request_id,
                 }
@@ -641,7 +641,7 @@ class TokenAllocationService(BaseDatabaseService):
                 result = await session.execute(
                     text(query), {"token_request_id": token_request_id}
                 )
-                deleted = result.rowcount > 0
+                deleted = getattr(result, "rowcount", 0) > 0
 
                 if deleted:
                     logger.info(f"Deleted allocation: {token_request_id}")
@@ -675,7 +675,7 @@ class TokenAllocationService(BaseDatabaseService):
                         AND allocation_status IN ('ACQUIRED', 'PAUSED', 'WAITING')
                 """
                 result = await session.execute(text(query))
-                deleted_count = result.rowcount
+                deleted_count = getattr(result, "rowcount", 0)
 
                 if deleted_count > 0:
                     logger.info(f"Cleaned up {deleted_count} expired allocations")
@@ -720,7 +720,7 @@ class TokenAllocationService(BaseDatabaseService):
                     """
                     result = await session.execute(text(query), {"user_id": user_id})
 
-                deleted_count = result.rowcount
+                deleted_count = getattr(result, "rowcount", 0)
                 logger.info(f"Deleted {deleted_count} allocations for user {user_id}")
                 return int(deleted_count)
         except Exception as e:

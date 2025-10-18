@@ -147,7 +147,7 @@ class BaseDatabaseService:
                     chunk = parameter_list[i : i + page_size]
                     for params in chunk:
                         result = await session.execute(text(sql_query), params)
-                        rows_affected += result.rowcount
+                        rows_affected += getattr(result, "rowcount", 0)
 
                 logger.info(
                     f"{self._service_name}: Batch insert completed. "

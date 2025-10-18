@@ -301,7 +301,7 @@ class LLMModelsService(BaseDatabaseService):
                 sql_query = (
                     "SELECT * FROM llm_models WHERE provider_name = :provider_name"
                 )
-                params = {"provider_name": provider_name}
+                params: Dict[str, Any] = {"provider_name": provider_name}
 
                 if active_only is not None:
                     sql_query += " AND is_active_status = :is_active_status"
@@ -725,7 +725,7 @@ class LLMModelsService(BaseDatabaseService):
                 result = await session.execute(
                     text(sql_query), {"provider_name": provider_name}
                 )
-                deleted_count = result.rowcount
+                deleted_count = getattr(result, "rowcount", 0)
 
                 if deleted_count > 0:
                     self.log_operation(

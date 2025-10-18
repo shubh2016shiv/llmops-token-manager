@@ -69,7 +69,7 @@ class UsersService(BaseDatabaseService):
             raise
 
     @lru_cache(maxsize=1000)  # Cache validation results
-    def validate_email_address(self, email_address: str) -> None:
+    def validate_email_address(self, email_address: str) -> str:
         """
         Validate email address with caching for performance.
 
@@ -311,7 +311,7 @@ class UsersService(BaseDatabaseService):
         try:
             async with self.get_session() as session:
                 sql_query = "SELECT * FROM users WHERE 1=1"
-                params = {}
+                params: Dict[str, Any] = {}
 
                 if role_filter:
                     sql_query += " AND role = :role"

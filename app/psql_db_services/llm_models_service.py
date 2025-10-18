@@ -10,7 +10,6 @@ Production-ready database service for LLM model configuration and tracking inclu
 """
 
 from typing import Optional, List, Dict, Any
-from uuid import UUID
 
 from sqlalchemy import text
 from loguru import logger
@@ -34,12 +33,19 @@ class LLMModelsService(BaseDatabaseService):
     - Thread-safe operations for high-concurrency scenarios
     """
 
-    # Define valid enum values as class constants
-    VALID_LLM_PROVIDERS = ["openai", "gemini", "anthropic"]
-
     # Temperature constraints for LLM models
     MIN_TEMPERATURE = 0.0
     MAX_TEMPERATURE = 2.0
+    VALID_LLM_PROVIDER_NAMES = [
+        "openai",
+        "gemini",
+        "anthropic",
+        "mistral",
+        "cohere",
+        "xai",
+        "deepseek",
+        "meta",
+    ]
 
     def __init__(self, database_manager: Optional[DatabaseManager] = None):
         """
@@ -50,21 +56,15 @@ class LLMModelsService(BaseDatabaseService):
         """
         super().__init__(database_manager)
 
-    def validate_llm_provider(self, provider_name: str) -> None:
+    def validate_llm_provider_name(self, provider_name: str) -> None:
         """
-        Validate that an LLM provider is one of the supported providers.
-
-        Args:
-            provider_name: Provider name to validate
-
-        Raises:
-            ValueError: If provider is not in the list of valid providers
+        Validate that an LLM provider name is one of the supported providers.
         """
         self.validate_enum_value(
-            provider_name, self.VALID_LLM_PROVIDERS, "LLM provider"
+            provider_name, self.VALID_LLM_PROVIDER_NAMES, "LLM provider name"
         )
 
-    def validate_model_numerical_parameters(
+    def validate_llm_model_numerical_parameters(
         self,
         maximum_tokens: Optional[int] = None,
         tokens_per_minute_limit: Optional[int] = None,
@@ -117,36 +117,36 @@ class LLMModelsService(BaseDatabaseService):
     async def create_llm_model(
         self,
         provider_name: str,
-        model_name: str,
+        llm_model_name: str,
+        api_key_variable_name: str,
+        llm_model_version: str,
+        max_tokens: int,
+        tokens_per_minute_limit: int,
+        requests_per_minute_limit: int,
         deployment_name: Optional[str] = None,
-        api_key_vault_identifier: Optional[str] = None,
         api_endpoint_url: Optional[str] = None,
-        model_version: Optional[str] = None,
-        maximum_tokens: Optional[int] = None,
-        tokens_per_minute_limit: Optional[int] = None,
-        requests_per_minute_limit: Optional[int] = None,
         is_active_status: bool = True,
-        temperature_value: Optional[float] = None,
+        temperature: Optional[float] = None,
         random_seed: Optional[int] = None,
-        geographic_region: Optional[str] = None,
+        deployment_region: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Create a new LLM model configuration in the database.
 
         Args:
             provider_name: LLM provider (openai, gemini, anthropic)
-            model_name: Name of the model (required)
+            llm_model_name: Name of the model (required)
             deployment_name: Optional deployment identifier
-            api_key_vault_identifier: Optional API key vault reference
+            api_key_variable_name: Optional API key vault reference
             api_endpoint_url: Optional API endpoint URL
-            model_version: Optional model version string
-            maximum_tokens: Optional maximum tokens per request
+            llm_model_version: Optional model version string
+            max_tokens: Optional maximum tokens per request
             tokens_per_minute_limit: Optional token rate limit per minute
             requests_per_minute_limit: Optional request rate limit per minute
             is_active_status: Whether model is active (default: True)
-            temperature_value: Optional temperature setting (0.0 to 2.0)
+            temperature: Optional temperature setting (0.0 to 2.0)
             random_seed: Optional seed for reproducibility
-            geographic_region: Optional geographic region identifier
+            deployment_region: Optional geographic region identifier
 
         Returns:
             Dictionary containing the created model record with all fields
@@ -156,13 +156,13 @@ class LLMModelsService(BaseDatabaseService):
             sqlalchemy.exc.SQLAlchemyError: On other database errors
             ValueError: On invalid input parameters
         """
-        self.validate_llm_provider(provider_name)
-        self.validate_string_not_empty(model_name, "model_name")
-        self.validate_model_numerical_parameters(
-            maximum_tokens=maximum_tokens,
+
+        self.validate_string_not_empty(llm_model_name, "model_name")
+        self.validate_llm_model_numerical_parameters(
+            maximum_tokens=max_tokens,
             tokens_per_minute_limit=tokens_per_minute_limit,
             requests_per_minute_limit=requests_per_minute_limit,
-            temperature_value=temperature_value,
+            temperature_value=temperature,
             random_seed=random_seed,
         )
 
@@ -170,31 +170,31 @@ class LLMModelsService(BaseDatabaseService):
             async with self.get_session() as session:
                 sql_query = """
                     INSERT INTO llm_models (
-                        provider, model_name, deployment_name, api_key_vault_id,
-                        api_endpoint, model_version, max_tokens, tokens_per_minute_limit,
-                        requests_per_minute_limit, is_active, temperature, seed, region
+                        provider_name, llm_model_name, deployment_name, api_key_variable_name,
+                        api_endpoint_url, llm_model_version, max_tokens, tokens_per_minute_limit,
+                        requests_per_minute_limit, is_active_status, temperature, random_seed, deployment_region
                     ) VALUES (
-                        :provider, :model_name, :deployment_name, :api_key_vault_id,
-                        :api_endpoint, :model_version, :max_tokens, :tokens_per_minute_limit,
-                        :requests_per_minute_limit, :is_active, :temperature, :seed, :region
+                        :provider_name, :llm_model_name, :deployment_name, :api_key_variable_name,
+                        :api_endpoint_url, :llm_model_version, :max_tokens, :tokens_per_minute_limit,
+                        :requests_per_minute_limit, :is_active_status, :temperature, :random_seed, :deployment_region
                     )
                     RETURNING *
                 """
 
                 params = {
-                    "provider": provider_name,
-                    "model_name": model_name,
+                    "provider_name": provider_name,
+                    "llm_model_name": llm_model_name,
                     "deployment_name": deployment_name,
-                    "api_key_vault_id": api_key_vault_identifier,
-                    "api_endpoint": api_endpoint_url,
-                    "model_version": model_version,
-                    "max_tokens": maximum_tokens,
+                    "api_key_variable_name": api_key_variable_name,
+                    "api_endpoint_url": api_endpoint_url,
+                    "llm_model_version": llm_model_version,
+                    "max_tokens": max_tokens,
                     "tokens_per_minute_limit": tokens_per_minute_limit,
                     "requests_per_minute_limit": requests_per_minute_limit,
-                    "is_active": is_active_status,
-                    "temperature": temperature_value,
-                    "seed": random_seed,
-                    "region": geographic_region,
+                    "is_active_status": is_active_status,
+                    "temperature": temperature,
+                    "random_seed": random_seed,
+                    "deployment_region": deployment_region,
                 }
 
                 result = await session.execute(text(sql_query), params)
@@ -204,126 +204,108 @@ class LLMModelsService(BaseDatabaseService):
                     raise RuntimeError("Failed to create model record")
 
                 self.log_operation(
-                    "CREATE", f"{provider_name}/{model_name}", success=True
+                    "CREATE", f"{provider_name}/{llm_model_name}", success=True
                 )
                 return dict(created_model)
         except Exception as e:
-            logger.error(f"Error creating model {model_name}: {e}")
+            logger.error(f"Error creating model {llm_model_name}: {e}")
             raise
 
     # ========================================================================
     # READ OPERATIONS
     # ========================================================================
 
-    async def get_llm_model_by_id(self, model_id: UUID) -> Optional[Dict[str, Any]]:
-        """
-        Retrieve an LLM model by its unique identifier.
-
-        Args:
-            model_id: Model's unique UUID identifier
-
-        Returns:
-            Dictionary containing model record or None if not found
-
-        Raises:
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-            ValueError: If model_id is invalid
-        """
-        self.validate_uuid(model_id, "model_id")
-
-        try:
-            async with self.get_session() as session:
-                sql_query = """
-                    SELECT * FROM llm_models
-                    WHERE model_id = :model_id
-                """
-                result = await session.execute(text(sql_query), {"model_id": model_id})
-                model_record = result.mappings().one_or_none()
-                return dict(model_record) if model_record else None
-        except Exception as e:
-            logger.error(f"Error fetching model {model_id}: {e}")
-            raise
-
-    async def get_llm_model_by_name_and_endpoint(
-        self, model_name: str, api_endpoint_url: str
+    async def get_llm_model_by_provider_and_model(
+        self,
+        provider_name: str,
+        llm_model_name: str,
+        llm_model_version: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
-        Retrieve an LLM model by its name and API endpoint.
+        Retrieve an LLM model by its provider, model name, and optional version.
 
-        Useful for finding specific model deployments.
+        This is the primary method for fetching a specific model configuration using the composite key.
 
         Args:
-            model_name: Model name to search for
-            api_endpoint_url: API endpoint URL
+            provider_name: Provider name (e.g., 'openai', 'anthropic').
+            llm_model_name: Model name (e.g., 'gpt-4o').
+            llm_model_version: Optional model version (e.g., '2024-08'), or None if not versioned.
 
         Returns:
-            Dictionary containing model record or None if not found
+            Dictionary containing the model record or None if not found.
 
         Raises:
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-            ValueError: If parameters are invalid
+            sqlalchemy.exc.SQLAlchemyError: On database errors.
+            ValueError: If provider_name or llm_model_name is invalid or empty.
         """
-        self.validate_string_not_empty(model_name, "model_name")
-        self.validate_string_not_empty(api_endpoint_url, "api_endpoint_url")
+        self.validate_llm_provider(provider_name)
+        self.validate_string_not_empty(llm_model_name, "llm_model_name")
 
         try:
             async with self.get_session() as session:
-                sql_query = """
+                where_conditions = "provider_name = :provider_name AND llm_model_name = :llm_model_name"
+                params = {
+                    "provider_name": provider_name,
+                    "llm_model_name": llm_model_name,
+                }
+                if llm_model_version is not None:
+                    where_conditions += " AND llm_model_version = :llm_model_version"
+                    params["llm_model_version"] = llm_model_version
+                else:
+                    where_conditions += " AND llm_model_version IS NULL"
+
+                sql_query = f"""
                     SELECT * FROM llm_models
-                    WHERE model_name = :model_name AND api_endpoint = :api_endpoint
+                    WHERE {where_conditions}
                 """
-                params = {"model_name": model_name, "api_endpoint": api_endpoint_url}
                 result = await session.execute(text(sql_query), params)
                 model_record = result.mappings().one_or_none()
                 return dict(model_record) if model_record else None
         except Exception as e:
             logger.error(
-                f"Error fetching model {model_name} at {api_endpoint_url}: {e}"
+                f"Error fetching model ({provider_name}, {llm_model_name}, {llm_model_version}): {e}"
             )
             raise
 
-    async def get_all_llm_models(
+    async def get_llm_models_by_provider(
         self,
-        provider_filter: Optional[str] = None,
-        active_status_filter: Optional[bool] = None,
+        provider_name: str,
+        active_only: Optional[bool] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
         """
-        Retrieve all LLM models with optional filtering and pagination.
+        Retrieve all LLM models for a specific provider with optional active status filter and pagination.
 
-        Optimized for high-concurrency scenarios with indexed queries.
+        This is the core method for listing models within a provider, optimized for business-critical
+        discovery and management workflows.
 
         Args:
-            provider_filter: Optional provider to filter by (openai, gemini, anthropic)
-            active_status_filter: Optional active status filter (True/False)
-            limit: Maximum number of records to return (default: 100, max: 1000)
-            offset: Number of records to skip for pagination (default: 0)
+            provider_name: Provider name to filter by (e.g., 'openai', 'anthropic').
+            active_only: Optional filter for active models only (True/False); defaults to all.
+            limit: Maximum number of records to return (default: 100, max: 1000).
+            offset: Number of records to skip for pagination (default: 0).
 
         Returns:
-            List of model records ordered by creation date (newest first)
+            List of model records ordered by creation date (newest first).
 
         Raises:
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-            ValueError: On invalid pagination or filter parameters
+            sqlalchemy.exc.SQLAlchemyError: On database errors.
+            ValueError: On invalid provider_name or pagination parameters.
         """
+        self.validate_llm_provider(provider_name)
         self.validate_pagination_parameters(limit, offset)
-
-        if provider_filter:
-            self.validate_llm_provider(provider_filter)
 
         try:
             async with self.get_session() as session:
-                sql_query = "SELECT * FROM llm_models WHERE 1=1"
-                params = {}
+                sql_query = (
+                    "SELECT * FROM llm_models WHERE provider_name = :provider_name"
+                )
+                params = {"provider_name": provider_name}
 
-                if provider_filter:
-                    sql_query += " AND provider = :provider"
-                    params["provider"] = provider_filter
-
-                if active_status_filter is not None:
-                    sql_query += " AND is_active = :is_active"
-                    params["is_active"] = active_status_filter
+                if active_only is not None:
+                    sql_query += " AND is_active_status = :is_active_status"
+                    params["is_active_status"] = active_only
 
                 sql_query += " ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
                 params["limit"] = limit
@@ -331,108 +313,59 @@ class LLMModelsService(BaseDatabaseService):
 
                 result = await session.execute(text(sql_query), params)
                 model_records = result.mappings().all()
-                logger.debug(f"Retrieved {len(model_records)} models")
-                return [dict(row) for row in model_records]
-        except Exception as e:
-            logger.error(f"Error fetching models: {e}")
-            raise
-
-    async def get_active_llm_models(
-        self, limit: int = 100, offset: int = 0
-    ) -> List[Dict[str, Any]]:
-        """
-        Retrieve all active LLM models.
-
-        Args:
-            limit: Maximum number of records to return (default: 100)
-            offset: Number of records to skip for pagination (default: 0)
-
-        Returns:
-            List of active model records
-
-        Raises:
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-            ValueError: On invalid pagination parameters
-        """
-        return await self.get_all_llm_models(
-            active_status_filter=True, limit=limit, offset=offset
-        )
-
-    async def get_llm_models_by_provider(
-        self, provider_name: str, limit: int = 100, offset: int = 0
-    ) -> List[Dict[str, Any]]:
-        """
-        Retrieve all models for a specific LLM provider.
-
-        Args:
-            provider_name: Provider name to filter by (openai, gemini, anthropic)
-            limit: Maximum number of records to return (default: 100)
-            offset: Number of records to skip for pagination (default: 0)
-
-        Returns:
-            List of model records for the specified provider
-
-        Raises:
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-            ValueError: On invalid parameters
-        """
-        return await self.get_all_llm_models(
-            provider_filter=provider_name, limit=limit, offset=offset
-        )
-
-    async def get_llm_models_by_name(
-        self, model_name: str, limit: int = 100, offset: int = 0
-    ) -> List[Dict[str, Any]]:
-        """
-        Retrieve all deployments/configurations for a specific model name.
-
-        Args:
-            model_name: Model name to search for
-            limit: Maximum number of records to return (default: 100)
-            offset: Number of records to skip for pagination (default: 0)
-
-        Returns:
-            List of model records with the same name
-
-        Raises:
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-            ValueError: On invalid parameters
-        """
-        self.validate_string_not_empty(model_name, "model_name")
-        self.validate_pagination_parameters(limit, offset)
-
-        try:
-            async with self.get_session() as session:
-                sql_query = """
-                    SELECT * FROM llm_models
-                    WHERE model_name = :model_name
-                    ORDER BY created_at DESC
-                    LIMIT :limit OFFSET :offset
-                """
-                params = {"model_name": model_name, "limit": limit, "offset": offset}
-                result = await session.execute(text(sql_query), params)
-                model_records = result.mappings().all()
                 logger.debug(
-                    f"Found {len(model_records)} configurations for model {model_name}"
+                    f"Retrieved {len(model_records)} models for provider {provider_name}"
                 )
                 return [dict(row) for row in model_records]
         except Exception as e:
-            logger.error(f"Error fetching models by name {model_name}: {e}")
+            logger.error(f"Error fetching models for provider {provider_name}: {e}")
             raise
+
+    async def get_active_llm_models_by_provider(
+        self,
+        provider_name: str,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve all active LLM models for a specific provider.
+
+        Convenience wrapper for business-critical active model discovery per provider.
+
+        Args:
+            provider_name: Provider name to filter by (e.g., 'openai', 'anthropic').
+            limit: Maximum number of records to return (default: 100).
+            offset: Number of records to skip for pagination (default: 0).
+
+        Returns:
+            List of active model records ordered by creation date (newest first).
+
+        Raises:
+            sqlalchemy.exc.SQLAlchemyError: On database errors.
+            ValueError: On invalid provider_name or pagination parameters.
+        """
+        return await self.get_llm_models_by_provider(
+            provider_name=provider_name,
+            active_only=True,
+            limit=limit,
+            offset=offset,
+        )
 
     async def count_llm_models_by_provider(self, provider_name: str) -> int:
         """
-        Count the number of models for a specific provider.
+        Count the number of LLM models for a specific provider.
+
+        Useful for dashboard metrics and capacity planning.
 
         Args:
-            provider_name: Provider name (openai, gemini, anthropic)
+            provider_name: Provider name (e.g., 'openai', 'anthropic').
 
         Returns:
-            Number of models for the specified provider
+            Number of models for the specified provider.
 
         Raises:
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-            ValueError: If provider is invalid
+            sqlalchemy.exc.SQLAlchemyError: On database errors.
+            ValueError: If provider_name is invalid.
         """
         self.validate_llm_provider(provider_name)
 
@@ -440,10 +373,10 @@ class LLMModelsService(BaseDatabaseService):
             async with self.get_session() as session:
                 sql_query = """
                     SELECT COUNT(*) FROM llm_models
-                    WHERE provider = :provider
+                    WHERE provider_name = :provider_name
                 """
                 result = await session.execute(
-                    text(sql_query), {"provider": provider_name}
+                    text(sql_query), {"provider_name": provider_name}
                 )
                 return result.scalar_one_or_none() or 0
         except Exception as e:
@@ -456,101 +389,134 @@ class LLMModelsService(BaseDatabaseService):
 
     async def update_llm_model(
         self,
-        model_id: UUID,
-        provider_name: Optional[str] = None,
-        model_name: Optional[str] = None,
+        provider_name: str,
+        llm_model_name: str,
+        llm_model_version: Optional[str] = None,
+        new_provider_name: Optional[str] = None,
+        new_llm_model_name: Optional[str] = None,
         deployment_name: Optional[str] = None,
-        api_key_vault_identifier: Optional[str] = None,
+        api_key_variable_name: Optional[str] = None,
         api_endpoint_url: Optional[str] = None,
-        model_version: Optional[str] = None,
-        maximum_tokens: Optional[int] = None,
+        new_llm_model_version: Optional[str] = None,
+        max_tokens: Optional[int] = None,
         tokens_per_minute_limit: Optional[int] = None,
         requests_per_minute_limit: Optional[int] = None,
         is_active_status: Optional[bool] = None,
-        temperature_value: Optional[float] = None,
+        temperature: Optional[float] = None,
         random_seed: Optional[int] = None,
-        geographic_region: Optional[str] = None,
+        deployment_region: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
-        Update LLM model configuration with dynamic field updates.
+        Update an LLM model configuration with dynamic field updates.
 
-        Only provided fields will be updated, optimizing database writes.
+        Only provided fields will be updated, optimizing database writes. The model is identified by
+        its composite key (provider_name, llm_model_name, llm_model_version). Updates to the composite
+        key fields (new_provider_name, new_llm_model_name, new_llm_model_version) will change the
+        model's identity in the table.
 
         Args:
-            model_id: Model's unique UUID identifier
-            provider_name: Optional new provider (openai, gemini, anthropic)
-            model_name: Optional new model name
-            deployment_name: Optional new deployment identifier
-            api_key_vault_identifier: Optional new API key vault reference
-            api_endpoint_url: Optional new API endpoint URL
-            model_version: Optional new model version
-            maximum_tokens: Optional new maximum tokens per request
-            tokens_per_minute_limit: Optional new token rate limit
-            requests_per_minute_limit: Optional new request rate limit
-            is_active_status: Optional new active status
-            temperature_value: Optional new temperature (0.0 to 2.0)
-            random_seed: Optional new seed for reproducibility
-            geographic_region: Optional new geographic region
+            provider_name: Current provider name identifying the model (e.g., 'openai').
+            llm_model_name: Current model name identifying the model (e.g., 'gpt-4o').
+            llm_model_version: Current model version identifying the model (e.g., '2024-08'), or None if not versioned.
+            new_provider_name: Optional new provider name (e.g., 'openai', 'anthropic').
+            new_llm_model_name: Optional new model name (e.g., 'gpt-4o', 'claude-3.5-sonnet').
+            deployment_name: Optional new deployment name (e.g., 'gpt-4o').
+            api_key_variable_name: Optional new API key variable name (e.g., 'OPENAI_API_KEY_GPT4O').
+            api_endpoint_url: Optional new API endpoint URL.
+            new_llm_model_version: Optional new model version (e.g., '2024-10').
+            max_tokens: Optional new maximum tokens per request.
+            tokens_per_minute_limit: Optional new token rate limit per minute.
+            requests_per_minute_limit: Optional new request rate limit per minute.
+            is_active_status: Optional new active status (True/False).
+            temperature: Optional new temperature value (0.0 to 2.0).
+            random_seed: Optional new random seed for reproducibility.
+            deployment_region: Optional new deployment region (e.g., 'eastus2').
 
         Returns:
-            Updated model record dictionary or None if model not found
+            Updated model record as a dictionary, or None if the model is not found.
 
         Raises:
-            sqlalchemy.exc.IntegrityError: If update violates constraints
-            sqlalchemy.exc.SQLAlchemyError: On other database errors
-            ValueError: On invalid input parameters
+            sqlalchemy.exc.IntegrityError: If the update violates constraints (e.g., duplicate composite key).
+            sqlalchemy.exc.SQLAlchemyError: On other database errors.
+            ValueError: On invalid input parameters (e.g., invalid provider name).
         """
-        self.validate_uuid(model_id, "model_id")
+        # Validate composite key inputs
+        if not provider_name or not llm_model_name:
+            raise ValueError(
+                "provider_name and llm_model_name must be provided to identify the model"
+            )
 
-        if provider_name:
-            self.validate_llm_provider(provider_name)
+        # Validate new provider name if provided
+        if new_provider_name:
+            self.validate_llm_provider(new_provider_name)
+
+        # Validate numerical parameters
         self.validate_model_numerical_parameters(
-            maximum_tokens=maximum_tokens,
+            max_tokens=max_tokens,
             tokens_per_minute_limit=tokens_per_minute_limit,
             requests_per_minute_limit=requests_per_minute_limit,
-            temperature_value=temperature_value,
+            temperature=temperature,
             random_seed=random_seed,
         )
 
         # Build update fields dictionary
         update_fields_dict: Dict[str, Any] = {}
-        if provider_name is not None:
-            update_fields_dict["provider"] = provider_name
-        if model_name is not None:
-            update_fields_dict["model_name"] = model_name
+        if new_provider_name is not None:
+            update_fields_dict["provider_name"] = new_provider_name
+        if new_llm_model_name is not None:
+            update_fields_dict["llm_model_name"] = new_llm_model_name
         if deployment_name is not None:
             update_fields_dict["deployment_name"] = deployment_name
-        if api_key_vault_identifier is not None:
-            update_fields_dict["api_key_vault_id"] = api_key_vault_identifier
+        if api_key_variable_name is not None:
+            update_fields_dict["api_key_variable_name"] = api_key_variable_name
         if api_endpoint_url is not None:
-            update_fields_dict["api_endpoint"] = api_endpoint_url
-        if model_version is not None:
-            update_fields_dict["model_version"] = model_version
-        if maximum_tokens is not None:
-            update_fields_dict["max_tokens"] = maximum_tokens
+            update_fields_dict["api_endpoint_url"] = api_endpoint_url
+        if new_llm_model_version is not None:
+            update_fields_dict["llm_model_version"] = new_llm_model_version
+        if max_tokens is not None:
+            update_fields_dict["max_tokens"] = max_tokens
         if tokens_per_minute_limit is not None:
             update_fields_dict["tokens_per_minute_limit"] = tokens_per_minute_limit
         if requests_per_minute_limit is not None:
             update_fields_dict["requests_per_minute_limit"] = requests_per_minute_limit
         if is_active_status is not None:
-            update_fields_dict["is_active"] = is_active_status
-        if temperature_value is not None:
-            update_fields_dict["temperature"] = temperature_value
+            update_fields_dict["is_active_status"] = is_active_status
+        if temperature is not None:
+            update_fields_dict["temperature"] = temperature
         if random_seed is not None:
-            update_fields_dict["seed"] = random_seed
-        if geographic_region is not None:
-            update_fields_dict["region"] = geographic_region
+            update_fields_dict["random_seed"] = random_seed
+        if deployment_region is not None:
+            update_fields_dict["deployment_region"] = deployment_region
 
+        # If no fields to update, return current model
         if not update_fields_dict:
-            logger.warning(f"No fields to update for model {model_id}")
-            return await self.get_llm_model_by_id(model_id)
+            logger.warning(
+                f"No fields to update for model ({provider_name}, {llm_model_name}, {llm_model_version})"
+            )
+            return await self.get_llm_model_by_composite_key(
+                provider_name, llm_model_name, llm_model_version
+            )
 
         try:
+            # Build where clause for composite key
+            where_clause = (
+                "provider_name = :provider_name AND llm_model_name = :llm_model_name"
+            )
+            where_parameters = {
+                "provider_name": provider_name,
+                "llm_model_name": llm_model_name,
+            }
+            if llm_model_version is not None:
+                where_clause += " AND llm_model_version = :llm_model_version"
+                where_parameters["llm_model_version"] = llm_model_version
+            else:
+                where_clause += " AND llm_model_version IS NULL"
+
             sql_query, query_parameters = self.build_dynamic_update_query(
                 table_name="llm_models",
                 update_fields=update_fields_dict,
-                where_clause="model_id = :model_id",
-                where_parameters={"model_id": model_id},
+                where_clause=where_clause,
+                where_parameters=where_parameters,
             )
 
             async with self.get_session() as session:
@@ -558,140 +524,124 @@ class LLMModelsService(BaseDatabaseService):
                 updated_model = result.mappings().one_or_none()
 
                 if updated_model:
-                    self.log_operation("UPDATE", model_id, success=True)
+                    self.log_operation(
+                        "UPDATE",
+                        f"({provider_name}, {llm_model_name}, {llm_model_version})",
+                        success=True,
+                    )
                     return dict(updated_model)
 
-                logger.warning(f"Model {model_id} not found for update")
+                logger.warning(
+                    f"Model ({provider_name}, {llm_model_name}, {llm_model_version}) not found for update"
+                )
                 return None
         except Exception as e:
-            logger.error(f"Error updating model {model_id}: {e}")
+            logger.error(
+                f"Error updating model ({provider_name}, {llm_model_name}, {llm_model_version}): {e}"
+            )
             raise
 
     async def update_llm_model_status(
-        self, model_id: UUID, is_active_status: bool
+        self,
+        provider_name: str,
+        llm_model_name: str,
+        llm_model_version: Optional[str] = None,
+        is_active_status: bool = True,
     ) -> Optional[Dict[str, Any]]:
         """
         Update a model's active status.
 
         Args:
-            model_id: Model's unique UUID identifier
-            is_active_status: New active status (True/False)
+            provider_name: Current provider name identifying the model (e.g., 'openai').
+            llm_model_name: Current model name identifying the model (e.g., 'gpt-4o').
+            llm_model_version: Current model version identifying the model (e.g., '2024-08'), or None if not versioned.
+            is_active_status: New active status (True for active, False for inactive).
 
         Returns:
-            Updated model record or None if not found
+            Updated model record as a dictionary, or None if the model is not found.
 
         Raises:
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-            ValueError: If model_id is invalid
+            sqlalchemy.exc.SQLAlchemyError: On database errors.
+            ValueError: If provider_name or llm_model_name is empty.
         """
+        if not provider_name or not llm_model_name:
+            raise ValueError(
+                "provider_name and llm_model_name must be provided to identify the model"
+            )
+
         return await self.update_llm_model(
-            model_id=model_id, is_active_status=is_active_status
+            provider_name=provider_name,
+            llm_model_name=llm_model_name,
+            llm_model_version=llm_model_version,
+            is_active_status=is_active_status,
         )
 
-    async def activate_llm_model(self, model_id: UUID) -> Optional[Dict[str, Any]]:
-        """
-        Activate a model by setting is_active to True.
-
-        Args:
-            model_id: Model's unique UUID identifier
-
-        Returns:
-            Updated model record or None if not found
-
-        Raises:
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-            ValueError: If model_id is invalid
-        """
-        return await self.update_llm_model_status(
-            model_id=model_id, is_active_status=True
-        )
-
-    async def deactivate_llm_model(self, model_id: UUID) -> Optional[Dict[str, Any]]:
-        """
-        Deactivate a model by setting is_active to False.
-
-        Args:
-            model_id: Model's unique UUID identifier
-
-        Returns:
-            Updated model record or None if not found
-
-        Raises:
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-            ValueError: If model_id is invalid
-        """
-        return await self.update_llm_model_status(
-            model_id=model_id, is_active_status=False
-        )
-
-    async def update_model_usage_statistics(
+    async def activate_llm_model(
         self,
-        model_id: UUID,
-        request_count_increment: int = 1,
-        token_count_increment: int = 0,
+        provider_name: str,
+        llm_model_name: str,
+        llm_model_version: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
-        Update model usage statistics atomically.
-
-        Optimized for high-concurrency scenarios with atomic increments.
+        Activate a model by setting its active status to True.
 
         Args:
-            model_id: Model's unique UUID identifier
-            request_count_increment: Number of requests to add (default: 1)
-            token_count_increment: Number of tokens to add (default: 0)
+            provider_name: Current provider name identifying the model (e.g., 'openai').
+            llm_model_name: Current model name identifying the model (e.g., 'gpt-4o').
+            llm_model_version: Current model version identifying the model (e.g., '2024-08'), or None if not versioned.
 
         Returns:
-            Updated model record or None if not found
+            Updated model record as a dictionary, or None if the model is not found.
 
         Raises:
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-            ValueError: On invalid increment values or model_id
+            sqlalchemy.exc.SQLAlchemyError: On database errors.
+            ValueError: If provider_name or llm_model_name is empty.
         """
-        self.validate_uuid(model_id, "model_id")
-        self.validate_positive_integer(
-            request_count_increment, "request_count_increment", allow_zero=True
+        return await self.update_llm_model_status(
+            provider_name=provider_name,
+            llm_model_name=llm_model_name,
+            llm_model_version=llm_model_version,
+            is_active_status=True,
         )
-        self.validate_positive_integer(
-            token_count_increment, "token_count_increment", allow_zero=True
+
+    async def deactivate_llm_model(
+        self,
+        provider_name: str,
+        llm_model_name: str,
+        llm_model_version: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Deactivate a model by setting its active status to False.
+
+        Args:
+            provider_name: Current provider name identifying the model (e.g., 'openai').
+            llm_model_name: Current model name identifying the model (e.g., 'gpt-4o').
+            llm_model_version: Current model version identifying the model (e.g., '2024-08'), or None if not versioned.
+
+        Returns:
+            Updated model record as a dictionary, or None if the model is not found.
+
+        Raises:
+            sqlalchemy.exc.SQLAlchemyError: On database errors.
+            ValueError: If provider_name or llm_model_name is empty.
+        """
+        return await self.update_llm_model_status(
+            provider_name=provider_name,
+            llm_model_name=llm_model_name,
+            llm_model_version=llm_model_version,
+            is_active_status=False,
         )
-
-        try:
-            async with self.get_session() as session:
-                sql_query = """
-                    UPDATE llm_models
-                    SET
-                        total_requests = total_requests + :request_count,
-                        total_tokens_processed = total_tokens_processed + :token_count,
-                        last_used_at = CURRENT_TIMESTAMP,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE model_id = :model_id
-                    RETURNING *
-                """
-
-                params = {
-                    "request_count": request_count_increment,
-                    "token_count": token_count_increment,
-                    "model_id": model_id,
-                }
-
-                result = await session.execute(text(sql_query), params)
-                updated_model = result.mappings().one_or_none()
-
-                if updated_model:
-                    logger.debug(f"Updated usage stats for model {model_id}")
-                    return dict(updated_model)
-
-                logger.warning(f"Model {model_id} not found for usage update")
-                return None
-        except Exception as e:
-            logger.error(f"Error updating usage stats for model {model_id}: {e}")
-            raise
 
     # ========================================================================
     # DELETE OPERATIONS
     # ========================================================================
 
-    async def delete_llm_model(self, model_id: UUID) -> bool:
+    async def delete_llm_model(
+        self,
+        provider_name: str,
+        llm_model_name: str,
+        llm_model_version: Optional[str] = None,
+    ) -> bool:
         """
         Delete an LLM model configuration from the database.
 
@@ -699,34 +649,61 @@ class LLMModelsService(BaseDatabaseService):
         database foreign key constraints.
 
         Args:
-            model_id: Model's unique UUID identifier
+            provider_name: Provider name identifying the model (e.g., 'openai').
+            llm_model_name: Model name identifying the model (e.g., 'gpt-4o').
+            llm_model_version: Model version identifying the model (e.g., '2024-08'), or None if not versioned.
 
         Returns:
-            True if model was deleted, False if model was not found
+            True if the model was deleted, False if the model was not found.
 
         Raises:
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-            ValueError: If model_id is invalid
+            sqlalchemy.exc.SQLAlchemyError: On database errors.
+            ValueError: If provider_name or llm_model_name is empty.
         """
-        self.validate_uuid(model_id, "model_id")
+        if not provider_name or not llm_model_name:
+            raise ValueError(
+                "provider_name and llm_model_name must be provided to identify the model"
+            )
+
+        if provider_name:
+            self.validate_llm_provider(provider_name)
 
         try:
             async with self.get_session() as session:
-                sql_query = """
+                where_conditions = "provider_name = :provider_name AND llm_model_name = :llm_model_name"
+                params = {
+                    "provider_name": provider_name,
+                    "llm_model_name": llm_model_name,
+                }
+                if llm_model_version is not None:
+                    where_conditions += " AND llm_model_version = :llm_model_version"
+                    params["llm_model_version"] = llm_model_version
+                else:
+                    where_conditions += " AND llm_model_version IS NULL"
+
+                sql_query = f"""
                     DELETE FROM llm_models
-                    WHERE model_id = :model_id
+                    WHERE {where_conditions}
                 """
-                result = await session.execute(text(sql_query), {"model_id": model_id})
+                result = await session.execute(text(sql_query), params)
                 was_deleted = result.rowcount > 0
 
                 if was_deleted:
-                    self.log_operation("DELETE", model_id, success=True)
+                    self.log_operation(
+                        "DELETE",
+                        f"({provider_name}, {llm_model_name}, {llm_model_version})",
+                        success=True,
+                    )
                 else:
-                    logger.debug(f"Model not found for deletion: {model_id}")
+                    logger.debug(
+                        f"Model not found for deletion: ({provider_name}, {llm_model_name}, {llm_model_version})"
+                    )
 
                 return bool(was_deleted)
         except Exception as e:
-            logger.error(f"Error deleting model {model_id}: {e}")
+            logger.error(
+                f"Error deleting model ({provider_name}, {llm_model_name}, {llm_model_version}): {e}"
+            )
             raise
 
     async def delete_llm_models_by_provider(self, provider_name: str) -> int:
@@ -736,14 +713,14 @@ class LLMModelsService(BaseDatabaseService):
         Note: This is a bulk operation that may cascade to related records.
 
         Args:
-            provider_name: Provider name (openai, gemini, anthropic)
+            provider_name: Provider name (e.g., 'openai', 'anthropic').
 
         Returns:
-            Number of deleted model records
+            Number of deleted model records.
 
         Raises:
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-            ValueError: If provider is invalid
+            sqlalchemy.exc.SQLAlchemyError: On database errors.
+            ValueError: If provider_name is invalid.
         """
         self.validate_llm_provider(provider_name)
 
@@ -751,10 +728,10 @@ class LLMModelsService(BaseDatabaseService):
             async with self.get_session() as session:
                 sql_query = """
                     DELETE FROM llm_models
-                    WHERE provider = :provider
+                    WHERE provider_name = :provider_name
                 """
                 result = await session.execute(
-                    text(sql_query), {"provider": provider_name}
+                    text(sql_query), {"provider_name": provider_name}
                 )
                 deleted_count = result.rowcount
 

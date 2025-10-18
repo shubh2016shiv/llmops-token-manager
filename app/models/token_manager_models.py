@@ -2,8 +2,78 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
+from enum import Enum
 
 
+########################################################
+# Token Estimation Model
+########################################################
+class InputType(Enum):
+    """Types of inputs supported for token estimation."""
+
+    SIMPLE_STRING = "simple_string"
+    CHAT_MESSAGES = "chat_messages"
+    UNKNOWN = "unknown"
+
+
+class TokenEstimation(BaseModel):
+    """Result of token estimation with validation."""
+
+    input_type: InputType = Field(..., description="Type of input being processed")
+    model: str = Field(..., min_length=1, description="Name of the LLM model")
+    total_tokens: int = Field(
+        ..., ge=0, description="Total number of tokens in the input"
+    )
+    text_tokens: int = Field(
+        ..., ge=0, description="Number of tokens from text content"
+    )
+    image_tokens: int = Field(
+        ..., ge=0, description="Number of tokens from image content"
+    )
+    tool_tokens: int = Field(..., ge=0, description="Number of tokens from tool calls")
+    message_count: int = Field(..., ge=0, description="Number of messages in the input")
+    image_count: int = Field(..., ge=0, description="Number of images in the input")
+    processing_time_ms: float = Field(
+        ..., ge=0.0, description="Processing time in milliseconds"
+    )
+
+    @field_validator("total_tokens")
+    def validate_total_tokens(cls, v: int, values: Dict[str, Any]) -> int:
+        """Validate that total tokens equals sum of component tokens."""
+        text = values.get("text_tokens", 0)
+        image = values.get("image_tokens", 0)
+        tool = values.get("tool_tokens", 0)
+        if v != text + image + tool:
+            raise ValueError(
+                "Total tokens must equal sum of text, image and tool tokens"
+            )
+        return v
+
+    def __str__(self) -> str:
+        """Pretty print estimation result."""
+        lines = [
+            "Token Estimation Result:",
+            f" Input Type: {self.input_type.value}",
+            f" Model: {self.model}",
+            f" Total Tokens: {self.total_tokens}",
+        ]
+        if self.text_tokens > 0:
+            lines.append(f" Text Tokens: {self.text_tokens}")
+        if self.image_tokens > 0:
+            lines.append(
+                f" Image Tokens: {self.image_tokens} ({self.image_count} images)"
+            )
+        if self.tool_tokens > 0:
+            lines.append(f" Tool Tokens: {self.tool_tokens}")
+        if self.message_count > 1:
+            lines.append(f" Messages: {self.message_count}")
+        lines.append(f" Processing Time: {self.processing_time_ms:.2f}ms")
+        return "\n".join(lines)
+
+
+########################################################
+# Token Allocation Model
+########################################################
 class TokenAllocation(BaseModel):
     """
     Pydantic model for the 'token_manager' table.

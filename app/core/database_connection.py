@@ -204,7 +204,8 @@ class DatabaseManager:
             elif fetch_mode == "scalar":
                 return result.scalar_one_or_none()
             elif fetch_mode == "count":
-                return result.rowcount
+                # return result.rowcount
+                return getattr(result, "rowcount", 0)
             else:
                 return None
 

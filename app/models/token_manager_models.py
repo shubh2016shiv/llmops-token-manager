@@ -38,6 +38,7 @@ class TokenEstimation(BaseModel):
     )
 
     @field_validator("total_tokens")
+    @classmethod
     def validate_total_tokens(cls, v: int, values: Dict[str, Any]) -> int:
         """Validate that total tokens equals sum of component tokens."""
         text = values.get("text_tokens", 0)

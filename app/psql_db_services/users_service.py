@@ -134,8 +134,8 @@ class UsersService(BaseDatabaseService):
         password_hash: str,
         user_role: str = "developer",
         user_status: str = "active",
-        created_at: datetime = None,
-        updated_at: datetime = None,
+        created_at: Optional[datetime] = None,
+        updated_at: Optional[datetime] = None,
     ) -> Dict[str, Any]:
         """
         Create a new user record in the database.
@@ -434,6 +434,8 @@ class UsersService(BaseDatabaseService):
             sqlalchemy.exc.SQLAlchemyError: On other database errors
             ValueError: On invalid input parameters
         """
+        # TODO: Block updating user_id, created_at, updated_at, password
+        # TODO: Only admin can change user role
         self.validate_uuid(user_id, "user_id")
 
         if email_address:
@@ -580,7 +582,8 @@ class UsersService(BaseDatabaseService):
                     WHERE user_id = :user_id
                 """
                 result = await session.execute(text(sql_query), {"user_id": user_id})
-                was_deleted = result.rowcount > 0
+                # was_deleted = result.rowcount > 0
+                was_deleted = getattr(result, "rowcount", 0) > 0
 
                 if was_deleted:
                     self.log_operation("DELETE", user_id, success=True)
@@ -620,7 +623,8 @@ class UsersService(BaseDatabaseService):
                 result = await session.execute(
                     text(sql_query), {"email": email_address}
                 )
-                was_deleted = result.rowcount > 0
+                # was_deleted = result.rowcount > 0
+                was_deleted = getattr(result, "rowcount", 0) > 0
 
                 if was_deleted:
                     self.log_operation("DELETE", email_address, success=True)

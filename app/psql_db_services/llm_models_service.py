@@ -305,11 +305,11 @@ class LLMModelsService(BaseDatabaseService):
 
                 if active_only is not None:
                     sql_query += " AND is_active_status = :is_active_status"
-                    params["is_active_status"] = active_only
+                    params["is_active_status"] = str(active_only)
 
                 sql_query += " ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
-                params["limit"] = limit
-                params["offset"] = offset
+                params["limit"] = str(limit)
+                params["offset"] = str(offset)
 
                 result = await session.execute(text(sql_query), params)
                 model_records = result.mappings().all()
@@ -677,7 +677,8 @@ class LLMModelsService(BaseDatabaseService):
                     WHERE {where_conditions}
                 """
                 result = await session.execute(text(sql_query), params)
-                was_deleted = result.rowcount > 0
+                # was_deleted = result.rowcount > 0
+                was_deleted = getattr(result, "rowcount", 0) > 0
 
                 if was_deleted:
                     self.log_operation(

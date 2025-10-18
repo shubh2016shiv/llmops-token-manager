@@ -149,7 +149,8 @@ class RedisManager:
 
         logger.info("Closing Redis connections")
         await self._client.close()
-        await self._pool.disconnect()
+        if self._pool:
+            await self._pool.disconnect()
         self._client = None
         self._pool = None
         logger.info("Redis connections closed")
@@ -165,7 +166,7 @@ class RedisManager:
             if self._client is None:
                 return False
             response = await self._client.ping()
-            return response
+            return bool(response)
         except Exception as e:
             logger.error(f"Redis ping failed: {e}")
             return False

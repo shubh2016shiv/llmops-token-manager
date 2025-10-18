@@ -107,9 +107,15 @@ class TestUsersServiceValidation:
     """Test validation methods for UsersService."""
 
     @pytest.fixture
-    def users_service(self):
+    def mock_db_manager(self):
+        """Mock database manager for testing."""
+        mock_manager = AsyncMock(spec=DatabaseManager)
+        return mock_manager
+
+    @pytest.fixture
+    def users_service(self, mock_db_manager):
         """Create UsersService instance for testing."""
-        return UsersService()
+        return UsersService(database_manager=mock_db_manager)
 
     # Positive validation tests
     @pytest.mark.parametrize("valid_role", ["owner", "admin", "developer", "operator"])
@@ -173,6 +179,74 @@ class TestUsersServiceValidation:
         """Test that invalid UUID raises ValueError."""
         with pytest.raises(ValueError, match="must be a valid UUID instance"):
             users_service.validate_uuid("invalid-uuid", "user_id")
+
+    @pytest.mark.asyncio
+    async def test_check_email_exists_true(self, users_service, mock_db_manager):
+        """Test check_email_exists returns True when email exists."""
+        # Arrange
+        mock_session, mock_result = setup_mock_sqlalchemy_session(
+            mock_db_manager, {"user_id": uuid4()}
+        )
+
+        # Act
+        result = await users_service.check_email_exists("test@example.com")
+
+        # Assert
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_check_email_exists_database_error(
+        self, users_service, mock_db_manager
+    ):
+        """Test check_email_exists handles database errors."""
+        # Arrange
+        mock_db_manager.get_session.side_effect = Exception(
+            "Database connection failed"
+        )
+
+        # Act & Assert
+        with pytest.raises(Exception, match="Database connection failed"):
+            await users_service.check_email_exists("test@example.com")
+
+    @pytest.mark.asyncio
+    async def test_check_username_exists_true(self, users_service, mock_db_manager):
+        """Test check_username_exists returns True when username exists."""
+        # Arrange
+        mock_session, mock_result = setup_mock_sqlalchemy_session(
+            mock_db_manager, {"user_id": uuid4()}
+        )
+
+        # Act
+        result = await users_service.check_username_exists("testuser")
+
+        # Assert
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_check_username_exists_false(self, users_service, mock_db_manager):
+        """Test check_username_exists returns False when username doesn't exist."""
+        # Arrange
+        mock_session, mock_result = setup_mock_sqlalchemy_session(mock_db_manager, None)
+
+        # Act
+        result = await users_service.check_username_exists("nonexistent")
+
+        # Assert
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_check_username_exists_database_error(
+        self, users_service, mock_db_manager
+    ):
+        """Test check_username_exists handles database errors."""
+        # Arrange
+        mock_db_manager.get_session.side_effect = Exception(
+            "Database connection failed"
+        )
+
+        # Act & Assert
+        with pytest.raises(Exception, match="Database connection failed"):
+            await users_service.check_username_exists("testuser")
 
 
 class TestUsersServiceCreate:
@@ -368,6 +442,104 @@ class TestUsersServiceCreate:
                 password_hash="hashed_password",
             )
 
+    @pytest.mark.asyncio
+    async def test_create_user_duplicate_username(self, users_service, mock_db_manager):
+        """Test that duplicate username raises ValueError."""
+        # Arrange
+        # Mock check_email_exists to return False (email doesn't exist)
+        users_service.check_email_exists = AsyncMock(return_value=False)
+        # Mock check_username_exists to return True (username exists)
+        users_service.check_username_exists = AsyncMock(return_value=True)
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="Username 'duplicateuser' already exists"):
+            await users_service.create_user(
+                user_id=uuid4(),
+                username="duplicateuser",
+                email="test@example.com",
+                first_name="Test",
+                last_name="User",
+                password_hash="hashed_password",
+            )
+
+    @pytest.mark.asyncio
+    async def test_create_user_creation_failure(self, users_service, mock_db_manager):
+        """Test RuntimeError when user creation fails (created_user is None)."""
+        # Arrange
+        # Mock check_email_exists and check_username_exists to avoid database calls
+        users_service.check_email_exists = AsyncMock(return_value=False)
+        users_service.check_username_exists = AsyncMock(return_value=False)
+
+        # Create mock result that returns None (simulating creation failure)
+        mock_result = MagicMock()
+        mock_result.mappings.return_value = mock_result
+        mock_result.one_or_none.return_value = None  # This simulates creation failure
+
+        # Create mock session
+        mock_session = MagicMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session.commit = AsyncMock()
+        mock_session.rollback = AsyncMock()
+        mock_session.close = AsyncMock()
+
+        async def mock_execute(*args, **kwargs):
+            return mock_result
+
+        mock_session.execute = mock_execute
+
+        # Set up database manager to return the mock session
+        @asynccontextmanager
+        async def mock_get_session_cm():
+            try:
+                yield mock_session
+            except Exception:
+                await mock_session.rollback()
+                raise
+            else:
+                await mock_session.commit()
+            finally:
+                await mock_session.close()
+
+        mock_db_manager.get_session = MagicMock(return_value=mock_get_session_cm())
+
+        # Act & Assert
+        with pytest.raises(RuntimeError, match="Failed to create user record"):
+            await users_service.create_user(
+                user_id=uuid4(),
+                username="testuser",
+                email="test@example.com",
+                first_name="Test",
+                last_name="User",
+                password_hash="hashed_password",
+            )
+
+    @pytest.mark.asyncio
+    async def test_create_user_database_exception_logging(
+        self, users_service, mock_db_manager
+    ):
+        """Test exception logging in create_user."""
+        # Arrange
+        # Mock check_email_exists and check_username_exists to avoid database calls
+        users_service.check_email_exists = AsyncMock(return_value=False)
+        users_service.check_username_exists = AsyncMock(return_value=False)
+
+        # Mock database manager to raise exception
+        mock_db_manager.get_session.side_effect = Exception(
+            "Database connection failed"
+        )
+
+        # Act & Assert
+        with pytest.raises(Exception, match="Database connection failed"):
+            await users_service.create_user(
+                user_id=uuid4(),
+                username="testuser",
+                email="test@example.com",
+                first_name="Test",
+                last_name="User",
+                password_hash="hashed_password",
+            )
+
 
 class TestUsersServiceReadSingle:
     """Test single user read operations for UsersService."""
@@ -469,6 +641,18 @@ class TestUsersServiceReadSingle:
         # Act & Assert
         with pytest.raises(Exception):
             await users_service.get_user_by_id(uuid4())
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_email_database_error(
+        self, users_service, mock_db_manager
+    ):
+        """Test that database errors are properly handled in get_user_by_email."""
+        # Arrange
+        mock_db_manager.get_session.side_effect = Exception("Connection failed")
+
+        # Act & Assert
+        with pytest.raises(Exception):
+            await users_service.get_user_by_email("test@example.com")
 
 
 class TestUsersServiceReadMultiple:
@@ -679,6 +863,18 @@ class TestUsersServiceReadMultiple:
         # Act & Assert
         with pytest.raises(Exception):
             await users_service.get_all_users()
+
+    @pytest.mark.asyncio
+    async def test_count_users_by_status_database_error(
+        self, users_service, mock_db_manager
+    ):
+        """Test that database errors are properly handled in count_users_by_status."""
+        # Arrange
+        mock_db_manager.get_session.side_effect = Exception("Connection failed")
+
+        # Act & Assert
+        with pytest.raises(Exception):
+            await users_service.count_users_by_status("active")
 
 
 class TestUsersServiceUpdate:
@@ -1055,6 +1251,18 @@ class TestUsersServiceDelete:
         # Act & Assert
         with pytest.raises(Exception):
             await users_service.delete_user(uuid4())
+
+    @pytest.mark.asyncio
+    async def test_delete_user_by_email_database_error(
+        self, users_service, mock_db_manager
+    ):
+        """Test that database errors are properly handled in delete_user_by_email."""
+        # Arrange
+        mock_db_manager.get_session.side_effect = Exception("Connection failed")
+
+        # Act & Assert
+        with pytest.raises(Exception):
+            await users_service.delete_user_by_email("test@example.com")
 
 
 # Run with: pytest tests/test_psql_db_services/test_users_service.py -v

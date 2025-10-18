@@ -484,7 +484,7 @@ class LLMModelsService(BaseDatabaseService):
             logger.warning(
                 f"No fields to update for model ({provider_name}, {llm_model_name}, {llm_model_version})"
             )
-            return await self.get_llm_model_by_composite_key(
+            return await self.get_llm_model_by_provider_and_model(
                 provider_name, llm_model_name, llm_model_version
             )
 

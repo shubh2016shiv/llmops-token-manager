@@ -18,6 +18,7 @@ from loguru import logger
 
 from app.psql_db_services.token_allocation_manager import TokenAllocationService
 from app.models.request_models import (
+    TokenAllocationClientRequest,
     TokenAllocationRequest,
     TokenReleaseRequest,
     TokenRetryRequest,
@@ -28,12 +29,17 @@ from app.models.response_models import (
     TokenReleaseResponse,
 )
 
+# Services
+from app.utils.token_count_estimation import estimate_tokens
+from app.psql_db_services.users_service import UsersService
+
 # ============================================================================
 # ROUTER INITIALIZATION
 # ============================================================================
 
 router = APIRouter(prefix="/api/v1/tokens", tags=["Token Management"])
 
+users_service = UsersService()
 
 # ============================================================================
 # TOKEN ALLOCATION ENDPOINTS
@@ -47,7 +53,7 @@ router = APIRouter(prefix="/api/v1/tokens", tags=["Token Management"])
     summary="Acquire tokens for LLM usage",
     description="Reserve token capacity for LLM calls. Returns immediate allocation if capacity available, otherwise creates waiting allocation.",
 )
-async def acquire_tokens(request: TokenAllocationRequest):
+async def acquire_tokens(request: TokenAllocationClientRequest):
     """
     Acquire tokens for LLM usage.
 
@@ -69,8 +75,39 @@ async def acquire_tokens(request: TokenAllocationRequest):
         HTTPException 404: If no deployments found for model
         HTTPException 500: On internal server error
     """
+    # 1. Get user_id
+    user_id = "89e0d113-912f-4272-ba13-6b3b6d9677c4"  # TODO: Later fetch the user id from token data when auth module is implemented
+
+    # 2. validate if user is active and get user's role (developer, admin, etc.)
+    user = await users_service.get_user_by_id(user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+    if user.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="User is not active"
+        )
+    user_role = user.role
+
+    # 3. get the estimated token count from the request
+    token_count_estimation = estimate_tokens(request.input_data, request.llm_model_name)
+    estimated_token_count = token_count_estimation.total_tokens
+
     logger.info(
-        f"Acquiring tokens: user={request.user_id}, model={request.llm_model_name}, tokens={request.token_count}"
+        f"Acquiring tokens: user={user_id}, model={request.llm_model_name}, tokens={estimated_token_count}"
+    )
+
+    # 4. Create complete TokenAllocationRequest with all derived fields
+    TokenAllocationRequest(
+        user_id=user_id,
+        user_role=user_role,
+        provider=request.provider,
+        llm_model_name=request.llm_model_name,
+        token_count=estimated_token_count,
+        deployment_name=request.deployment_name,
+        region=request.region,
+        request_context=request.request_context,
     )
 
     try:
@@ -79,9 +116,9 @@ async def acquire_tokens(request: TokenAllocationRequest):
 
         # Acquire tokens
         allocation = await allocation_service.acquire_tokens(
-            user_id=request.user_id,
+            user_id=user_id,
             model_name=request.llm_model_name,
-            token_count=request.token_count,
+            token_count=estimated_token_count,
             request_context=request.request_context,
         )
 

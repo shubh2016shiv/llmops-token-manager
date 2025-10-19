@@ -6,7 +6,7 @@ Simple, focused schemas for returning data to clients.
 """
 
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from enum import Enum
@@ -25,8 +25,8 @@ class UserResponse(BaseModel):
     last_name: str
     role: str
     status: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: Union[datetime, None]
+    updated_at: Union[datetime, None]
 
     class Config:
         json_schema_extra = {
@@ -50,47 +50,122 @@ class UserResponse(BaseModel):
 class TokenAllocationResponse(BaseModel):
     """
     Response schema for successful token allocation.
-
-    IMPORTANT: Field names with 'model_' prefix have been renamed to 'llm_*' to avoid
-    conflicts with Pydantic's protected namespaces.
     """
 
+    # -- Request Identity: Unique identifier for the token allocation request
     token_request_id: str = Field(
         ..., description="Unique identifier for this allocation"
     )
     user_id: UUID = Field(..., description="User who received the allocation")
-    llm_model_name: str = Field(
-        ...,
-        description="Model name for this allocation",
-        alias="model_name",  # Maps to database column 'model_name'
+    # -- Model & Deployment Configuration: Specifies the target LLM and deployment
+    llm_model_name: str = Field(..., description="Name of the LLM model (e.g., GPT-4)")
+    deployment_name: Optional[str] = Field(
+        default=None, description="Specific deployment of the model, if applicable"
     )
+    cloud_provider: Optional[str] = Field(
+        default=None, description="Cloud provider hosting the LLM (e.g., Azure, AWS)"
+    )
+    api_endpoint_url: Optional[str] = Field(
+        default=None, description="API endpoint URL to use"
+    )
+    region: Optional[str] = Field(
+        default=None, description="Region where model is deployed"
+    )
+    # -- Token Allocation Management: Tracks allocated tokens and their status
     token_count: int = Field(..., description="Number of tokens allocated")
-    allocation_status: str = Field(..., description="Current allocation status")
+    allocation_status: str = Field(
+        ...,
+        description="Current allocation status: ACQUIRED, RELEASED, EXPIRED, PAUSED, or FAILED",
+    )
+    # -- Timing & Expiration: Manages allocation lifecycle
     allocated_at: datetime = Field(..., description="When tokens were allocated")
     expires_at: Optional[datetime] = Field(
         default=None, description="When allocation expires (if applicable)"
     )
-    api_endpoint: Optional[str] = Field(default=None, description="API endpoint to use")
-    region: Optional[str] = Field(
-        default=None, description="Region where model is deployed"
+    # -- Additional context: Additional context data in JSON format (e.g., team, application)
+    request_context: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Additional context data in JSON format (e.g., team, application)",
+    )
+    temperature: Optional[float] = Field(
+        default=None, description="Temperature setting for this specific request"
+    )
+    top_p: Optional[float] = Field(
+        default=None, description="Top P (nucleus sampling) parameter for this request"
+    )
+    seed: Optional[int] = Field(
+        default=None, description="Seed value for reproducible LLM outputs"
     )
 
+    @field_validator("allocation_status")
+    @classmethod
+    def validate_allocation_status(cls, v: str) -> str:
+        """Validate allocation status matches database CHECK constraint."""
+        allowed_statuses = ["ACQUIRED", "RELEASED", "EXPIRED", "PAUSED", "FAILED"]
+        if v not in allowed_statuses:
+            raise ValueError(
+                f"Allocation status must be one of: {', '.join(allowed_statuses)}"
+            )
+        return v
+
     class Config:
-        # Disable protected namespaces to avoid conflicts with model_ prefix fields
-        protected_namespaces = ()
-        # Allow population by field name or alias
-        populate_by_name = True
+        # Allow usage of field aliases for serialization and deserialization
+        allow_population_by_field_name = True
+        # Show multiple example responses in OpenAPI schema
         json_schema_extra = {
-            "example": {
-                "token_request_id": "req_abc123xyz",
-                "user_id": "550e8400-e29b-41d4-a716-446655440000",
-                "llm_model_name": "gpt-4",
-                "token_count": 2000,
-                "allocation_status": "ACQUIRED",
-                "allocated_at": "2025-10-13T10:30:00Z",
-                "expires_at": "2025-10-13T10:35:00Z",
-                "api_endpoint": "https://api.openai.com/v1",
-                "region": "eastus2",
+            "examples": {
+                "direct_openai": {
+                    "summary": "Direct OpenAI API with GPT-4o",
+                    "description": "Accessing GPT-4o directly via OpenAI's API, no deployment name required.",
+                    "value": {
+                        "token_request_id": "req_pqr789stu",
+                        "user_id": "a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6",
+                        "llm_model_name": "gpt-4o",
+                        "deployment_name": None,
+                        "cloud_provider": "openai",
+                        "api_endpoint_url": "https://api.openai.com/v1",
+                        "region": "us-east-1",
+                        "token_count": 1500,
+                        "allocation_status": "ACTIVE",
+                        "allocated_at": "2025-10-19T17:19:00Z",  # 10:49 PM IST = 5:19 PM UTC
+                        "expires_at": "2025-10-19T17:24:00Z",  # 5-minute token duration
+                        "request_context": {
+                            "application": "customer_support_chatbot",
+                            "task_type": "text_generation",
+                            "environment": "production",
+                            "request_purpose": "user_query_response",
+                        },
+                        "temperature": 0.7,
+                        "top_p": 0.9,
+                        "seed": 42,
+                    },
+                },
+                "azure_openai": {
+                    "summary": "Azure OpenAI Deployment with GPT-4o",
+                    "description": "Accessing GPT-4o via Azure OpenAI with a custom deployment name.",
+                    "value": {
+                        "token_request_id": "req_xyz987qwe",
+                        "user_id": "a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c8",
+                        "llm_model_name": "gpt-4o",
+                        "deployment_name": "gpt4o-eastus-prod",
+                        "cloud_provider": "azure_openai",
+                        "api_endpoint_url": "https://my-resource.openai.azure.com/openai/deployments/gpt4o-eastus-prod",
+                        "region": "eastus",
+                        "token_count": 2500,
+                        "allocation_status": "ACQUIRED",
+                        "allocated_at": "2025-10-19T17:19:00Z",  # Same UTC time
+                        "expires_at": "2025-10-19T17:24:00Z",  # Same 5-minute duration
+                        "request_context": {
+                            "application": "document_analyzer",
+                            "task_type": "summarization",
+                            "environment": "staging",
+                            "request_purpose": "batch_document_processing",
+                        },
+                        "temperature": 0.8,
+                        "top_p": 0.95,
+                        "seed": 123,
+                    },
+                },
             }
         }
 

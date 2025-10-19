@@ -11,6 +11,7 @@ Production-ready database service for token allocation, tracking, and lifecycle 
 
 from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timedelta
+import json
 import uuid
 from uuid import UUID
 
@@ -85,12 +86,14 @@ class TokenAllocationService(BaseDatabaseService):
         allocation_status: str = DEFAULT_ALLOCATION_STATUS,
         allocation_timestamp: Optional[datetime] = None,
         expiration_timestamp: Optional[datetime] = None,
-        model_id: Optional[UUID] = None,
         deployment_name: Optional[str] = None,
         cloud_provider_name: Optional[str] = None,
         api_endpoint_url: Optional[str] = None,
-        geographic_region: Optional[str] = None,
+        deployment_region: Optional[str] = None,
         request_metadata: Optional[Dict[str, Any]] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        seed: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Create a new token allocation record in the database.
@@ -106,12 +109,14 @@ class TokenAllocationService(BaseDatabaseService):
             allocation_status: Status (ACQUIRED, WAITING, PAUSED, etc.). Defaults to 'ACQUIRED'
             allocation_timestamp: When allocation was made (defaults to current time)
             expiration_timestamp: When allocation expires (optional)
-            model_id: Optional model UUID reference
             deployment_name: Optional deployment identifier
             cloud_provider_name: Optional cloud provider name
             api_endpoint_url: Optional API endpoint URL
-            geographic_region: Optional geographic region identifier
+            deployment_region: Optional geographic region identifier
             request_metadata: Optional JSON metadata for additional context
+            temperature: Optional temperature setting for this request
+            top_p: Optional top P (nucleus sampling) parameter for this request
+            seed: Optional seed value for reproducible LLM outputs
 
         Returns:
             Dictionary containing the created allocation record with all fields
@@ -129,40 +134,44 @@ class TokenAllocationService(BaseDatabaseService):
         self.validate_positive_integer(token_count, "token_count")
         self.validate_allocation_status(allocation_status)
 
-        if model_id is not None:
-            self.validate_uuid(model_id, "model_id")
-
         try:
             async with self.get_session() as session:
                 sql_query = """
-                    INSERT INTO token_allocations (
-                        token_request_id, user_id, model_name, model_id,
-                        deployment_name, cloud_provider, api_endpoint, region,
+                    INSERT INTO token_manager (
+                        token_request_id, user_id, llm_model_name,
+                        deployment_name, cloud_provider, api_endpoint_url, region,
                         token_count, allocation_status, allocated_at, expires_at,
-                        request_context
+                        request_context, temperature, top_p, seed
                     ) VALUES (
-                        :token_request_id, :user_id, :model_name, :model_id,
-                        :deployment_name, :cloud_provider, :api_endpoint, :region,
+                        :token_request_id, :user_id, :model_name,
+                        :deployment_name, :cloud_provider, :api_endpoint_url, :region,
                         :token_count, :allocation_status, :allocated_at, :expires_at,
-                        :request_context
+                        :request_context, :temperature, :top_p, :seed
                     )
                     RETURNING *
                 """
+
+                # Convert dict to JSON string for JSONB column
+                request_context_json = (
+                    json.dumps(request_metadata) if request_metadata else None
+                )
 
                 params = {
                     "token_request_id": token_request_identifier,
                     "user_id": user_id,
                     "model_name": model_name,
-                    "model_id": model_id,
                     "deployment_name": deployment_name,
                     "cloud_provider": cloud_provider_name,
-                    "api_endpoint": api_endpoint_url,
-                    "region": geographic_region,
+                    "api_endpoint_url": api_endpoint_url,
+                    "region": deployment_region,
                     "token_count": token_count,
                     "allocation_status": allocation_status,
                     "allocated_at": allocation_timestamp or datetime.now(),
                     "expires_at": expiration_timestamp,
-                    "request_context": request_metadata,
+                    "request_context": request_context_json,
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "seed": seed,
                 }
 
                 result = await session.execute(text(sql_query), params)
@@ -209,7 +218,7 @@ class TokenAllocationService(BaseDatabaseService):
         try:
             async with self.get_session() as session:
                 sql_query = """
-                    SELECT * FROM token_allocations
+                    SELECT * FROM token_manager
                     WHERE token_request_id = :token_request_id
                 """
                 result = await session.execute(
@@ -258,17 +267,17 @@ class TokenAllocationService(BaseDatabaseService):
                 sql_query = """
                     SELECT
                         model_name,
-                        api_endpoint,
+                        api_endpoint_url,
                         region,
                         cloud_provider,
                         SUM(token_count) as total_tokens,
                         COUNT(*) as allocation_count
-                    FROM token_allocations
+                    FROM token_manager
                     WHERE
                         model_name = :model_name
                         AND allocation_status = ANY(:included_statuses)
                         AND (expires_at IS NULL OR expires_at > NOW())
-                    GROUP BY model_name, api_endpoint, region, cloud_provider
+                    GROUP BY model_name, api_endpoint_url, region, cloud_provider
                     ORDER BY total_tokens ASC
                 """
 
@@ -312,17 +321,20 @@ class TokenAllocationService(BaseDatabaseService):
             async with self.get_session() as session:
                 sql_query = """
                     SELECT COALESCE(SUM(token_count), 0) as total_tokens
-                    FROM token_allocations
+                    FROM token_manager
                     WHERE
-                        model_name = :model_name
-                        AND api_endpoint = :api_endpoint
+                        llm_model_name = :llm_model_name
+                        AND api_endpoint_url = :api_endpoint_url
                         AND allocation_status IN ('ACQUIRED', 'PAUSED')
                         AND (expires_at IS NULL OR expires_at > NOW())
                 """
 
                 result = await session.execute(
                     text(sql_query),
-                    {"model_name": model_name, "api_endpoint": api_endpoint_url},
+                    {
+                        "llm_model_name": model_name,
+                        "api_endpoint_url": api_endpoint_url,
+                    },
                 )
                 count_result = result.scalar_one_or_none()
                 return count_result if count_result else 0
@@ -351,7 +363,7 @@ class TokenAllocationService(BaseDatabaseService):
             async with self.get_session() as session:
                 if status_filter:
                     query = """
-                        SELECT * FROM token_allocations
+                        SELECT * FROM token_manager
                         WHERE user_id = :user_id AND allocation_status = ANY(:status_filter)
                         ORDER BY allocated_at DESC
                         LIMIT :limit
@@ -366,7 +378,7 @@ class TokenAllocationService(BaseDatabaseService):
                     )
                 else:
                     query = """
-                        SELECT * FROM token_allocations
+                        SELECT * FROM token_manager
                         WHERE user_id = :user_id
                         ORDER BY allocated_at DESC
                         LIMIT :limit
@@ -399,13 +411,15 @@ class TokenAllocationService(BaseDatabaseService):
             async with self.get_session() as session:
                 query = """
                     SELECT COUNT(*)
-                    FROM token_allocations
+                    FROM token_manager
                     WHERE
-                        model_name = :model_name
+                        llm_model_name = :llm_model_name
                         AND allocation_status IN ('ACQUIRED', 'PAUSED')
                         AND (expires_at IS NULL OR expires_at > NOW())
                 """
-                result = await session.execute(text(query), {"model_name": model_name})
+                result = await session.execute(
+                    text(query), {"llm_model_name": model_name}
+                )
                 return result.scalar_one_or_none() or 0
         except Exception as e:
             logger.error(f"Error counting active allocations for {model_name}: {e}")
@@ -453,8 +467,8 @@ class TokenAllocationService(BaseDatabaseService):
                 }
 
                 if api_endpoint is not None:
-                    update_fields.append("api_endpoint = :api_endpoint")
-                    params["api_endpoint"] = api_endpoint
+                    update_fields.append("api_endpoint_url = :api_endpoint_url")
+                    params["api_endpoint_url"] = api_endpoint
 
                 if region is not None:
                     update_fields.append("region = :region")
@@ -473,7 +487,7 @@ class TokenAllocationService(BaseDatabaseService):
                     params["latency_ms"] = latency_ms
 
                 query = f"""
-                    UPDATE token_allocations
+                    UPDATE token_manager
                     SET {", ".join(update_fields)}
                     WHERE token_request_id = :token_request_id
                     RETURNING *
@@ -520,10 +534,10 @@ class TokenAllocationService(BaseDatabaseService):
         try:
             async with self.get_session() as session:
                 query = """
-                    UPDATE token_allocations
+                    UPDATE token_manager
                     SET
                         allocation_status = 'ACQUIRED',
-                        api_endpoint = :api_endpoint,
+                        api_endpoint_url = :api_endpoint_url,
                         region = :region,
                         expires_at = :expires_at
                     WHERE
@@ -535,7 +549,7 @@ class TokenAllocationService(BaseDatabaseService):
                 result = await session.execute(
                     text(query),
                     {
-                        "api_endpoint": api_endpoint,
+                        "api_endpoint_url": api_endpoint,
                         "region": region,
                         "expires_at": expires_at,
                         "token_request_id": token_request_id,
@@ -578,7 +592,7 @@ class TokenAllocationService(BaseDatabaseService):
                 if latency_ms is None:
                     # Calculate latency from allocated_at to now
                     query = """
-                        UPDATE token_allocations
+                        UPDATE token_manager
                         SET
                             allocation_status = 'RELEASED',
                             completed_at = NOW(),
@@ -591,7 +605,7 @@ class TokenAllocationService(BaseDatabaseService):
                     )
                 else:
                     query = """
-                        UPDATE token_allocations
+                        UPDATE token_manager
                         SET
                             allocation_status = 'RELEASED',
                             completed_at = NOW(),
@@ -635,7 +649,7 @@ class TokenAllocationService(BaseDatabaseService):
         try:
             async with self.get_session() as session:
                 query = """
-                    DELETE FROM token_allocations
+                    DELETE FROM token_manager
                     WHERE token_request_id = :token_request_id
                 """
                 result = await session.execute(
@@ -668,7 +682,7 @@ class TokenAllocationService(BaseDatabaseService):
         try:
             async with self.get_session() as session:
                 query = """
-                    DELETE FROM token_allocations
+                    DELETE FROM token_manager
                     WHERE
                         expires_at IS NOT NULL
                         AND expires_at < NOW()
@@ -707,7 +721,7 @@ class TokenAllocationService(BaseDatabaseService):
             async with self.get_session() as session:
                 if status:
                     query = """
-                        DELETE FROM token_allocations
+                        DELETE FROM token_manager
                         WHERE user_id = :user_id AND allocation_status = :status
                     """
                     result = await session.execute(
@@ -715,7 +729,7 @@ class TokenAllocationService(BaseDatabaseService):
                     )
                 else:
                     query = """
-                        DELETE FROM token_allocations
+                        DELETE FROM token_manager
                         WHERE user_id = :user_id
                     """
                     result = await session.execute(text(query), {"user_id": user_id})
@@ -743,8 +757,8 @@ class TokenAllocationService(BaseDatabaseService):
         Similar to MongoDB's pause_llm_deployment method
 
         Args:
-            model_name: Model name
-            api_endpoint: API endpoint to pause
+            llm_model_name: Model name
+            api_endpoint_url: API endpoint URL to pause
             pause_reason: Reason for pausing
             pause_duration_minutes: Duration to pause for
 
@@ -761,11 +775,11 @@ class TokenAllocationService(BaseDatabaseService):
                 query = """
                     SELECT *
                     FROM llm_models
-                    WHERE model_name = :model_name AND api_base = :api_endpoint AND is_active = TRUE
+                    WHERE llm_model_name = :llm_model_name AND api_endpoint_url = :api_endpoint_url AND is_active_status = TRUE
                 """
                 result = await session.execute(
                     text(query),
-                    {"model_name": model_name, "api_endpoint": api_endpoint},
+                    {"llm_model_name": model_name, "api_endpoint_url": api_endpoint},
                 )
                 chosen_model_config = result.mappings().one_or_none()
 
@@ -775,8 +789,8 @@ class TokenAllocationService(BaseDatabaseService):
                     )
                     return {
                         "alloc_status": "NOT_FOUND",
-                        "model_name": model_name,
-                        "api_base": api_endpoint,
+                        "llm_model_name": model_name,
+                        "api_endpoint_url": api_endpoint,
                         "reason": "Deployment not found",
                     }
 
@@ -905,7 +919,7 @@ class TokenAllocationService(BaseDatabaseService):
                         COUNT(*) as count,
                         SUM(token_count) as total_tokens,
                         AVG(token_count) as avg_tokens
-                    FROM token_allocations
+                    FROM token_manager
                     WHERE
                         model_name = :model_name
                         AND (expires_at IS NULL OR expires_at > NOW())
@@ -950,7 +964,7 @@ class TokenAllocationService(BaseDatabaseService):
                         AVG(latency_ms) as avg_latency_ms,
                         COUNT(CASE WHEN allocation_status = 'RELEASED' THEN 1 END) as completed_requests,
                         COUNT(CASE WHEN allocation_status = 'FAILED' THEN 1 END) as failed_requests
-                    FROM token_allocations
+                    FROM token_manager
                     WHERE user_id = :user_id
                 """
                 result = await session.execute(text(query), {"user_id": user_id})
@@ -1072,7 +1086,6 @@ class TokenAllocationService(BaseDatabaseService):
     ) -> Dict[str, Any]:
         """
         Acquire tokens for a model
-        Similar to MongoDB's acquire method
 
         Args:
             user_id: User requesting tokens
@@ -1126,23 +1139,25 @@ class TokenAllocationService(BaseDatabaseService):
 
             # Initialize with WAITING status
             allocation_status = "WAITING"
-            api_version = ""
+            # api_version = ""
             deployment_name = ""
             api_endpoint = ""
             region = ""
-            api_keyv_id = ""
+            # api_keyv_id = ""
             temperature = 0.0
             seed = 0
 
             # Check if we can allocate immediately
-            if total_allocated_tokens + token_count <= max_token_limit:
+            if (
+                total_allocated_tokens + token_count <= max_token_limit
+            ):  # TODO: Correct this
                 # Immediate allocation (ACQUIRED)
                 allocation_status = "ACQUIRED"
-                api_version = chosen_model_config.get("api_version", "")
+                # api_version = chosen_model_config.get("api_version", "")
                 deployment_name = chosen_model_config.get("deployment_name", "")
                 api_endpoint = chosen_model_config.get("api_base", "")
                 region = chosen_model_config.get("region", "")
-                api_keyv_id = chosen_model_config.get("api_keyv_id", "")
+                # api_keyv_id = chosen_model_config.get("api_keyv_id", "")
                 temperature = chosen_model_config.get("temperature", 0.0)
                 seed = chosen_model_config.get("seed", 42)
 
@@ -1154,19 +1169,16 @@ class TokenAllocationService(BaseDatabaseService):
                 token_count=token_count,
                 allocation_status=allocation_status,
                 expiration_timestamp=expires_at,
-                model_id=chosen_model_config.get("model_id"),
                 deployment_name=deployment_name,
                 cloud_provider_name="azure"
                 if "azure" in api_endpoint.lower()
                 else "openai",
                 api_endpoint_url=api_endpoint,
-                geographic_region=region,
+                deployment_region=region,
                 request_metadata=request_context,
             )
 
             # Add additional fields for response
-            allocation["api_version"] = api_version
-            allocation["api_keyv_id"] = api_keyv_id
             allocation["temperature"] = temperature
             allocation["seed"] = seed
 
@@ -1202,34 +1214,34 @@ class TokenAllocationService(BaseDatabaseService):
                 deployments_query = """
                     SELECT *
                     FROM llm_models
-                    WHERE model_name = :model_name AND is_active = TRUE
+                    WHERE llm_model_name = :llm_model_name AND is_active_status = TRUE
                 """
                 result = await session.execute(
-                    text(deployments_query), {"model_name": model_name}
+                    text(deployments_query), {"llm_model_name": model_name}
                 )
                 model_deployments = result.mappings().all()
 
                 if not model_deployments:
                     raise ValueError(
-                        f"No model deployments found for model_name = {model_name}"
+                        f"No model deployments found for llm_model_name = {model_name}"
                     )
 
-                # Get current allocations grouped by model_name and api_base
+                # Get current allocations grouped by llm_model_name and api_base
                 allocations_query = """
                     SELECT
-                        model_name,
-                        api_endpoint,
+                        llm_model_name,
+                        api_endpoint_url,
                         SUM(token_count) as total_tokens
-                    FROM token_allocations
+                    FROM token_manager
                     WHERE
-                        model_name = :model_name
+                        llm_model_name = :llm_model_name
                         AND allocation_status IN ('ACQUIRED', 'PAUSED')
                         AND (expires_at IS NULL OR expires_at > NOW())
-                    GROUP BY model_name, api_endpoint
+                    GROUP BY llm_model_name, api_endpoint_url
                     ORDER BY total_tokens ASC
                 """
                 result = await session.execute(
-                    text(allocations_query), {"model_name": model_name}
+                    text(allocations_query), {"llm_model_name": model_name}
                 )
                 allocation_results = result.mappings().all()
 
@@ -1238,7 +1250,7 @@ class TokenAllocationService(BaseDatabaseService):
                 # Check if any deployment's api_base is not in the allocation results
                 # This means it's unused and can be chosen immediately
                 if allocation_results:
-                    used_endpoints = [r["api_endpoint"] for r in allocation_results]
+                    used_endpoints = [r["api_endpoint_url"] for r in allocation_results]
                     unused_deployments = [
                         m
                         for m in model_deployments
@@ -1262,7 +1274,7 @@ class TokenAllocationService(BaseDatabaseService):
 
                 # Find the matching deployment config
                 for deployment in model_deployments:
-                    if deployment["api_base"] == least_loaded["api_endpoint"]:
+                    if deployment["api_base"] == least_loaded["api_endpoint_url"]:
                         chosen_model_config = dict(deployment)
                         break
 
@@ -1270,7 +1282,7 @@ class TokenAllocationService(BaseDatabaseService):
                 if not chosen_model_config:
                     chosen_model_config = dict(model_deployments[0])
                     logger.warning(
-                        f"No matching deployment found for endpoint {least_loaded['api_endpoint']}"
+                        f"No matching deployment found for endpoint {least_loaded['api_endpoint_url']}"
                     )
 
                 return total_allocated_tokens, chosen_model_config

@@ -23,6 +23,7 @@ from contextlib import asynccontextmanager
 
 from app.psql_db_services.users_service import UsersService
 from app.core.database_connection import DatabaseManager
+from app.models.response_models import UserResponse
 
 
 def setup_mock_sqlalchemy_session(mock_db_manager, mock_result_data=None, rowcount=1):
@@ -175,10 +176,11 @@ class TestUsersServiceValidation:
         with pytest.raises(ValueError, match=expected_error):
             users_service.validate_email_address(invalid_email)
 
-    def test_validate_uuid_invalid(self, users_service):
+    @pytest.mark.asyncio
+    async def test_validate_uuid_invalid(self, users_service):
         """Test that invalid UUID raises ValueError."""
-        with pytest.raises(ValueError, match="must be a valid UUID instance"):
-            users_service.validate_uuid("invalid-uuid", "user_id")
+        with pytest.raises(ValueError, match="must be a valid UUID string"):
+            await users_service.get_user_by_id("not-a-uuid-at-all")
 
     @pytest.mark.asyncio
     async def test_check_email_exists_true(self, users_service, mock_db_manager):
@@ -268,7 +270,10 @@ class TestUsersServiceCreate:
         """Sample user data for tests."""
         return {
             "user_id": uuid4(),
+            "username": "testuser",
             "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
             "role": "developer",
             "status": "active",
             "created_at": datetime.now(),
@@ -560,7 +565,10 @@ class TestUsersServiceReadSingle:
         """Sample user data for tests."""
         return {
             "user_id": uuid4(),
+            "username": "testuser",
             "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
             "role": "developer",
             "status": "active",
             "created_at": datetime.now(),
@@ -582,7 +590,16 @@ class TestUsersServiceReadSingle:
         result = await users_service.get_user_by_id(user_id)
 
         # Assert
-        assert result == sample_user_data
+        assert isinstance(result, UserResponse)
+        assert result.user_id == sample_user_data["user_id"]
+        assert result.username == sample_user_data["username"]
+        assert result.email == sample_user_data["email"]
+        assert result.first_name == sample_user_data["first_name"]
+        assert result.last_name == sample_user_data["last_name"]
+        assert result.role == sample_user_data["role"]
+        assert result.status == sample_user_data["status"]
+        assert result.created_at == sample_user_data["created_at"]
+        assert result.updated_at == sample_user_data["updated_at"]
         # Note: mock_session.execute is a function, not a mock, so we can't assert on it
 
     @pytest.mark.asyncio
@@ -612,7 +629,13 @@ class TestUsersServiceReadSingle:
         result = await users_service.get_user_by_id(uuid4())
 
         # Assert
-        assert result is None
+        assert isinstance(result, UserResponse)
+        assert result.username == ""  # default empty response
+        assert result.email == ""
+        assert result.first_name == ""
+        assert result.last_name == ""
+        assert result.role == ""
+        assert result.status == ""
 
     @pytest.mark.asyncio
     async def test_get_user_by_email_not_found(self, users_service, mock_db_manager):
@@ -629,8 +652,8 @@ class TestUsersServiceReadSingle:
     @pytest.mark.asyncio
     async def test_get_user_by_id_invalid_uuid(self, users_service):
         """Test that invalid UUID raises ValueError."""
-        with pytest.raises(ValueError, match="must be a valid UUID instance"):
-            await users_service.get_user_by_id("invalid-uuid")
+        with pytest.raises(ValueError, match="must be a valid UUID string"):
+            await users_service.get_user_by_id("not-a-uuid-at-all")
 
     @pytest.mark.asyncio
     async def test_get_user_by_id_database_error(self, users_service, mock_db_manager):
@@ -638,9 +661,17 @@ class TestUsersServiceReadSingle:
         # Arrange
         mock_db_manager.get_session.side_effect = Exception("Connection failed")
 
-        # Act & Assert
-        with pytest.raises(Exception):
-            await users_service.get_user_by_id(uuid4())
+        # Act
+        result = await users_service.get_user_by_id(uuid4())
+
+        # Assert
+        assert isinstance(result, UserResponse)
+        assert result.username == ""  # Returns default on error
+        assert result.email == ""
+        assert result.first_name == ""
+        assert result.last_name == ""
+        assert result.role == ""
+        assert result.status == ""
 
     @pytest.mark.asyncio
     async def test_get_user_by_email_database_error(
@@ -1110,9 +1141,9 @@ class TestUsersServiceUpdate:
     @pytest.mark.asyncio
     async def test_update_user_invalid_uuid(self, users_service):
         """Test that invalid UUID raises ValueError."""
-        with pytest.raises(ValueError, match="must be a valid UUID instance"):
+        with pytest.raises(ValueError, match="must be a valid UUID string"):
             await users_service.update_user(
-                user_id="invalid-uuid", email_address="updated@example.com"
+                user_id="not-a-uuid-at-all", email_address="updated@example.com"
             )
 
     @pytest.mark.asyncio
@@ -1239,8 +1270,8 @@ class TestUsersServiceDelete:
     @pytest.mark.asyncio
     async def test_delete_user_invalid_uuid(self, users_service):
         """Test that invalid UUID raises ValueError."""
-        with pytest.raises(ValueError, match="must be a valid UUID instance"):
-            await users_service.delete_user("invalid-uuid")
+        with pytest.raises(ValueError, match="must be a valid UUID string"):
+            await users_service.delete_user("not-a-uuid-at-all")
 
     @pytest.mark.asyncio
     async def test_delete_user_database_error(self, users_service, mock_db_manager):

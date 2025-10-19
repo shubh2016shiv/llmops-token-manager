@@ -8,7 +8,7 @@ Production-ready database service for user management operations including:
 - Optimized for high-concurrency environments (10,000+ concurrent users)
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from uuid import UUID
 from datetime import datetime
 
@@ -19,6 +19,8 @@ from app.core.database_connection import DatabaseManager
 from app.psql_db_services.base_service import BaseDatabaseService
 from functools import lru_cache
 from email_validator import validate_email, EmailNotValidError
+
+from app.models.response_models import UserResponse
 
 
 class UsersService(BaseDatabaseService):
@@ -216,7 +218,9 @@ class UsersService(BaseDatabaseService):
     # READ OPERATIONS
     # ========================================================================
 
-    async def get_user_by_id(self, user_id: UUID) -> Optional[Dict[str, Any]]:
+    async def get_user_by_id(
+        self, user_id: Union[str, UUID]
+    ) -> Optional[Dict[str, Any]]:
         """
         Retrieve a user by their unique identifier.
 
@@ -230,7 +234,26 @@ class UsersService(BaseDatabaseService):
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If user_id is invalid
         """
+        # Handle both string and UUID inputs
+        if isinstance(user_id, str):
+            try:
+                user_id = UUID(user_id)
+            except ValueError:
+                raise ValueError("user_id must be a valid UUID string")
+
         self.validate_uuid(user_id, "user_id")
+
+        default_user = UserResponse(
+            user_id=user_id,
+            username="",
+            email="",
+            first_name="",
+            last_name="",
+            role="",
+            status="",
+            created_at=None,
+            updated_at=None,
+        )
 
         try:
             async with self.get_session() as session:
@@ -240,10 +263,23 @@ class UsersService(BaseDatabaseService):
                 """
                 result = await session.execute(text(sql_query), {"user_id": user_id})
                 user_record = result.mappings().one_or_none()
-                return dict(user_record) if user_record else None
+                if user_record:
+                    return UserResponse(
+                        user_id=user_record["user_id"],
+                        username=user_record["username"],
+                        email=user_record["email"],
+                        first_name=user_record["first_name"],
+                        last_name=user_record["last_name"],
+                        role=user_record["role"],
+                        status=user_record["status"],
+                        created_at=user_record["created_at"],
+                        updated_at=user_record["updated_at"],
+                    )
+                else:
+                    return default_user
         except Exception as e:
             logger.error(f"Error fetching user {user_id}: {e}")
-            raise
+            return default_user
 
     async def get_user_by_email(self, email_address: str) -> Optional[Dict[str, Any]]:
         """

@@ -11,7 +11,7 @@ Key Capabilities:
 - RBAC based request validation for each request type
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union, List
 from pydantic import BaseModel, Field, field_validator, EmailStr
 from enum import Enum
 from uuid import UUID
@@ -155,6 +155,60 @@ class UserUpdateRequest(BaseModel):
                 "username": "john.doe",
                 "role": UserRole.ADMIN,
                 "status": "active",
+            }
+        }
+
+
+class TokenAllocationClientRequest(BaseModel):
+    """
+    Minimal client request for token allocation.
+
+    Client provides only essential fields - system derives the rest.
+    """
+
+    provider: ProviderType = Field(
+        ..., description="LLM provider type - determines routing"
+    )
+
+    llm_model_name: str = Field(
+        ...,
+        description="The LOGICAL model identifier representing the AI capability requested",
+        min_length=1,
+        max_length=100,
+        alias="model_name",
+    )
+
+    input_data: Union[str, List[Dict[str, Any]]] = Field(
+        ..., description="The actual input text or structured data for token estimation"
+    )
+
+    deployment_name: Optional[str] = Field(
+        default=None,
+        description="Optional physical deployment instance identifier",
+        max_length=100,
+    )
+
+    region: Optional[str] = Field(
+        default=None,
+        description="Preferred region for deployment selection",
+        max_length=50,
+    )
+
+    request_context: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Metadata for tracking (team, project, batch_id, etc.)",
+    )
+
+    class Config:
+        protected_namespaces = ()
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "provider": "openai",
+                "llm_model_name": "gpt-4.1",
+                "input_data": "Your prompt text here for token estimation",
+                "region": "eastus2",
+                "request_context": {"project": "medical-qa", "team": "research"},
             }
         }
 

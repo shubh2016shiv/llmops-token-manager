@@ -12,7 +12,7 @@ This base class provides:
 - Validation helpers
 """
 
-from typing import Optional, List, Dict, Any, Tuple, AsyncGenerator
+from typing import Optional, List, Dict, Any, Tuple, AsyncGenerator, Union
 from contextlib import asynccontextmanager
 from uuid import UUID
 
@@ -165,7 +165,9 @@ class BaseDatabaseService:
     # VALIDATION UTILITIES
     # ========================================================================
 
-    def validate_uuid(self, uuid_value: UUID, parameter_name: str = "UUID") -> None:
+    def validate_uuid(
+        self, uuid_value: Union[UUID, str], parameter_name: str = "UUID"
+    ) -> None:
         """
         Validate that a UUID is not None and is a valid UUID instance.
 
@@ -176,6 +178,11 @@ class BaseDatabaseService:
         Raises:
             ValueError: If UUID is invalid or None
         """
+        if isinstance(uuid_value, str):
+            try:
+                uuid_value = UUID(uuid_value)
+            except ValueError:
+                raise ValueError(f"{parameter_name} must be a valid UUID string")
         if uuid_value is None:
             raise ValueError(f"{parameter_name} cannot be None")
         if not isinstance(uuid_value, UUID):

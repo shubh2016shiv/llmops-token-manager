@@ -151,12 +151,14 @@ class TestTokenAllocationServiceCreate:
             allocation_status="ACQUIRED",
             allocation_timestamp=datetime.now(),
             expiration_timestamp=datetime.now() + timedelta(hours=1),
-            model_id=uuid4(),
             deployment_name="deployment-1",
             cloud_provider_name="azure",
             api_endpoint_url="https://api.openai.com",
-            geographic_region="us-east-1",
+            deployment_region="us-east-1",
             request_metadata={"key": "value"},
+            temperature=0.7,
+            top_p=0.9,
+            seed=42,
         )
 
         # Assertions
@@ -1394,7 +1396,7 @@ class TestTokenAllocationServiceLoadBalancing:
         ]
 
         allocation_results = [
-            {"api_endpoint": "https://api.openai.com", "total_tokens": 5000}
+            {"api_endpoint_url": "https://api.openai.com", "total_tokens": 5000}
         ]
 
         # Setup mock for both queries
@@ -1456,8 +1458,8 @@ class TestTokenAllocationServiceLoadBalancing:
         ]
 
         allocation_results = [
-            {"api_endpoint": "https://api.azure.com", "total_tokens": 5000},
-            {"api_endpoint": "https://api.openai.com", "total_tokens": 10000},
+            {"api_endpoint_url": "https://api.azure.com", "total_tokens": 5000},
+            {"api_endpoint_url": "https://api.openai.com", "total_tokens": 10000},
         ]
 
         # Setup mock for both queries
@@ -1527,7 +1529,7 @@ class TestTokenAllocationServiceLoadBalancing:
 
         allocation_results = [
             {
-                "api_endpoint": "https://api.unknown.com",  # No matching deployment
+                "api_endpoint_url": "https://api.unknown.com",  # No matching deployment
                 "total_tokens": 5000,
             }
         ]

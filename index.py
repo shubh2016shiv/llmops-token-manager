@@ -23,7 +23,7 @@ if __name__ == "__main__":
     # This ensures the server accepts connections from all interfaces while showing
     # reliable localhost URLs that work consistently on Windows
     uvicorn.run(
-        "app.main:app",
+        app="app.app:app",  # "app.app:app" means: import the variable `app` from the module `app/app.py` (i.e. `app/app.py` file), so FastAPI/Uvicorn knows where to find the ASGI app instance.
         host="0.0.0.0",  # Bind to all interfaces for external access
         port=settings.fastapi_port,
         reload=settings.debug,

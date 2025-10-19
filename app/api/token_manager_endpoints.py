@@ -16,6 +16,7 @@ Based on reference Flask service patterns from token_manager_service.py
 from fastapi import APIRouter, HTTPException, status
 from loguru import logger
 from uuid import UUID
+from typing import Optional
 
 from app.psql_db_services.token_allocation_manager import TokenAllocationService
 from app.models.request_models import (
@@ -81,7 +82,7 @@ async def acquire_tokens(request: TokenAllocationClientRequest):
     user_id_uuid = UUID(user_id)
 
     # 2. validate if user is active and get user's role (developer, admin, etc.)
-    user: UserResponse = await users_service.get_user_by_id(user_id_uuid)
+    user: Optional[UserResponse] = await users_service.get_user_by_id(user_id_uuid)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"

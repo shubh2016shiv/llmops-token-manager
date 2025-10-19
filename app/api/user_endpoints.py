@@ -145,7 +145,7 @@ async def get_user(user_id: UUID):
                 detail=f"User with ID '{user_id}' not found",
             )
 
-        return UserResponse(**user)
+        return user
 
     except HTTPException:
         raise

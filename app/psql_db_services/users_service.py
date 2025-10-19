@@ -448,7 +448,7 @@ class UsersService(BaseDatabaseService):
         email_address: Optional[str] = None,
         user_role: Optional[str] = None,
         user_status: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[UserResponse]:
         """
         Update user information with dynamic field updates.
 
@@ -506,7 +506,17 @@ class UsersService(BaseDatabaseService):
 
                 if updated_user:
                     self.log_operation("UPDATE", user_id, success=True)
-                    return dict(updated_user)
+                    return UserResponse(
+                        user_id=updated_user["user_id"],
+                        username=updated_user["username"],
+                        email=updated_user["email"],
+                        first_name=updated_user["first_name"],
+                        last_name=updated_user["last_name"],
+                        role=updated_user["role"],
+                        status=updated_user["status"],
+                        created_at=updated_user["created_at"],
+                        updated_at=updated_user["updated_at"],
+                    )
 
                 logger.warning(f"User {user_id} not found for update")
                 return None

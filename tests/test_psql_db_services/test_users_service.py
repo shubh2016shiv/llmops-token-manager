@@ -927,7 +927,10 @@ class TestUsersServiceUpdate:
         """Sample user data for tests."""
         return {
             "user_id": uuid4(),
+            "username": "testuser",
             "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
             "role": "developer",
             "status": "active",
             "created_at": datetime.now(),
@@ -953,7 +956,14 @@ class TestUsersServiceUpdate:
         )
 
         # Assert
-        assert result == updated_data
+        assert isinstance(result, UserResponse)
+        assert result.user_id == updated_data["user_id"]
+        assert result.username == updated_data["username"]
+        assert result.email == updated_data["email"]
+        assert result.first_name == updated_data["first_name"]
+        assert result.last_name == updated_data["last_name"]
+        assert result.role == updated_data["role"]
+        assert result.status == updated_data["status"]
         # Note: mock_session.execute is a function, not a mock, so we can't assert on it
 
     @pytest.mark.asyncio
@@ -975,7 +985,14 @@ class TestUsersServiceUpdate:
         )
 
         # Assert
-        assert result == updated_data
+        assert isinstance(result, UserResponse)
+        assert result.user_id == updated_data["user_id"]
+        assert result.username == updated_data["username"]
+        assert result.email == updated_data["email"]
+        assert result.first_name == updated_data["first_name"]
+        assert result.last_name == updated_data["last_name"]
+        assert result.role == updated_data["role"]
+        assert result.status == updated_data["status"]
         # Note: mock_session.execute is a function, not a mock, so we can't assert on it
 
     @pytest.mark.asyncio
@@ -997,7 +1014,14 @@ class TestUsersServiceUpdate:
         )
 
         # Assert
-        assert result == updated_data
+        assert isinstance(result, UserResponse)
+        assert result.user_id == updated_data["user_id"]
+        assert result.username == updated_data["username"]
+        assert result.email == updated_data["email"]
+        assert result.first_name == updated_data["first_name"]
+        assert result.last_name == updated_data["last_name"]
+        assert result.role == updated_data["role"]
+        assert result.status == updated_data["status"]
         # Note: mock_session.execute is a function, not a mock, so we can't assert on it
 
     @pytest.mark.asyncio
@@ -1024,7 +1048,14 @@ class TestUsersServiceUpdate:
         )
 
         # Assert
-        assert result == updated_data
+        assert isinstance(result, UserResponse)
+        assert result.user_id == updated_data["user_id"]
+        assert result.username == updated_data["username"]
+        assert result.email == updated_data["email"]
+        assert result.first_name == updated_data["first_name"]
+        assert result.last_name == updated_data["last_name"]
+        assert result.role == updated_data["role"]
+        assert result.status == updated_data["status"]
         # Note: mock_session.execute is a function, not a mock, so we can't assert on it
 
     @pytest.mark.asyncio
@@ -1064,7 +1095,14 @@ class TestUsersServiceUpdate:
         )
 
         # Assert
-        assert result == updated_data
+        assert isinstance(result, UserResponse)
+        assert result.user_id == updated_data["user_id"]
+        assert result.username == updated_data["username"]
+        assert result.email == updated_data["email"]
+        assert result.first_name == updated_data["first_name"]
+        assert result.last_name == updated_data["last_name"]
+        assert result.role == updated_data["role"]
+        assert result.status == updated_data["status"]
 
     @pytest.mark.asyncio
     async def test_update_user_status_method(
@@ -1085,7 +1123,14 @@ class TestUsersServiceUpdate:
         )
 
         # Assert
-        assert result == updated_data
+        assert isinstance(result, UserResponse)
+        assert result.user_id == updated_data["user_id"]
+        assert result.username == updated_data["username"]
+        assert result.email == updated_data["email"]
+        assert result.first_name == updated_data["first_name"]
+        assert result.last_name == updated_data["last_name"]
+        assert result.role == updated_data["role"]
+        assert result.status == updated_data["status"]
 
     @pytest.mark.asyncio
     async def test_suspend_user(self, users_service, mock_db_manager, sample_user_data):
@@ -1102,7 +1147,14 @@ class TestUsersServiceUpdate:
         result = await users_service.suspend_user(user_id=sample_user_data["user_id"])
 
         # Assert
-        assert result == updated_data
+        assert isinstance(result, UserResponse)
+        assert result.user_id == updated_data["user_id"]
+        assert result.username == updated_data["username"]
+        assert result.email == updated_data["email"]
+        assert result.first_name == updated_data["first_name"]
+        assert result.last_name == updated_data["last_name"]
+        assert result.role == updated_data["role"]
+        assert result.status == updated_data["status"]
 
     @pytest.mark.asyncio
     async def test_activate_user(
@@ -1121,7 +1173,14 @@ class TestUsersServiceUpdate:
         result = await users_service.activate_user(user_id=sample_user_data["user_id"])
 
         # Assert
-        assert result == updated_data
+        assert isinstance(result, UserResponse)
+        assert result.user_id == updated_data["user_id"]
+        assert result.username == updated_data["username"]
+        assert result.email == updated_data["email"]
+        assert result.first_name == updated_data["first_name"]
+        assert result.last_name == updated_data["last_name"]
+        assert result.role == updated_data["role"]
+        assert result.status == updated_data["status"]
 
     # Negative test cases
     @pytest.mark.asyncio

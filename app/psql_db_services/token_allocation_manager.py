@@ -989,7 +989,7 @@ class TokenAllocationService(BaseDatabaseService):
             allocation = await self.get_allocation_by_request_id(token_request_id)
             if not allocation:
                 logger.warning(f"Token request not found: {token_request_id}")
-                return {"error": f"Invalid token_req_id = {token_request_id}"}
+                return {"error": f"Invalid token_request_id = {token_request_id}"}
 
             # Check if it's in WAITING status
             if allocation["allocation_status"] != "WAITING":

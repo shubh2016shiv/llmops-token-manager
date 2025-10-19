@@ -59,8 +59,7 @@ class TokenAllocationResponse(BaseModel):
         ..., description="Unique identifier for this allocation"
     )
     user_id: UUID = Field(..., description="User who received the allocation")
-    # Renamed from model_name to llm_name
-    llm_name: str = Field(
+    llm_model_name: str = Field(
         ...,
         description="Model name for this allocation",
         alias="model_name",  # Maps to database column 'model_name'
@@ -85,7 +84,7 @@ class TokenAllocationResponse(BaseModel):
             "example": {
                 "token_request_id": "req_abc123xyz",
                 "user_id": "550e8400-e29b-41d4-a716-446655440000",
-                "llm_name": "gpt-4",  # Updated field name
+                "llm_model_name": "gpt-4",
                 "token_count": 2000,
                 "allocation_status": "ACQUIRED",
                 "allocated_at": "2025-10-13T10:30:00Z",
@@ -283,7 +282,7 @@ class AllocationListResponse(BaseModel):
                     {
                         "token_request_id": "req_abc123",
                         "user_id": "550e8400-e29b-41d4-a716-446655440000",
-                        "llm_name": "gpt-4",  # Updated field name
+                        "llm_model_name": "gpt-4",
                         "token_count": 2000,
                         "allocation_status": "ACQUIRED",
                         "allocated_at": "2025-10-13T10:30:00Z",

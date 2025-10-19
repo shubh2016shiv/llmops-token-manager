@@ -147,9 +147,7 @@ class TokenAllocationRequest(BaseModel):
     provider: ProviderType = Field(
         ..., description="LLM provider type - determines routing"
     )
-
-    # Renamed from model_name to llm_name to avoid Pydantic namespace conflicts
-    llm_name: str = Field(
+    llm_model_name: str = Field(
         ...,
         description=(
             "The LOGICAL model identifier representing the AI capability requested "
@@ -209,7 +207,7 @@ class TokenAllocationRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "provider": "azure_openai",
-                "llm_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
+                "llm_model_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
                 "token_count": 5000,
                 "deployment_name": None,
                 "region": "eastus2",
@@ -225,7 +223,7 @@ class TokenReleaseRequest(BaseModel):
     Critical: Must call immediately after LLM call completes to free capacity.
     """
 
-    token_req_id: str = Field(..., description="Token request ID to release")
+    token_request_id: str = Field(..., description="Token request ID to release")
 
     user_role: UserRole = Field(
         description="User role - determines access to requests",
@@ -233,7 +231,7 @@ class TokenReleaseRequest(BaseModel):
     )
 
     class Config:
-        json_schema_extra = {"example": {"token_req_id": "abc123def456"}}
+        json_schema_extra = {"example": {"token_request_id": "abc123def456"}}
 
 
 class PauseDeploymentRequest(BaseModel):
@@ -252,8 +250,7 @@ class PauseDeploymentRequest(BaseModel):
 
     provider: ProviderType = Field(..., description="Provider to pause")
 
-    # Renamed from model_name to llm_name to avoid Pydantic namespace conflicts
-    llm_name: str = Field(
+    llm_model_name: str = Field(
         ...,
         description="Model to pause",
         min_length=1,
@@ -287,7 +284,7 @@ class PauseDeploymentRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "provider": "azure_openai",
-                "llm_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
+                "llm_model_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
                 "api_base": "https://<deployment>-<region>.openai.azure.com/",
                 "pause_reason": "Azure region outage - 503 errors",
                 "pause_duration_minutes": 60,
@@ -311,8 +308,7 @@ class ResumeDeploymentRequest(BaseModel):
 
     provider: ProviderType = Field(..., description="Provider to resume")
 
-    # Renamed from model_name to llm_name to avoid Pydantic namespace conflicts
-    llm_name: str = Field(
+    llm_model_name: str = Field(
         ...,
         description="Model to resume",
         min_length=1,
@@ -332,7 +328,7 @@ class ResumeDeploymentRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "provider": "azure_openai",
-                "llm_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
+                "llm_model_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
                 "api_base": "https://<deployment>-<region>.openai.azure.com/",
             }
         }
@@ -354,8 +350,7 @@ class DeploymentConfigCreate(BaseModel):
 
     provider: ProviderType = Field(..., description="LLM provider type")
 
-    # Renamed from model_name to llm_name to avoid Pydantic namespace conflicts
-    llm_name: str = Field(
+    llm_model_name: str = Field(
         ...,
         description="Model identifier",
         min_length=1,
@@ -437,7 +432,7 @@ class DeploymentConfigCreate(BaseModel):
         json_schema_extra = {
             "example": {
                 "provider": "azure_openai",
-                "llm_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
+                "llm_model_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
                 "api_version": "2023-03-15",
                 "deployment_name": "gpt-4-turbo-2024-04-09-gp",
                 "api_base": "https://<deployment>-<region>.openai.azure.com/",
@@ -468,8 +463,7 @@ class DeploymentConfigUpdate(BaseModel):
         default=UserRole.ADMIN,
     )
 
-    # Renamed from model_name to llm_name to avoid Pydantic namespace conflicts
-    llm_name: Optional[str] = Field(
+    llm_model_name: Optional[str] = Field(
         default=None,
         description="Updated model identifier",
         min_length=1,

@@ -70,7 +70,7 @@ async def acquire_tokens(request: TokenAllocationRequest):
         HTTPException 500: On internal server error
     """
     logger.info(
-        f"Acquiring tokens: user={request.user_id}, model={request.llm_name}, tokens={request.token_count}"
+        f"Acquiring tokens: user={request.user_id}, model={request.llm_model_name}, tokens={request.token_count}"
     )
 
     try:
@@ -80,7 +80,7 @@ async def acquire_tokens(request: TokenAllocationRequest):
         # Acquire tokens
         allocation = await allocation_service.acquire_tokens(
             user_id=request.user_id,
-            model_name=request.llm_name,
+            model_name=request.llm_model_name,
             token_count=request.token_count,
             request_context=request.request_context,
         )
@@ -146,21 +146,23 @@ async def retry_acquire_tokens(request: TokenRetryRequest):
         HTTPException 400: If allocation is not in WAITING status
         HTTPException 500: On internal server error
     """
-    logger.info(f"Retrying token acquisition: {request.token_req_id}")
+    logger.info(f"Retrying token acquisition: {request.token_request_id}")
 
     try:
         # Create allocation service instance
         allocation_service = TokenAllocationService()
 
         # Retry acquiring tokens
-        allocation = await allocation_service.retry_acquire_tokens(request.token_req_id)
+        allocation = await allocation_service.retry_acquire_tokens(
+            request.token_request_id
+        )
 
         # Check if allocation is None
         if allocation is None:
-            logger.warning(f"Token request not found: {request.token_req_id}")
+            logger.warning(f"Token request not found: {request.token_request_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Token request '{request.token_req_id}' not found",
+                detail=f"Token request '{request.token_request_id}' not found",
             )
 
         # Check for errors in response
@@ -180,11 +182,11 @@ async def retry_acquire_tokens(request: TokenRetryRequest):
 
         # Check if still waiting
         if allocation.get("allocation_status") == "WAITING":
-            logger.info(f"Token allocation still waiting: {request.token_req_id}")
+            logger.info(f"Token allocation still waiting: {request.token_request_id}")
             return TokenAllocationResponse(**allocation), status.HTTP_202_ACCEPTED
 
         # Successfully acquired
-        logger.info(f"Token allocation acquired: {request.token_req_id}")
+        logger.info(f"Token allocation acquired: {request.token_request_id}")
         return TokenAllocationResponse(**allocation)
 
     except HTTPException:
@@ -224,28 +226,28 @@ async def release_tokens(request: TokenReleaseRequest):
     Raises:
         HTTPException 500: On internal server error
     """
-    logger.info(f"Releasing tokens: {request.token_req_id}")
+    logger.info(f"Releasing tokens: {request.token_request_id}")
 
     try:
         # Create allocation service instance
         allocation_service = TokenAllocationService()
 
         # Release tokens (update to RELEASED status)
-        await allocation_service.update_allocation_completed(request.token_req_id)
+        await allocation_service.update_allocation_completed(request.token_request_id)
 
         # Always return success for idempotency (like the reference Flask service)
-        logger.info(f"Tokens released successfully: {request.token_req_id}")
+        logger.info(f"Tokens released successfully: {request.token_request_id}")
         return TokenReleaseResponse(
-            token_request_id=request.token_req_id,
+            token_request_id=request.token_request_id,
             allocation_status="RELEASED",
             message="Tokens released successfully",
         )
 
     except Exception as e:
         # Log error but still return success for idempotency
-        logger.warning(f"Error releasing tokens {request.token_req_id}: {e}")
+        logger.warning(f"Error releasing tokens {request.token_request_id}: {e}")
         return TokenReleaseResponse(
-            token_request_id=request.token_req_id,
+            token_request_id=request.token_request_id,
             allocation_status="RELEASED",
             message="Tokens released successfully",
         )
@@ -283,13 +285,15 @@ async def pause_deployment(request: PauseDeploymentRequest):
         HTTPException 500: On internal server error
     """
     logger.info(
-        f"Pausing deployment: model={request.llm_name}, endpoint={request.api_base}, reason={request.pause_reason}"
+        f"Pausing deployment: model={request.llm_model_name}, endpoint={request.api_base}, reason={request.pause_reason}"
     )
 
     try:
         # Validate api_base is not None
         if not request.api_base:
-            logger.warning(f"Missing api_base for pause deployment: {request.llm_name}")
+            logger.warning(
+                f"Missing api_base for pause deployment: {request.llm_model_name}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="api_base parameter is required for pause deployment operation",
@@ -300,7 +304,7 @@ async def pause_deployment(request: PauseDeploymentRequest):
 
         # Pause the deployment
         result = await allocation_service.pause_deployment(
-            model_name=request.llm_name,
+            model_name=request.llm_model_name,
             api_endpoint=request.api_base,
             pause_reason=request.pause_reason,
             pause_duration_minutes=request.pause_duration_minutes or 30,
@@ -317,15 +321,15 @@ async def pause_deployment(request: PauseDeploymentRequest):
         # Check if deployment not found
         if result.get("alloc_status") == "NOT_FOUND":
             logger.warning(
-                f"Deployment not found: {request.llm_name} at {request.api_base}"
+                f"Deployment not found: {request.llm_model_name} at {request.api_base}"
             )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Deployment '{request.llm_name}' at '{request.api_base}' not found",
+                detail=f"Deployment '{request.llm_model_name}' at '{request.api_base}' not found",
             )
 
         logger.info(
-            f"Deployment paused successfully: {request.llm_name} at {request.api_base}"
+            f"Deployment paused successfully: {request.llm_model_name} at {request.api_base}"
         )
         return result
 

@@ -146,16 +146,22 @@ async def retry_acquire_tokens(request: TokenRetryRequest):
         HTTPException 400: If allocation is not in WAITING status
         HTTPException 500: On internal server error
     """
-    logger.info(f"Retrying token acquisition: {request.token_request_id}")
+    logger.info(f"Retrying token acquisition: {request.token_req_id}")
 
     try:
         # Create allocation service instance
         allocation_service = TokenAllocationService()
 
         # Retry acquiring tokens
-        allocation = await allocation_service.retry_acquire_tokens(
-            request.token_request_id
-        )
+        allocation = await allocation_service.retry_acquire_tokens(request.token_req_id)
+
+        # Check if allocation is None
+        if allocation is None:
+            logger.warning(f"Token request not found: {request.token_req_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Token request '{request.token_req_id}' not found",
+            )
 
         # Check for errors in response
         if "error" in allocation:
@@ -174,11 +180,11 @@ async def retry_acquire_tokens(request: TokenRetryRequest):
 
         # Check if still waiting
         if allocation.get("allocation_status") == "WAITING":
-            logger.info(f"Token allocation still waiting: {request.token_request_id}")
+            logger.info(f"Token allocation still waiting: {request.token_req_id}")
             return TokenAllocationResponse(**allocation), status.HTTP_202_ACCEPTED
 
         # Successfully acquired
-        logger.info(f"Token allocation acquired: {request.token_request_id}")
+        logger.info(f"Token allocation acquired: {request.token_req_id}")
         return TokenAllocationResponse(**allocation)
 
     except HTTPException:
@@ -218,28 +224,28 @@ async def release_tokens(request: TokenReleaseRequest):
     Raises:
         HTTPException 500: On internal server error
     """
-    logger.info(f"Releasing tokens: {request.token_request_id}")
+    logger.info(f"Releasing tokens: {request.token_req_id}")
 
     try:
         # Create allocation service instance
         allocation_service = TokenAllocationService()
 
         # Release tokens (update to RELEASED status)
-        await allocation_service.update_allocation_completed(request.token_request_id)
+        await allocation_service.update_allocation_completed(request.token_req_id)
 
         # Always return success for idempotency (like the reference Flask service)
-        logger.info(f"Tokens released successfully: {request.token_request_id}")
+        logger.info(f"Tokens released successfully: {request.token_req_id}")
         return TokenReleaseResponse(
-            token_request_id=request.token_request_id,
+            token_request_id=request.token_req_id,
             allocation_status="RELEASED",
             message="Tokens released successfully",
         )
 
     except Exception as e:
         # Log error but still return success for idempotency
-        logger.warning(f"Error releasing tokens {request.token_request_id}: {e}")
+        logger.warning(f"Error releasing tokens {request.token_req_id}: {e}")
         return TokenReleaseResponse(
-            token_request_id=request.token_request_id,
+            token_request_id=request.token_req_id,
             allocation_status="RELEASED",
             message="Tokens released successfully",
         )
@@ -281,6 +287,14 @@ async def pause_deployment(request: PauseDeploymentRequest):
     )
 
     try:
+        # Validate api_base is not None
+        if not request.api_base:
+            logger.warning(f"Missing api_base for pause deployment: {request.llm_name}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="api_base parameter is required for pause deployment operation",
+            )
+
         # Create allocation service instance
         allocation_service = TokenAllocationService()
 

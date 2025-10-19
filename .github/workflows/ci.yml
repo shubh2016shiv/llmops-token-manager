@@ -114,7 +114,7 @@ jobs:
           #   --durations=10 \
           #   -v
           # Run tests with coverage, excluding app/models/* and */__init__.py
-          coverage run --omit="app/models/*,*/__init__.py,app/main.py,run.py" -m pytest tests/ \
+          coverage run --omit="app/models/*,*/__init__.py,app/app.py,index.py" -m pytest tests/ \
             --durations=10 \
             -v
 

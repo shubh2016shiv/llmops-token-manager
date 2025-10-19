@@ -15,7 +15,12 @@ from sqlalchemy import text
 from app.core.config_manager import settings
 from app.core.database_connection import db_manager
 from app.core.redis_connection import redis_manager
-from app.api import health_endpoints, user_endpoints, llm_configuration_endpoints
+from app.api import (
+    health_endpoints,
+    user_endpoints,
+    llm_configuration_endpoints,
+    token_manager_endpoints,
+)
 
 
 @asynccontextmanager
@@ -179,6 +184,7 @@ app.add_middleware(
 app.include_router(health_endpoints.router)
 app.include_router(llm_configuration_endpoints.router)
 app.include_router(user_endpoints.router)
+app.include_router(token_manager_endpoints.router)
 
 
 # Root endpoint

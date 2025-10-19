@@ -838,3 +838,24 @@ class LLMModelUpdateRequest(BaseModel):
                 "deployment_region": "westus2",
             }
         }
+
+
+# ============================================================================
+# TOKEN RETRY REQUEST MODEL
+# ============================================================================
+
+
+class TokenRetryRequest(BaseModel):
+    """
+    Request model for retrying token allocation.
+
+    Used when a token allocation is in WAITING status and needs to be retried
+    to check if capacity is now available.
+    """
+
+    token_request_id: str = Field(
+        ..., description="Token request ID to retry", min_length=1, max_length=100
+    )
+
+    class Config:
+        json_schema_extra = {"example": {"token_request_id": "req_abc123xyz"}}

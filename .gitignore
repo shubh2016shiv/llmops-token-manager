@@ -44,3 +44,9 @@ dump.rdb
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Obsolete files and directories
+*_OBSELETE*
+*_OBSELETE/
+*_DELETE*
+*_DELETE/

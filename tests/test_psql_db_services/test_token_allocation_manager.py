@@ -1125,7 +1125,7 @@ class TestTokenAllocationServiceBusinessLogic:
 
             # Assertions
             assert "error" in result
-            assert "Invalid token_req_id" in result["error"]
+            assert "Invalid token_request_id = req_123" == result["error"]
 
     @pytest.mark.asyncio
     async def test_retry_acquire_tokens_not_waiting(self):

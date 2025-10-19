@@ -136,9 +136,9 @@ jobs:
             echo "Coverage ($coverage_result%) meets minimum threshold of $coverage_threshold%"
           fi
 
-      - name: Upload Coverage Report
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./coverage.xml
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+      # - name: Upload Coverage Report
+      #   uses: codecov/codecov-action@v4
+      #   with:
+      #     file: ./coverage.xml
+      #     fail_ci_if_error: true
+      #     token: ${{ secrets.CODECOV_TOKEN }}

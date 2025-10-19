@@ -110,7 +110,7 @@ class TokenAllocationResponse(BaseModel):
 
     class Config:
         # Allow usage of field aliases for serialization and deserialization
-        allow_population_by_field_name = True
+        populate_by_name = True
         # Show multiple example responses in OpenAPI schema
         json_schema_extra = {
             "examples": {

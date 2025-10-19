@@ -27,6 +27,7 @@ from app.models.request_models import (
 from app.models.response_models import (
     TokenAllocationResponse,
     TokenReleaseResponse,
+    UserResponse,
 )
 
 # Services
@@ -79,7 +80,7 @@ async def acquire_tokens(request: TokenAllocationClientRequest):
     user_id = "89e0d113-912f-4272-ba13-6b3b6d9677c4"  # TODO: Later fetch the user id from token data when auth module is implemented
 
     # 2. validate if user is active and get user's role (developer, admin, etc.)
-    user = await users_service.get_user_by_id(user_id)
+    user: UserResponse = await users_service.get_user_by_id(user_id)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"

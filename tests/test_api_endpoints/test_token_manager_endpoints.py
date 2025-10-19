@@ -158,13 +158,13 @@ class TestAcquireTokens:
 
         # Verify service calls
         mock_users_service.get_user_by_id.assert_called_once_with(
-            "89e0d113-912f-4272-ba13-6b3b6d9677c4"
+            UUID("89e0d113-912f-4272-ba13-6b3b6d9677c4")
         )
         mock_estimate_tokens.assert_called_once_with(
             "Test prompt for token estimation", "gpt-4"
         )
         mock_service.acquire_tokens.assert_called_once_with(
-            user_id="89e0d113-912f-4272-ba13-6b3b6d9677c4",
+            user_id=UUID("89e0d113-912f-4272-ba13-6b3b6d9677c4"),
             model_name="gpt-4",
             token_count=150,
             request_context={"project": "test", "team": "research"},
@@ -261,7 +261,7 @@ class TestAcquireTokens:
 
         # Verify optional fields were passed through
         mock_service.acquire_tokens.assert_called_once_with(
-            user_id="89e0d113-912f-4272-ba13-6b3b6d9677c4",
+            user_id=UUID("89e0d113-912f-4272-ba13-6b3b6d9677c4"),
             model_name="gpt-4",
             token_count=150,
             request_context={"project": "custom", "team": "dev"},

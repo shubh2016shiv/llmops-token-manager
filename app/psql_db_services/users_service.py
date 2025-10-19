@@ -218,9 +218,7 @@ class UsersService(BaseDatabaseService):
     # READ OPERATIONS
     # ========================================================================
 
-    async def get_user_by_id(
-        self, user_id: Union[str, UUID]
-    ) -> Optional[Dict[str, Any]]:
+    async def get_user_by_id(self, user_id: Union[str, UUID]) -> Optional[UserResponse]:
         """
         Retrieve a user by their unique identifier.
 

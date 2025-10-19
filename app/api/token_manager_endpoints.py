@@ -15,11 +15,11 @@ Based on reference Flask service patterns from token_manager_service.py
 
 from fastapi import APIRouter, HTTPException, status
 from loguru import logger
+from uuid import UUID
 
 from app.psql_db_services.token_allocation_manager import TokenAllocationService
 from app.models.request_models import (
     TokenAllocationClientRequest,
-    TokenAllocationRequest,
     TokenReleaseRequest,
     TokenRetryRequest,
     PauseDeploymentRequest,
@@ -78,9 +78,10 @@ async def acquire_tokens(request: TokenAllocationClientRequest):
     """
     # 1. Get user_id
     user_id = "89e0d113-912f-4272-ba13-6b3b6d9677c4"  # TODO: Later fetch the user id from token data when auth module is implemented
+    user_id_uuid = UUID(user_id)
 
     # 2. validate if user is active and get user's role (developer, admin, etc.)
-    user: UserResponse = await users_service.get_user_by_id(user_id)
+    user: UserResponse = await users_service.get_user_by_id(user_id_uuid)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
@@ -89,7 +90,6 @@ async def acquire_tokens(request: TokenAllocationClientRequest):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="User is not active"
         )
-    user_role = user.role
 
     # 3. get the estimated token count from the request
     token_count_estimation = estimate_tokens(request.input_data, request.llm_model_name)
@@ -99,25 +99,13 @@ async def acquire_tokens(request: TokenAllocationClientRequest):
         f"Acquiring tokens: user={user_id}, model={request.llm_model_name}, tokens={estimated_token_count}"
     )
 
-    # 4. Create complete TokenAllocationRequest with all derived fields
-    TokenAllocationRequest(
-        user_id=user_id,
-        user_role=user_role,
-        provider=request.provider,
-        llm_model_name=request.llm_model_name,
-        token_count=estimated_token_count,
-        deployment_name=request.deployment_name,
-        region=request.region,
-        request_context=request.request_context,
-    )
-
     try:
         # Create allocation service instance
         allocation_service = TokenAllocationService()
 
         # Acquire tokens
         allocation = await allocation_service.acquire_tokens(
-            user_id=user_id,
+            user_id=user_id_uuid,
             model_name=request.llm_model_name,
             token_count=estimated_token_count,
             request_context=request.request_context,

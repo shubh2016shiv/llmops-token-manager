@@ -526,7 +526,7 @@ class UsersService(BaseDatabaseService):
 
     async def update_user_role(
         self, user_id: UUID, new_user_role: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[UserResponse]:
         """
         Update a user's role.
 
@@ -545,7 +545,7 @@ class UsersService(BaseDatabaseService):
 
     async def update_user_status(
         self, user_id: UUID, new_user_status: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[UserResponse]:
         """
         Update a user's status.
 
@@ -562,7 +562,7 @@ class UsersService(BaseDatabaseService):
         """
         return await self.update_user(user_id=user_id, user_status=new_user_status)
 
-    async def suspend_user(self, user_id: UUID) -> Optional[Dict[str, Any]]:
+    async def suspend_user(self, user_id: UUID) -> Optional[UserResponse]:
         """
         Suspend a user account by setting status to 'suspended'.
 
@@ -580,7 +580,7 @@ class UsersService(BaseDatabaseService):
             user_id=user_id, new_user_status="suspended"
         )
 
-    async def activate_user(self, user_id: UUID) -> Optional[Dict[str, Any]]:
+    async def activate_user(self, user_id: UUID) -> Optional[UserResponse]:
         """
         Activate a user account by setting status to 'active'.
 

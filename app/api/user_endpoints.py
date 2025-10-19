@@ -320,7 +320,7 @@ async def update_user(user_id: UUID, request: UserUpdateRequest):
             )
 
         logger.info(f"User updated successfully: user_id={user_id}")
-        return UserResponse(**updated_user)
+        return updated_user
 
     except HTTPException:
         raise
@@ -380,7 +380,7 @@ async def suspend_user(user_id: UUID):
             )
 
         logger.info(f"User suspended successfully: user_id={user_id}")
-        return UserResponse(**suspended_user)
+        return suspended_user
 
     except HTTPException:
         raise
@@ -426,7 +426,7 @@ async def activate_user(user_id: UUID):
             )
 
         logger.info(f"User activated successfully: user_id={user_id}")
-        return UserResponse(**activated_user)
+        return activated_user
 
     except HTTPException:
         raise

@@ -1155,7 +1155,7 @@ class TokenAllocationService(BaseDatabaseService):
                 allocation_status = "ACQUIRED"
                 # api_version = chosen_model_config.get("api_version", "")
                 deployment_name = chosen_model_config.get("deployment_name", "")
-                api_endpoint = chosen_model_config.get("api_base", "")
+                api_endpoint = chosen_model_config.get("api_endpoint_url", "")
                 region = chosen_model_config.get("region", "")
                 # api_keyv_id = chosen_model_config.get("api_keyv_id", "")
                 temperature = chosen_model_config.get("temperature", 0.0)

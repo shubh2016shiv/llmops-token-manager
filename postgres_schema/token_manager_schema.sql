@@ -10,8 +10,7 @@ CREATE TABLE IF NOT EXISTS token_manager (
     -- User Reference: Links to the user requesting tokens
     user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     -- Model & Deployment Configuration: Specifies the target LLM and deployment
-    model_name TEXT NOT NULL,
-    model_id UUID REFERENCES llm_models(model_id) ON DELETE SET NULL,
+    llm_model_name TEXT NOT NULL,
     deployment_name TEXT,
     cloud_provider TEXT,
     api_endpoint TEXT,
@@ -26,12 +25,11 @@ CREATE TABLE IF NOT EXISTS token_manager (
     request_context JSONB,
     temperature FLOAT,
     top_p FLOAT,
-    seed FLOAT
+    seed INTEGER
 );
 COMMENT ON TABLE token_manager IS 'Central gateway for token allocations, ensuring fair usage, cost control, and regional resilience';
 COMMENT ON COLUMN token_manager.token_request_id IS 'Unique identifier for the token allocation request';
-COMMENT ON COLUMN token_manager.model_name IS 'Name of the LLM model (e.g., GPT-4)';
-COMMENT ON COLUMN token_manager.model_id IS 'Reference to the specific LLM model in llm_models';
+COMMENT ON COLUMN token_manager.llm_model_name IS 'Name of the LLM model (e.g., GPT-4)';
 COMMENT ON COLUMN token_manager.deployment_name IS 'Specific deployment of the model, if applicable';
 COMMENT ON COLUMN token_manager.cloud_provider IS 'Cloud provider hosting the LLM (e.g., Azure, AWS), if applicable';
 COMMENT ON COLUMN token_manager.api_endpoint IS 'API endpoint for the selected LLM instance, if applicable';
@@ -48,7 +46,5 @@ COMMENT ON COLUMN token_manager.seed IS 'Seed value for reproducible LLM outputs
 -- INDEXES - OPTIMIZED FOR PERFORMANCE
 -- Supports efficient querying for token allocation lifecycle management.
 -- ============================================================================
-CREATE INDEX idx_token_expiry_status_model ON token_manager(expires_at, allocation_status, model_name);
-CREATE INDEX idx_token_expiry_status_model_endpoint ON token_manager(expires_at, allocation_status, model_name, api_endpoint);
-CREATE INDEX idx_token_model ON token_manager(model_name);
-CREATE INDEX idx_token_model_endpoint ON token_manager(model_name, api_endpoint);
+CREATE INDEX idx_token_expiry_status_model ON token_manager(expires_at, allocation_status, llm_model_name);
+CREATE INDEX idx_token_model ON token_manager(llm_model_name);

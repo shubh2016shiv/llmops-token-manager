@@ -26,12 +26,41 @@ class AllocationStatus(str, Enum):
 
 
 class ProviderType(str, Enum):
-    AZURE_OPENAI = "azure_openai"
-    OPENAI_DIRECT = "openai_direct"
-    ANTHROPIC = "anthropic"
-    GOOGLE_VERTEX = "google_vertex"
-    AWS_BEDROCK = "aws_bedrock"
-    ON_PREMISE = "on_premise"
+    ############################################################################
+    # Cloud-Hosted LLM Providers
+    # These providers host models from various creators on their cloud infrastructure
+    ############################################################################
+    azure_openai = "azure_openai"  # OpenAI models on Azure (e.g., model_name="gpt-4o")
+    google_vertex = "google_vertex"  # Google Vertex AI, supports Google models, Anthropic, etc. (e.g., model_name="claude-3-sonnet@20240229")
+    aws_bedrock = "aws_bedrock"  # AWS Bedrock, supports Anthropic, Cohere, Meta, Mistral, etc. (e.g., model_name="anthropic.claude-3-sonnet-20240229-v1:0")
+    ibm_watsonx = "ibm_watsonx"  # IBM watsonx.ai, supports IBM Granite, Meta, Mistral (e.g., model_name="ibm/granite-13b-chat-v2")
+    oracle = "oracle"  # Oracle Cloud AI, supports various models via partnerships (e.g., model_name varies)
+
+    ############################################################################
+    # Direct LLM Providers
+    # These providers offer APIs directly from the model creator or specialized inference platforms
+    ############################################################################
+    openai = "openai"  # OpenAI API (e.g., model_name="gpt-4o")
+    anthropic = (
+        "anthropic"  # Anthropic API (e.g., model_name="claude-3-5-sonnet-20240620")
+    )
+    cohere = "cohere"  # Cohere API (e.g., model_name="command-r-plus")
+    mistral = "mistral"  # Mistral API (e.g., model_name="mistral-large-2407")
+    hugging_face = "hugging_face"  # Hugging Face Inference API, supports thousands of models (e.g., model_name="meta-llama/Llama-3-70b")
+    together_ai = "together_ai"  # Together AI, aggregator for open models (e.g., model_name="meta-llama/Llama-3-70b")
+    fireworks_ai = "fireworks_ai"  # Fireworks AI, fast inference for various models (e.g., model_name="accounts/fireworks/models/llama-v3-70b")
+    replicate = (
+        "replicate"  # Replicate, easy deployment (e.g., model_name="meta/llama-3-70b")
+    )
+    xai = "xai"  # xAI API, e.g., Grok models (e.g., model_name="grok-4")
+    deepinfra = "deepinfra"  # DeepInfra, cost-effective for open models (e.g., model_name="meta-llama/Llama-3-70b")
+    novita = "novita"  # Novita AI, supports multimodal and text (e.g., model_name="novita/llama-3-70b")
+
+    ############################################################################
+    # On-Premise or Custom
+    ############################################################################
+    # Self-hosted or custom deployments of LLMs (e.g., via Ollama or custom setup)
+    on_premise = "on_premise"  # Self-hosted, e.g., via Ollama or custom setup (e.g., model_name depends on deployment)
 
 
 class UserRole(str, Enum):

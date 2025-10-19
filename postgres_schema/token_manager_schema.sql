@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS token_manager (
     llm_model_name TEXT NOT NULL,
     deployment_name TEXT,
     cloud_provider TEXT,
-    api_endpoint TEXT,
+    api_endpoint_url TEXT,
     region TEXT,
     -- Token Allocation Management: Tracks allocated tokens and their status
     token_count INTEGER NOT NULL CHECK (token_count > 0),
@@ -32,7 +32,7 @@ COMMENT ON COLUMN token_manager.token_request_id IS 'Unique identifier for the t
 COMMENT ON COLUMN token_manager.llm_model_name IS 'Name of the LLM model (e.g., GPT-4)';
 COMMENT ON COLUMN token_manager.deployment_name IS 'Specific deployment of the model, if applicable';
 COMMENT ON COLUMN token_manager.cloud_provider IS 'Cloud provider hosting the LLM (e.g., Azure, AWS), if applicable';
-COMMENT ON COLUMN token_manager.api_endpoint IS 'API endpoint for the selected LLM instance, if applicable';
+COMMENT ON COLUMN token_manager.api_endpoint_url IS 'API endpoint for the selected LLM instance, if applicable';
 COMMENT ON COLUMN token_manager.region IS 'Geographic region of the LLM instance (e.g., eastus2, westus2), if applicable';
 COMMENT ON COLUMN token_manager.token_count IS 'Number of tokens allocated for this request';
 COMMENT ON COLUMN token_manager.allocation_status IS 'Current status: ACQUIRED, RELEASED, EXPIRED, PAUSED, or FAILED';
@@ -46,5 +46,5 @@ COMMENT ON COLUMN token_manager.seed IS 'Seed value for reproducible LLM outputs
 -- INDEXES - OPTIMIZED FOR PERFORMANCE
 -- Supports efficient querying for token allocation lifecycle management.
 -- ============================================================================
-CREATE INDEX idx_token_expiry_status_model ON token_manager(expires_at, allocation_status, llm_model_name);
-CREATE INDEX idx_token_model ON token_manager(llm_model_name);
+CREATE INDEX idx_token_expiry_status_model ON token_manager(expires_at, allocation_status, llm_model_name, api_endpoint_url);
+CREATE INDEX idx_token_model ON token_manager(llm_model_name, api_endpoint_url);

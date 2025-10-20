@@ -208,7 +208,7 @@ async def verify_redis_connectivity() -> ServiceStatus:
 async def verify_rabbitmq_connectivity() -> ServiceStatus:
     """Verify RabbitMQ connectivity with detailed error reporting."""
     try:
-        from app.llm_client_provisioning.celery_app import celery_app
+        from app.llm_client_provisioning.llm_client_request_queue import celery_app
 
         # Check broker connection directly instead of worker inspection
         # This verifies RabbitMQ server is accessible, not worker availability

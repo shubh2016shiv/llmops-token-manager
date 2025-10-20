@@ -18,14 +18,17 @@ CREATE TABLE IF NOT EXISTS token_manager (
     -- Token Allocation Management: Tracks allocated tokens and their status
     token_count INTEGER NOT NULL CHECK (token_count > 0),
     allocation_status TEXT NOT NULL DEFAULT 'ACQUIRED'
-        CHECK (allocation_status IN ('ACQUIRED', 'RELEASED', 'EXPIRED', 'PAUSED', 'FAILED')),
+        CHECK (allocation_status IN ('ACQUIRED', 'WAITING', 'RELEASED', 'EXPIRED', 'PAUSED', 'FAILED')),
     -- Timing & Expiration: Manages allocation lifecycle
     allocated_at TIMESTAMPTZ NOT NULL,
     expires_at TIMESTAMPTZ,
     request_context JSONB,
     temperature FLOAT,
     top_p FLOAT,
-    seed INTEGER
+    seed INTEGER,
+
+    -- PAUSED allocations must have an expiration to prevent permanent blocking
+    CONSTRAINT chk_pause_must_expire CHECK (allocation_status != 'PAUSED' OR expires_at IS NOT NULL)
 );
 COMMENT ON TABLE token_manager IS 'Central gateway for token allocations, ensuring fair usage, cost control, and regional resilience';
 COMMENT ON COLUMN token_manager.token_request_id IS 'Unique identifier for the token allocation request';

@@ -608,7 +608,7 @@ class TestVerifyRabbitMQConnectivity:
     # Group 6: RabbitMQ Verification (4 tests)
 
     @pytest.mark.asyncio
-    @patch("app.core.startup_diagnostics.celery_app")
+    @patch("app.llm_client_provisioning.celery_app.celery_app")
     async def test_verify_rabbitmq_connectivity_success(self, mock_celery_app):
         """Test successful RabbitMQ connectivity verification."""
         # Setup
@@ -630,7 +630,7 @@ class TestVerifyRabbitMQConnectivity:
         }
 
     @pytest.mark.asyncio
-    @patch("app.core.startup_diagnostics.celery_app")
+    @patch("app.llm_client_provisioning.celery_app.celery_app")
     async def test_verify_rabbitmq_connectivity_connection_refused(
         self, mock_celery_app
     ):
@@ -655,7 +655,7 @@ class TestVerifyRabbitMQConnectivity:
         }
 
     @pytest.mark.asyncio
-    @patch("app.core.startup_diagnostics.celery_app")
+    @patch("app.llm_client_provisioning.celery_app.celery_app")
     async def test_verify_rabbitmq_connectivity_generic_exception(
         self, mock_celery_app
     ):
@@ -673,7 +673,7 @@ class TestVerifyRabbitMQConnectivity:
         assert "Check RabbitMQ configuration" in result.suggestion
 
     @pytest.mark.asyncio
-    @patch("app.core.startup_diagnostics.celery_app")
+    @patch("app.llm_client_provisioning.celery_app.celery_app")
     async def test_verify_rabbitmq_connectivity_connection_details_default(
         self, mock_celery_app
     ):

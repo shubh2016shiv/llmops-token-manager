@@ -128,7 +128,7 @@ async def _check_rabbitmq() -> bool:
         bool: True if RabbitMQ broker is accessible
     """
     try:
-        from app.workers.celery_app import celery_app
+        from app.llm_client_provisioning.celery_app import celery_app
 
         # Check broker connection directly instead of worker inspection
         # This verifies RabbitMQ server is accessible, not worker availability

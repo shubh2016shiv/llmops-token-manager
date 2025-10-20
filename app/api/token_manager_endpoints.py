@@ -239,10 +239,9 @@ async def release_tokens(request: TokenReleaseRequest):
     Release allocated tokens back to the pool.
 
     Process:
-    1. Validate token_request_id
-    2. Update allocation status to RELEASED
-    3. Calculate latency metrics
-    4. Return confirmation
+    1. Validate token_request_id exists
+    2. Delete the token allocation record
+    3. Return confirmation with appropriate status code
 
     Args:
         request: Token release parameters (token_request_id)
@@ -251,6 +250,7 @@ async def release_tokens(request: TokenReleaseRequest):
         TokenReleaseResponse: Release confirmation with status
 
     Raises:
+        HTTPException 404: If token_request_id not found
         HTTPException 500: On internal server error
     """
     logger.info(f"Releasing tokens: {request.token_request_id}")
@@ -259,24 +259,52 @@ async def release_tokens(request: TokenReleaseRequest):
         # Create allocation service instance
         allocation_service = TokenAllocationService()
 
-        # Release tokens (update to RELEASED status)
-        await allocation_service.update_allocation_completed(request.token_request_id)
-
-        # Always return success for idempotency (like the reference Flask service)
-        logger.info(f"Tokens released successfully: {request.token_request_id}")
-        return TokenReleaseResponse(
-            token_request_id=request.token_request_id,
-            allocation_status="RELEASED",
-            message="Tokens released successfully",
+        # Check if allocation exists
+        allocation = await allocation_service.get_allocation_by_request_id(
+            request.token_request_id
         )
 
+        # If allocation doesn't exist, it might have been already released
+        if allocation is None:
+            logger.info(
+                f"Token request {request.token_request_id} not found, may have been already released"
+            )
+            # Return success for idempotency
+            return TokenReleaseResponse(
+                token_request_id=request.token_request_id,
+                allocation_status="RELEASED",
+                message="Tokens released successfully",
+            )
+
+        # Delete the allocation record
+        deleted = await allocation_service.delete_allocation(request.token_request_id)
+
+        if deleted:
+            logger.info(f"Tokens released successfully: {request.token_request_id}")
+            return TokenReleaseResponse(
+                token_request_id=request.token_request_id,
+                allocation_status="RELEASED",
+                message="Tokens released successfully",
+            )
+        else:
+            # This should rarely happen since we checked existence above
+            logger.warning(f"Failed to release tokens: {request.token_request_id}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to release tokens: {request.token_request_id}",
+            )
+
+    except HTTPException:
+        raise
+
     except Exception as e:
-        # Log error but still return success for idempotency
-        logger.warning(f"Error releasing tokens {request.token_request_id}: {e}")
-        return TokenReleaseResponse(
-            token_request_id=request.token_request_id,
-            allocation_status="RELEASED",
-            message="Tokens released successfully",
+        # Log error and return 500 error
+        logger.error(
+            f"Error releasing tokens {request.token_request_id}: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to release tokens due to an internal error",
         )
 
 

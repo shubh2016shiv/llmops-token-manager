@@ -113,8 +113,8 @@ class TokenAllocationResponse(BaseModel):
         populate_by_name = True
         # Show multiple example responses in OpenAPI schema
         json_schema_extra = {
-            "examples": {
-                "direct_openai": {
+            "examples": [
+                {
                     "summary": "Direct OpenAI API with GPT-4o",
                     "description": "Accessing GPT-4o directly via OpenAI's API, no deployment name required.",
                     "value": {
@@ -126,7 +126,7 @@ class TokenAllocationResponse(BaseModel):
                         "api_endpoint_url": "https://api.openai.com/v1",
                         "region": "us-east-1",
                         "token_count": 1500,
-                        "allocation_status": "ACTIVE",
+                        "allocation_status": "ACQUIRED",  # Changed from "ACTIVE" to "ACQUIRED"
                         "allocated_at": "2025-10-19T17:19:00Z",  # 10:49 PM IST = 5:19 PM UTC
                         "expires_at": "2025-10-19T17:24:00Z",  # 5-minute token duration
                         "request_context": {
@@ -140,7 +140,7 @@ class TokenAllocationResponse(BaseModel):
                         "seed": 42,
                     },
                 },
-                "azure_openai": {
+                {
                     "summary": "Azure OpenAI Deployment with GPT-4o",
                     "description": "Accessing GPT-4o via Azure OpenAI with a custom deployment name.",
                     "value": {
@@ -152,7 +152,7 @@ class TokenAllocationResponse(BaseModel):
                         "api_endpoint_url": "https://my-resource.openai.azure.com/openai/deployments/gpt4o-eastus-prod",
                         "region": "eastus",
                         "token_count": 2500,
-                        "allocation_status": "ACQUIRED",
+                        "allocation_status": "ACQUIRED",  # Changed from "ACTIVE" to "ACQUIRED"
                         "allocated_at": "2025-10-19T17:19:00Z",  # Same UTC time
                         "expires_at": "2025-10-19T17:24:00Z",  # Same 5-minute duration
                         "request_context": {
@@ -166,7 +166,7 @@ class TokenAllocationResponse(BaseModel):
                         "seed": 123,
                     },
                 },
-            }
+            ]
         }
 
 

@@ -1152,7 +1152,9 @@ class TestTokenAllocationServiceBusinessLogic:
             }
 
             # Call method
-            result = await service.pause_deployment("gpt-4", "https://api.openai.com")
+            result = await service.pause_deployment(
+                uuid4(), "gpt-4", "https://api.openai.com"
+            )
 
             # Assertions
             assert result["alloc_status"] == "PAUSED"
@@ -1170,7 +1172,9 @@ class TestTokenAllocationServiceBusinessLogic:
         )
 
         # Call method
-        result = await service.pause_deployment("gpt-4", "https://api.openai.com")
+        result = await service.pause_deployment(
+            uuid4(), "gpt-4", "https://api.openai.com"
+        )
 
         # Assertions
         assert result["alloc_status"] == "NOT_FOUND"
@@ -1192,6 +1196,7 @@ class TestTokenAllocationServiceBusinessLogic:
             # Call method
             result = await service.create_pause_allocation(
                 "pause_123",
+                uuid4(),  # Add user_id as 2nd parameter
                 "gpt-4",
                 "https://api.openai.com",
                 "us-east-1",
@@ -1214,13 +1219,25 @@ class TestTokenAllocationServiceBusinessLogic:
         # Test invalid token limit
         with pytest.raises(ValueError, match="must be positive"):
             await service.create_pause_allocation(
-                "pause_123", "gpt-4", "https://api.openai.com", "us-east-1", 0, 30
+                "pause_123",
+                uuid4(),
+                "gpt-4",
+                "https://api.openai.com",
+                "us-east-1",
+                0,
+                30,
             )
 
         # Test invalid duration
         with pytest.raises(ValueError, match="must be positive"):
             await service.create_pause_allocation(
-                "pause_123", "gpt-4", "https://api.openai.com", "us-east-1", 100000, 0
+                "pause_123",
+                uuid4(),
+                "gpt-4",
+                "https://api.openai.com",
+                "us-east-1",
+                100000,
+                0,
             )
 
 
@@ -1313,7 +1330,7 @@ class TestTokenAllocationServiceLoadBalancing:
             {
                 "model_id": uuid4(),
                 "model_name": "gpt-4",
-                "api_base": "https://api.openai.com",
+                "api_endpoint_url": "https://api.openai.com",
                 "region": "us-east-1",
                 "max_tokens": 100000,
                 "is_active": True,
@@ -1321,7 +1338,7 @@ class TestTokenAllocationServiceLoadBalancing:
             {
                 "model_id": uuid4(),
                 "model_name": "gpt-4",
-                "api_base": "https://api.azure.com",
+                "api_endpoint_url": "https://api.azure.com",
                 "region": "us-west-1",
                 "max_tokens": 100000,
                 "is_active": True,
@@ -1363,7 +1380,7 @@ class TestTokenAllocationServiceLoadBalancing:
 
         # Assertions
         assert total_tokens == 0  # Unused deployment
-        assert chosen_config["api_base"] == "https://api.azure.com"
+        assert chosen_config["api_endpoint_url"] == "https://api.azure.com"
 
     @pytest.mark.asyncio
     async def test_get_least_loaded_deployment_least_loaded(self):
@@ -1375,7 +1392,7 @@ class TestTokenAllocationServiceLoadBalancing:
             {
                 "model_id": uuid4(),
                 "model_name": "gpt-4",
-                "api_base": "https://api.openai.com",
+                "api_endpoint_url": "https://api.openai.com",
                 "region": "us-east-1",
                 "max_tokens": 100000,
                 "is_active": True,
@@ -1383,7 +1400,7 @@ class TestTokenAllocationServiceLoadBalancing:
             {
                 "model_id": uuid4(),
                 "model_name": "gpt-4",
-                "api_base": "https://api.azure.com",
+                "api_endpoint_url": "https://api.azure.com",
                 "region": "us-west-1",
                 "max_tokens": 100000,
                 "is_active": True,
@@ -1426,7 +1443,7 @@ class TestTokenAllocationServiceLoadBalancing:
 
         # Assertions
         assert total_tokens == 5000  # Least loaded
-        assert chosen_config["api_base"] == "https://api.azure.com"
+        assert chosen_config["api_endpoint_url"] == "https://api.azure.com"
 
     @pytest.mark.asyncio
     async def test_get_least_loaded_deployment_no_deployments(self):
@@ -1453,7 +1470,7 @@ class TestTokenAllocationServiceLoadBalancing:
             {
                 "model_id": uuid4(),
                 "model_name": "gpt-4",
-                "api_base": "https://api.openai.com",
+                "api_endpoint_url": "https://api.openai.com",
                 "region": "us-east-1",
                 "max_tokens": 100000,
                 "is_active": True,
@@ -1499,7 +1516,7 @@ class TestTokenAllocationServiceLoadBalancing:
         # Assertions - when no match found, uses first deployment with 0 tokens
         assert total_tokens == 0
         assert (
-            chosen_config["api_base"] == "https://api.openai.com"
+            chosen_config["api_endpoint_url"] == "https://api.openai.com"
         )  # Fallback to first
 
 

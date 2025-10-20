@@ -571,63 +571,63 @@ class TokenAllocationService(BaseDatabaseService):
             logger.error(f"Error transitioning allocation {token_request_id}: {e}")
             raise
 
-    async def update_allocation_completed(
-        self, token_request_id: str, latency_ms: Optional[int] = None
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Mark allocation as completed (RELEASED status) and calculate latency
-
-        Args:
-            token_request_id: Unique token request identifier
-            latency_ms: Optional pre-calculated latency in milliseconds
-
-        Returns:
-            Updated record or None if not found
-
-        Raises:
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-        """
-        try:
-            async with self.get_session() as session:
-                if latency_ms is None:
-                    # Calculate latency from allocated_at to now
-                    query = """
-                        UPDATE token_manager
-                        SET
-                            allocation_status = 'RELEASED',
-                            completed_at = NOW(),
-                            latency_ms = EXTRACT(EPOCH FROM (NOW() - allocated_at)) * 1000
-                        WHERE token_request_id = :token_request_id
-                        RETURNING *
-                    """
-                    result = await session.execute(
-                        text(query), {"token_request_id": token_request_id}
-                    )
-                else:
-                    query = """
-                        UPDATE token_manager
-                        SET
-                            allocation_status = 'RELEASED',
-                            completed_at = NOW(),
-                            latency_ms = :latency_ms
-                        WHERE token_request_id = :token_request_id
-                        RETURNING *
-                    """
-                    result = await session.execute(
-                        text(query),
-                        {
-                            "latency_ms": latency_ms,
-                            "token_request_id": token_request_id,
-                        },
-                    )
-
-                updated_record = result.mappings().one_or_none()
-                if updated_record:
-                    logger.info(f"Completed allocation {token_request_id}")
-                return dict(updated_record) if updated_record else None
-        except Exception as e:
-            logger.error(f"Error completing allocation {token_request_id}: {e}")
-            raise
+    # async def release_allocated_token(
+    #     self, token_request_id: str, latency_ms: Optional[int] = None
+    # ) -> Optional[Dict[str, Any]]:
+    #     """
+    #     Mark allocation as completed (RELEASED status) and calculate latency
+    #
+    #     Args:
+    #         token_request_id: Unique token request identifier
+    #         latency_ms: Optional pre-calculated latency in milliseconds
+    #
+    #     Returns:
+    #         Updated record or None if not found
+    #
+    #     Raises:
+    #         sqlalchemy.exc.SQLAlchemyError: On database errors
+    #     """
+    #     try:
+    #         async with self.get_session() as session:
+    #             if latency_ms is None:
+    #                 # Calculate latency from allocated_at to now
+    #                 query = """
+    #                     UPDATE token_manager
+    #                     SET
+    #                         allocation_status = 'RELEASED',
+    #                         completed_at = NOW(),
+    #                         latency_ms = EXTRACT(EPOCH FROM (NOW() - allocated_at)) * 1000
+    #                     WHERE token_request_id = :token_request_id
+    #                     RETURNING *
+    #                 """
+    #                 result = await session.execute(
+    #                     text(query), {"token_request_id": token_request_id}
+    #                 )
+    #             else:
+    #                 query = """
+    #                     UPDATE token_manager
+    #                     SET
+    #                         allocation_status = 'RELEASED',
+    #                         completed_at = NOW(),
+    #                         latency_ms = :latency_ms
+    #                     WHERE token_request_id = :token_request_id
+    #                     RETURNING *
+    #                 """
+    #                 result = await session.execute(
+    #                     text(query),
+    #                     {
+    #                         "latency_ms": latency_ms,
+    #                         "token_request_id": token_request_id,
+    #                     },
+    #                 )
+    #
+    #             updated_record = result.mappings().one_or_none()
+    #             if updated_record:
+    #                 logger.info(f"Completed allocation {token_request_id}")
+    #             return dict(updated_record) if updated_record else None
+    #     except Exception as e:
+    #         logger.error(f"Error completing allocation {token_request_id}: {e}")
+    #         raise
 
     # ========================================================================
     # DELETE OPERATIONS

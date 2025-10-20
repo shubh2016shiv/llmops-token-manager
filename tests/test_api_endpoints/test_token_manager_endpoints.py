@@ -559,3 +559,160 @@ class TestAcquireTokens:
         # Assertions
         assert response.status_code == 422
         assert "String should have at least 1 character" in str(response.json())
+
+
+# ============================================================================
+# RELEASE TOKENS TESTS
+# ============================================================================
+
+
+class TestReleaseTokens:
+    """Test cases for release_tokens endpoint."""
+
+    @pytest.fixture
+    def sample_release_request(self):
+        """Sample token release request data."""
+        return {
+            "token_request_id": "req_123abc",
+            "user_role": "developer",
+        }
+
+    @pytest.fixture
+    def sample_allocation_data(self):
+        """Sample allocation data for mocking."""
+        return {
+            "token_request_id": "req_123abc",
+            "user_id": "89e0d113-912f-4272-ba13-6b3b6d9677c4",
+            "llm_model_name": "gpt-4",
+            "token_count": 150,
+            "allocation_status": "ACQUIRED",
+            "allocated_at": datetime.utcnow(),
+            "expires_at": datetime.utcnow(),
+        }
+
+    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    def test_release_tokens_success_normal_release(
+        self, mock_service_class, client, sample_release_request, sample_allocation_data
+    ):
+        """Test successful token release when allocation exists."""
+        # Setup mocks
+        mock_service = MagicMock()
+        mock_service.get_allocation_by_request_id = AsyncMock(
+            return_value=sample_allocation_data
+        )
+        mock_service.delete_allocation = AsyncMock(return_value=True)
+        mock_service_class.return_value = mock_service
+
+        # Make request
+        response = client.put("/api/v1/tokens/release", json=sample_release_request)
+
+        # Assertions
+        assert response.status_code == 200
+        data = response.json()
+        assert data["token_request_id"] == "req_123abc"
+        assert data["allocation_status"] == "RELEASED"
+        assert data["message"] == "Tokens released successfully"
+
+        # Verify service calls
+        mock_service.get_allocation_by_request_id.assert_called_once_with("req_123abc")
+        mock_service.delete_allocation.assert_called_once_with("req_123abc")
+
+    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    def test_release_tokens_success_already_released(
+        self, mock_service_class, client, sample_release_request
+    ):
+        """Test idempotent behavior when allocation already released."""
+        # Setup mocks - allocation doesn't exist (already released)
+        mock_service = MagicMock()
+        mock_service.get_allocation_by_request_id = AsyncMock(return_value=None)
+        mock_service_class.return_value = mock_service
+
+        # Make request
+        response = client.put("/api/v1/tokens/release", json=sample_release_request)
+
+        # Assertions
+        assert response.status_code == 200
+        data = response.json()
+        assert data["token_request_id"] == "req_123abc"
+        assert data["allocation_status"] == "RELEASED"
+        assert data["message"] == "Tokens released successfully"
+
+        # Verify only get_allocation_by_request_id was called, not delete_allocation
+        mock_service.get_allocation_by_request_id.assert_called_once_with("req_123abc")
+        mock_service.delete_allocation.assert_not_called()
+
+    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    def test_release_tokens_success_delete_fails_after_check(
+        self, mock_service_class, client, sample_release_request, sample_allocation_data
+    ):
+        """Test edge case where allocation exists but delete returns False."""
+        # Setup mocks
+        mock_service = MagicMock()
+        mock_service.get_allocation_by_request_id = AsyncMock(
+            return_value=sample_allocation_data
+        )
+        mock_service.delete_allocation = AsyncMock(return_value=False)
+        mock_service_class.return_value = mock_service
+
+        # Make request
+        response = client.put("/api/v1/tokens/release", json=sample_release_request)
+
+        # Assertions - should return 500 error
+        assert response.status_code == 500
+        assert "Failed to release tokens" in response.json()["detail"]
+
+        # Verify service calls
+        mock_service.get_allocation_by_request_id.assert_called_once_with("req_123abc")
+        mock_service.delete_allocation.assert_called_once_with("req_123abc")
+
+    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    def test_release_tokens_service_exception(
+        self, mock_service_class, client, sample_release_request
+    ):
+        """Test handling of service exceptions during release."""
+        # Setup mocks - service raises exception
+        mock_service = MagicMock()
+        mock_service.get_allocation_by_request_id = AsyncMock(
+            side_effect=Exception("Database connection failed")
+        )
+        mock_service_class.return_value = mock_service
+
+        # Make request
+        response = client.put("/api/v1/tokens/release", json=sample_release_request)
+
+        # Assertions
+        assert response.status_code == 500
+        assert (
+            "Failed to release tokens due to an internal error"
+            in response.json()["detail"]
+        )
+
+    def test_release_tokens_missing_token_request_id(self, client):
+        """Test request validation for missing token_request_id."""
+        # Request missing token_request_id
+        invalid_request = {"user_role": "developer"}
+
+        # Make request
+        response = client.put("/api/v1/tokens/release", json=invalid_request)
+
+        # Assertions
+        assert response.status_code == 422
+        assert "Field required" in str(response.json())
+
+    def test_release_tokens_empty_token_request_id(self, client):
+        """Test handling of empty token_request_id."""
+        # Request with empty token_request_id
+        invalid_request = {
+            "token_request_id": "",
+            "user_role": "developer",
+        }
+
+        # Make request
+        response = client.put("/api/v1/tokens/release", json=invalid_request)
+
+        # Assertions - empty string gets caught by service validation and returns 500
+        assert response.status_code == 500
+        assert (
+            "Failed to release tokens due to an internal error"
+            in response.json()["detail"]
+        )

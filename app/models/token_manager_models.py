@@ -16,6 +16,15 @@ class InputType(Enum):
     UNKNOWN = "unknown"
 
 
+class AllocationStatus(str, Enum):
+    ACQUIRED = "ACQUIRED"
+    WAITING = "WAITING"
+    PAUSED = "PAUSED"
+    RELEASED = "RELEASED"
+    EXPIRED = "EXPIRED"
+    FAILED = "FAILED"
+
+
 class TokenEstimation(BaseModel):
     """Result of token estimation with validation."""
 
@@ -124,7 +133,7 @@ class TokenAllocation(BaseModel):
     )
     allocation_status: str = Field(
         default="ACQUIRED",
-        description="Current status: ACQUIRED, RELEASED, EXPIRED, PAUSED, or FAILED",
+        description="Current status: ACQUIRED, WAITING, RELEASED, EXPIRED, PAUSED, or FAILED",
     )
     allocated_at: datetime = Field(
         ..., description="Timestamp when tokens were allocated"
@@ -150,7 +159,7 @@ class TokenAllocation(BaseModel):
     @classmethod
     def validate_allocation_status(cls, v: str) -> str:
         """Validate allocation status matches database CHECK constraint."""
-        allowed_statuses = ["ACQUIRED", "RELEASED", "EXPIRED", "PAUSED", "FAILED"]
+        allowed_statuses = [allowed_status.value for allowed_status in AllocationStatus]
         if v not in allowed_statuses:
             raise ValueError(
                 f"Allocation status must be one of: {', '.join(allowed_statuses)}"

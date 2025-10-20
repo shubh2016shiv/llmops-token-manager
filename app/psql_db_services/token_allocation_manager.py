@@ -747,6 +747,7 @@ class TokenAllocationService(BaseDatabaseService):
 
     async def pause_deployment(
         self,
+        user_id: UUID,
         model_name: str,
         api_endpoint: str,
         pause_reason: str = "",
@@ -757,8 +758,8 @@ class TokenAllocationService(BaseDatabaseService):
         Similar to MongoDB's pause_llm_deployment method
 
         Args:
-            llm_model_name: Model name
-            api_endpoint_url: API endpoint URL to pause
+            model_name: Model name
+            api_endpoint: API endpoint URL to pause
             pause_reason: Reason for pausing
             pause_duration_minutes: Duration to pause for
 
@@ -770,8 +771,31 @@ class TokenAllocationService(BaseDatabaseService):
             sqlalchemy.exc.SQLAlchemyError: On database errors
         """
         try:
-            # Find the model configuration for this deployment
             async with self.get_session() as session:
+                # Check for existing active pause to prevent race conditions
+                pause_check_query = """
+                    SELECT 1 FROM token_manager
+                    WHERE llm_model_name = :llm_model_name
+                      AND api_endpoint_url = :api_endpoint_url
+                      AND allocation_status = 'PAUSED'
+                      AND expires_at > NOW()
+                """
+                existing_pause = await session.execute(
+                    text(pause_check_query),
+                    {"llm_model_name": model_name, "api_endpoint_url": api_endpoint},
+                )
+                if existing_pause.scalar_one_or_none():
+                    logger.warning(
+                        f"Deployment {model_name} at {api_endpoint} is already paused."
+                    )
+                    return {
+                        "alloc_status": "ALREADY_PAUSED",
+                        "llm_model_name": model_name,
+                        "api_endpoint_url": api_endpoint,
+                        "reason": "Deployment is already in a paused state.",
+                    }
+
+                # Find the model configuration for this deployment
                 query = """
                     SELECT *
                     FROM llm_models
@@ -794,9 +818,10 @@ class TokenAllocationService(BaseDatabaseService):
                         "reason": "Deployment not found",
                     }
 
-            # Get the max token limit for this model
+            # Get required properties from model config
             max_token_limit = chosen_model_config.get("max_tokens", 100000)
-            region = chosen_model_config.get("region", "unknown")
+            provider_name = chosen_model_config.get("provider_name")
+            region = chosen_model_config.get("deployment_region", "unknown")
             deployment_name = chosen_model_config.get("deployment_name", "")
 
             # Create a token request ID for the pause allocation
@@ -805,26 +830,16 @@ class TokenAllocationService(BaseDatabaseService):
             # Create the pause allocation
             return await self.create_pause_allocation(
                 token_request_id=token_request_id,
+                user_id=user_id,
                 model_name=model_name,
                 api_endpoint=api_endpoint,
                 region=region,
                 max_token_limit=max_token_limit,
                 pause_duration_minutes=pause_duration_minutes,
-                cloud_provider="azure" if "azure" in api_endpoint.lower() else "openai",
+                cloud_provider=provider_name,
                 deployment_name=deployment_name,
                 reason=pause_reason,
             )
-
-            logger.info(
-                f"Paused deployment {model_name} at {api_endpoint} for {pause_duration_minutes} minutes"
-            )
-
-            return {
-                "alloc_status": "PAUSED",
-                "model_name": model_name,
-                "api_base": api_endpoint,
-                "reason": pause_reason,
-            }
 
         except ValueError as e:
             logger.error(f"Value error in pause_deployment: {e}")
@@ -836,6 +851,7 @@ class TokenAllocationService(BaseDatabaseService):
     async def create_pause_allocation(
         self,
         token_request_id: str,
+        user_id: UUID,
         model_name: str,
         api_endpoint: str,
         region: str,
@@ -874,6 +890,10 @@ class TokenAllocationService(BaseDatabaseService):
                 f"Pause duration must be positive, got {pause_duration_minutes}"
             )
 
+        # Calculate expiration and create context object
+        expiration_timestamp = datetime.now() + timedelta(
+            minutes=pause_duration_minutes
+        )
         context = (
             {"reason": reason, "operation": "pause_deployment"}
             if reason
@@ -886,16 +906,16 @@ class TokenAllocationService(BaseDatabaseService):
 
         return await self.create_token_allocation(
             token_request_identifier=token_request_id,
-            user_id=UUID(
-                "00000000-0000-0000-0000-000000000000"
-            ),  # System user for pauses
+            user_id=user_id,
             model_name=model_name,
             token_count=max_token_limit,
             allocation_status="PAUSED",
+            expiration_timestamp=expiration_timestamp,
             api_endpoint_url=api_endpoint,
             cloud_provider_name=cloud_provider,
             deployment_name=deployment_name,
             request_metadata=context,
+            deployment_region=region,
         )
 
     async def get_allocation_summary_by_model(self, model_name: str) -> Dict[str, Any]:
@@ -1042,7 +1062,7 @@ class TokenAllocationService(BaseDatabaseService):
 
             # Update the allocation to ACQUIRED
             expires_at = datetime.now() + timedelta(seconds=max_token_lock_time_secs)
-            api_endpoint = chosen_model_config.get("api_base", "")
+            api_endpoint = chosen_model_config.get("api_endpoint_url", "")
             region = chosen_model_config.get("region", "")
 
             updated_allocation = await self.transition_waiting_to_acquired(
@@ -1226,7 +1246,7 @@ class TokenAllocationService(BaseDatabaseService):
                         f"No model deployments found for llm_model_name = {model_name}"
                     )
 
-                # Get current allocations grouped by llm_model_name and api_base
+                # Get current allocations grouped by llm_model_name and api_endpoint_url
                 allocations_query = """
                     SELECT
                         llm_model_name,
@@ -1247,15 +1267,15 @@ class TokenAllocationService(BaseDatabaseService):
 
                 chosen_model_config = None
 
-                # Check if any deployment's api_base is not in the allocation results
+                # Check if any deployment's api_endpoint_url is not in the allocation results
                 # This means it's unused and can be chosen immediately
                 if allocation_results:
                     used_endpoints = [r["api_endpoint_url"] for r in allocation_results]
                     unused_deployments = [
                         m
                         for m in model_deployments
-                        if m["api_base"] not in used_endpoints
-                        and m["api_base"] is not None
+                        if m["api_endpoint_url"] not in used_endpoints
+                        and m["api_endpoint_url"] is not None
                     ]
 
                     if unused_deployments:
@@ -1274,7 +1294,10 @@ class TokenAllocationService(BaseDatabaseService):
 
                 # Find the matching deployment config
                 for deployment in model_deployments:
-                    if deployment["api_base"] == least_loaded["api_endpoint_url"]:
+                    if (
+                        deployment["api_endpoint_url"]
+                        == least_loaded["api_endpoint_url"]
+                    ):
                         chosen_model_config = dict(deployment)
                         break
 

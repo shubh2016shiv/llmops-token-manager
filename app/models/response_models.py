@@ -12,6 +12,15 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 from enum import Enum
 
 
+class AllocationStatus(str, Enum):
+    ACQUIRED = "ACQUIRED"
+    WAITING = "WAITING"
+    PAUSED = "PAUSED"
+    RELEASED = "RELEASED"
+    EXPIRED = "EXPIRED"
+    FAILED = "FAILED"
+
+
 # ============================================================================
 # USER RESPONSE MODEL
 # ============================================================================
@@ -101,7 +110,7 @@ class TokenAllocationResponse(BaseModel):
     @classmethod
     def validate_allocation_status(cls, v: str) -> str:
         """Validate allocation status matches database CHECK constraint."""
-        allowed_statuses = ["ACQUIRED", "RELEASED", "EXPIRED", "PAUSED", "FAILED"]
+        allowed_statuses = [allowed_status.value for allowed_status in AllocationStatus]
         if v not in allowed_statuses:
             raise ValueError(
                 f"Allocation status must be one of: {', '.join(allowed_statuses)}"

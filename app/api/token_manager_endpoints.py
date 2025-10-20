@@ -320,7 +320,21 @@ async def release_tokens(request: TokenReleaseRequest):
 )
 async def pause_deployment(request: PauseDeploymentRequest):
     """
-    Pause a failing deployment for emergency failover.
+    Pause a failing deployment for emergency failover and capacity management.
+
+    This function implements a sophisticated circuit breaker mechanism that temporarily blocks all new token allocations
+    to a specific deployment endpoint when that deployment is experiencing issues, degraded performance, or needs
+    maintenance. The pause mechanism works by creating a strategic "capacity blocker" - a PAUSED allocation record that
+    artificially consumes the entire available capacity of the target deployment, making it appear fully utilized to the
+    load balancing system. When the load balancer calculates available capacity for new requests, it includes both active
+    ACQUIRED allocations and PAUSED allocations in its computation, ensuring that any deployment with a pause allocation
+    will always appear at 100% capacity utilization, effectively routing all new traffic away from the problematic
+    deployment to healthier alternatives. This approach provides automatic failover without requiring manual intervention
+    in routing logic, maintains system availability during partial outages, and allows for graceful recovery when the
+    pause duration expires or is manually lifted. The mechanism is particularly valuable in production environments
+    where maintaining service continuity is critical, as it enables rapid response to deployment-specific issues like
+    provider outages, rate limiting problems, high error rates, or planned maintenance windows, while ensuring users
+    experience seamless operation as their requests are transparently redirected to functional deployments.
 
     Process:
     1. Validate input parameters
@@ -329,7 +343,7 @@ async def pause_deployment(request: PauseDeploymentRequest):
     4. Return pause confirmation
 
     Args:
-        request: Pause deployment parameters (model_name, api_base, pause_reason, etc.)
+        request: Pause deployment parameters (model_name, api_endpoint_url, pause_reason, etc.)
 
     Returns:
         Dictionary with pause status and details
@@ -340,18 +354,34 @@ async def pause_deployment(request: PauseDeploymentRequest):
         HTTPException 500: On internal server error
     """
     logger.info(
-        f"Pausing deployment: model={request.llm_model_name}, endpoint={request.api_base}, reason={request.pause_reason}"
+        f"Pausing deployment: model={request.llm_model_name}, endpoint={request.api_endpoint_url}, reason={request.pause_reason}"
     )
 
     try:
-        # Validate api_base is not None
-        if not request.api_base:
+        # 1. Get user_id
+        user_id = "89e0d113-912f-4272-ba13-6b3b6d9677c4"  # TODO: Later fetch the user id from token data when auth module is implemented
+        user_id_uuid = UUID(user_id)
+
+        # 2. validate if user is active and get user's role (developer, admin, etc.)
+        user: Optional[UserResponse] = await users_service.get_user_by_id(user_id_uuid)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+            )
+        if user.status != "active" or user.role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User is Forbidden to pause deployment",
+            )
+
+        # Validate api_endpoint_url is not None
+        if not request.api_endpoint_url:
             logger.warning(
-                f"Missing api_base for pause deployment: {request.llm_model_name}"
+                f"Missing api_endpoint_url for pause deployment: {request.llm_model_name}"
             )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="api_base parameter is required for pause deployment operation",
+                detail="api_endpoint_url parameter is required for pause deployment operation",
             )
 
         # Create allocation service instance
@@ -359,8 +389,9 @@ async def pause_deployment(request: PauseDeploymentRequest):
 
         # Pause the deployment
         result = await allocation_service.pause_deployment(
+            user_id=user_id_uuid,
             model_name=request.llm_model_name,
-            api_endpoint=request.api_base,
+            api_endpoint=request.api_endpoint_url,
             pause_reason=request.pause_reason,
             pause_duration_minutes=request.pause_duration_minutes or 30,
         )
@@ -376,15 +407,15 @@ async def pause_deployment(request: PauseDeploymentRequest):
         # Check if deployment not found
         if result.get("alloc_status") == "NOT_FOUND":
             logger.warning(
-                f"Deployment not found: {request.llm_model_name} at {request.api_base}"
+                f"Deployment not found: {request.llm_model_name} at {request.api_endpoint_url}"
             )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Deployment '{request.llm_model_name}' at '{request.api_base}' not found",
+                detail=f"Deployment '{request.llm_model_name}' at '{request.api_endpoint_url}' not found",
             )
 
         logger.info(
-            f"Deployment paused successfully: {request.llm_model_name} at {request.api_base}"
+            f"Deployment paused successfully: {request.llm_model_name} at {request.api_endpoint_url}"
         )
         return result
 

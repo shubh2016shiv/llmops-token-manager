@@ -20,7 +20,6 @@ from app.models.token_manager_models import TokenAllocation, TokenEstimation, In
 # Request models
 from app.models.request_models import (
     # Enums
-    AllocationStatus,
     ProviderType,
     UserRole,
     UserStatus,
@@ -40,6 +39,7 @@ from app.models.request_models import (
 # Response models
 from app.models.response_models import (
     # Enums
+    AllocationStatus,
     Health,
     # User responses
     UserResponse,

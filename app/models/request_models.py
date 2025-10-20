@@ -18,13 +18,6 @@ from uuid import UUID
 from datetime import datetime
 
 
-class AllocationStatus(str, Enum):
-    ACQUIRED = "ACQUIRED"
-    WAITING = "WAITING"
-    PAUSED = "PAUSED"
-    RELEASED = "RELEASED"
-
-
 class ProviderType(str, Enum):
     ############################################################################
     # Cloud-Hosted LLM Providers
@@ -324,8 +317,6 @@ class PauseDeploymentRequest(BaseModel):
     Use when: Provider outage, rate limits, high errors, maintenance.
     """
 
-    user_id: UUID = Field(..., description="Reference to the user requesting tokens")
-
     user_role: UserRole = Field(
         description="User role - determines access to requests",
         default=UserRole.OPERATOR,
@@ -341,7 +332,7 @@ class PauseDeploymentRequest(BaseModel):
         alias="model_name",  # Maps to database column 'model_name'
     )
 
-    api_base: Optional[str] = Field(
+    api_endpoint_url: Optional[str] = Field(
         default=None, description="Endpoint URL to pause", min_length=1, max_length=500
     )
 
@@ -368,7 +359,7 @@ class PauseDeploymentRequest(BaseModel):
             "example": {
                 "provider": "azure_openai",
                 "llm_model_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
-                "api_base": "https://<deployment>-<region>.openai.azure.com/",
+                "api_endpoint_url": "https://<deployment>-<region>.openai.azure.com/",
                 "pause_reason": "Azure region outage - 503 errors",
                 "pause_duration_minutes": 60,
             }

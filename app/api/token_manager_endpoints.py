@@ -13,9 +13,8 @@ Core Operations:
 Based on reference Flask service patterns from token_manager_service.py
 """
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from loguru import logger
-from uuid import UUID
 from typing import Optional
 
 from app.psql_db_services.token_allocation_manager import TokenAllocationService
@@ -30,6 +29,7 @@ from app.models.response_models import (
     TokenReleaseResponse,
     UserResponse,
 )
+from app.auth import require_developer, require_operator, TokenPayload
 
 # Services
 from app.utils.token_count_estimation import estimate_tokens
@@ -55,7 +55,10 @@ users_service = UsersService()
     summary="Acquire tokens for LLM usage",
     description="Reserve token capacity for LLM calls. Returns immediate allocation if capacity available, otherwise creates waiting allocation.",
 )
-async def acquire_tokens(request: TokenAllocationClientRequest):
+async def acquire_tokens(
+    request: TokenAllocationClientRequest,
+    current_user: TokenPayload = Depends(require_developer),
+):
     """
     Acquire tokens for LLM usage.
 
@@ -77,11 +80,10 @@ async def acquire_tokens(request: TokenAllocationClientRequest):
         HTTPException 404: If no deployments found for model
         HTTPException 500: On internal server error
     """
-    # 1. Get user_id
-    user_id = "89e0d113-912f-4272-ba13-6b3b6d9677c4"  # TODO: Later fetch the user id from token data when auth module is implemented
-    user_id_uuid = UUID(user_id)
+    # 1. Get user_id from JWT token
+    user_id_uuid = current_user.user_id
 
-    # 2. validate if user is active and get user's role (developer, admin, etc.)
+    # 2. validate if user is active (optional - for extra security)
     user: Optional[UserResponse] = await users_service.get_user_by_id(user_id_uuid)
     if user is None:
         raise HTTPException(
@@ -97,7 +99,7 @@ async def acquire_tokens(request: TokenAllocationClientRequest):
     estimated_token_count = token_count_estimation.total_tokens
 
     logger.info(
-        f"Acquiring tokens: user={user_id}, model={request.llm_model_name}, tokens={estimated_token_count}"
+        f"Acquiring tokens: user={user_id_uuid}, model={request.llm_model_name}, tokens={estimated_token_count}"
     )
 
     try:
@@ -149,7 +151,9 @@ async def acquire_tokens(request: TokenAllocationClientRequest):
     summary="Retry acquiring tokens for waiting allocation",
     description="Retry acquiring tokens for a WAITING allocation. Checks if capacity is now available.",
 )
-async def retry_acquire_tokens(request: TokenRetryRequest):
+async def retry_acquire_tokens(
+    request: TokenRetryRequest, current_user: TokenPayload = Depends(require_developer)
+):
     """
     Retry acquiring tokens for a WAITING allocation.
 
@@ -234,7 +238,10 @@ async def retry_acquire_tokens(request: TokenRetryRequest):
     summary="Release allocated tokens",
     description="Release allocated tokens back to the pool. Idempotent operation - safe to call multiple times.",
 )
-async def release_tokens(request: TokenReleaseRequest):
+async def release_tokens(
+    request: TokenReleaseRequest,
+    current_user: TokenPayload = Depends(require_developer),
+):
     """
     Release allocated tokens back to the pool.
 
@@ -318,7 +325,10 @@ async def release_tokens(request: TokenReleaseRequest):
     summary="Pause a failing deployment",
     description="Pause a failing deployment for emergency failover. Blocks all new allocations to the specified deployment.",
 )
-async def pause_deployment(request: PauseDeploymentRequest):
+async def pause_deployment(
+    request: PauseDeploymentRequest,
+    current_user: TokenPayload = Depends(require_operator),
+):
     """
     Pause a failing deployment for emergency failover and capacity management.
 
@@ -358,20 +368,19 @@ async def pause_deployment(request: PauseDeploymentRequest):
     )
 
     try:
-        # 1. Get user_id
-        user_id = "89e0d113-912f-4272-ba13-6b3b6d9677c4"  # TODO: Later fetch the user id from token data when auth module is implemented
-        user_id_uuid = UUID(user_id)
+        # 1. Get user_id from JWT token
+        user_id_uuid = current_user.user_id
 
-        # 2. validate if user is active and get user's role (developer, admin, etc.)
+        # 2. validate if user is active (optional - for extra security)
         user: Optional[UserResponse] = await users_service.get_user_by_id(user_id_uuid)
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
             )
-        if user.status != "active" or user.role != "admin":
+        if user.status != "active":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="User is Forbidden to pause deployment",
+                detail="User is not active",
             )
 
         # Validate api_endpoint_url is not None

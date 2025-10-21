@@ -7,11 +7,12 @@ Provides essential user management functionality with robust error handling.
 
 from uuid import uuid4, UUID
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from loguru import logger
 
 from app.utils.passwrd_hashing import PasswordHasher
 from app.psql_db_services.users_service import UsersService
+from app.auth import require_developer, require_admin, TokenPayload
 
 from app.models.request_models import UserCreateRequest, UserUpdateRequest
 from app.models.response_models import UserResponse
@@ -118,7 +119,9 @@ async def create_user(request: UserCreateRequest):
     summary="Get user by ID",
     description="Retrieve a specific user by their unique identifier.",
 )
-async def get_user(user_id: UUID):
+async def get_user(
+    user_id: UUID, current_user: TokenPayload = Depends(require_developer)
+):
     """
     Retrieve a user by their ID.
 
@@ -168,7 +171,9 @@ async def get_user(user_id: UUID):
     summary="Get user by email",
     description="Retrieve a specific user by their email address.",
 )
-async def get_user_by_email(email: str):
+async def get_user_by_email(
+    email: str, current_user: TokenPayload = Depends(require_developer)
+):
     """
     Retrieve a user by their email address.
 
@@ -285,7 +290,11 @@ async def get_user_by_email(email: str):
     summary="Update user",
     description="Update user information. Only provided fields will be updated.",
 )
-async def update_user(user_id: UUID, request: UserUpdateRequest):
+async def update_user(
+    user_id: UUID,
+    request: UserUpdateRequest,
+    current_user: TokenPayload = Depends(require_admin),
+):
     """
     Update user information.
 
@@ -352,7 +361,9 @@ async def update_user(user_id: UUID, request: UserUpdateRequest):
     summary="Suspend user",
     description="Suspend a user account by setting status to 'suspended'.",
 )
-async def suspend_user(user_id: UUID):
+async def suspend_user(
+    user_id: UUID, current_user: TokenPayload = Depends(require_admin)
+):
     """
     Suspend a user account.
 
@@ -398,7 +409,9 @@ async def suspend_user(user_id: UUID):
     summary="Activate user",
     description="Activate a user account by setting status to 'active'.",
 )
-async def activate_user(user_id: UUID):
+async def activate_user(
+    user_id: UUID, current_user: TokenPayload = Depends(require_admin)
+):
     """
     Activate a user account.
 

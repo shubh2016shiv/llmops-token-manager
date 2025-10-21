@@ -105,6 +105,22 @@ class ApplicationSettings(BaseSettings):
     default_max_tokens: int = Field(default=1000, description="Default max tokens")
     default_temperature: float = Field(default=0.7, description="Default temperature")
 
+    # JWT Authentication configuration
+    jwt_secret_key: str = Field(
+        default="CHANGE_THIS_IN_PRODUCTION_USE_STRONG_SECRET",
+        description="JWT secret key for token signing",
+    )
+    jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")
+    jwt_access_token_expire_hours: int = Field(
+        default=24, description="Access token expiration in hours"
+    )
+    jwt_refresh_enabled: bool = Field(
+        default=False, description="Enable refresh token support"
+    )
+    jwt_refresh_token_expire_days: int = Field(
+        default=7, description="Refresh token expiration in days"
+    )
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:

@@ -91,3 +91,9 @@ ipython                           # Enhanced interactive shell
 # PASSWORD HASHING
 ############################################################
 bcrypt==4.3.0                     # Password hashing library
+passlib[bcrypt]==1.7.4            # Password hashing utilities with bcrypt support
+
+############################################################
+# JWT AUTHENTICATION
+############################################################
+python-jose[cryptography]==3.3.0  # JWT token generation and validation

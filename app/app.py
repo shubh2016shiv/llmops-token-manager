@@ -27,6 +27,7 @@ from app.api import (
     llm_configuration_endpoints,
     token_manager_endpoints,
 )
+from app.auth import auth_router
 
 
 @asynccontextmanager
@@ -123,6 +124,7 @@ app.add_middleware(
 
 # Register routers
 app.include_router(health_endpoints.router)
+app.include_router(auth_router)  # JWT authentication endpoints
 app.include_router(llm_configuration_endpoints.router)
 app.include_router(user_endpoints.router)
 app.include_router(token_manager_endpoints.router)

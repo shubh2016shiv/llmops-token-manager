@@ -48,7 +48,7 @@ def client(app):
 def sample_llm_model_data():
     """Sample LLM model data for testing."""
     return {
-        "provider_name": "openai",
+        "llm_provider": "openai",
         "llm_model_name": "gpt-4o",
         "deployment_name": "gpt-4o-eastus",
         "api_key_variable_name": "OPENAI_API_KEY_GPT4O",
@@ -70,7 +70,7 @@ def sample_llm_model_data():
 def sample_create_request():
     """Sample LLM model creation request data."""
     return {
-        "provider_name": "openai",
+        "llm_provider": "openai",
         "llm_model_name": "gpt-4o",
         "api_key_variable_name": "OPENAI_API_KEY_GPT4O",
         "llm_model_version": "2024-08",
@@ -133,7 +133,7 @@ class TestCreateLLMModel:
         # Assert
         assert response.status_code == 201
         data = response.json()
-        assert data["provider_name"] == sample_llm_model_data["provider_name"]
+        assert data["llm_provider"] == sample_llm_model_data["llm_provider"]
         assert data["llm_model_name"] == sample_llm_model_data["llm_model_name"]
         assert data["llm_model_version"] == sample_llm_model_data["llm_model_version"]
         assert data["max_tokens"] == sample_llm_model_data["max_tokens"]
@@ -153,7 +153,7 @@ class TestCreateLLMModel:
         # Verify service was called correctly
         mock_service_instance.create_llm_model.assert_called_once()
         call_args = mock_service_instance.create_llm_model.call_args
-        assert call_args[1]["provider_name"] == sample_create_request["provider_name"]
+        assert call_args[1]["llm_provider"] == sample_create_request["llm_provider"]
         assert call_args[1]["llm_model_name"] == sample_create_request["llm_model_name"]
         assert (
             call_args[1]["api_key_variable_name"]
@@ -334,7 +334,7 @@ class TestCreateLLMModel:
 
         # Validate all required fields are present
         required_fields = [
-            "provider_name",
+            "llm_provider",
             "llm_model_name",
             "deployment_name",
             "api_key_variable_name",
@@ -355,9 +355,7 @@ class TestCreateLLMModel:
 
         # Validate LLMModelResponse model can be created from response
         llm_model_response = LLMModelResponse(**data)
-        assert (
-            llm_model_response.provider_name == sample_llm_model_data["provider_name"]
-        )
+        assert llm_model_response.llm_provider == sample_llm_model_data["llm_provider"]
         assert (
             llm_model_response.llm_model_name == sample_llm_model_data["llm_model_name"]
         )
@@ -399,7 +397,7 @@ class TestListLLMModelsByProvider:
         data = response.json()
         assert len(data["models"]) == 1
         assert (
-            data["models"][0]["provider_name"] == sample_llm_model_data["provider_name"]
+            data["models"][0]["llm_provider"] == sample_llm_model_data["llm_provider"]
         )
         assert (
             data["models"][0]["llm_model_name"]
@@ -413,7 +411,7 @@ class TestListLLMModelsByProvider:
 
         # Verify service was called correctly
         mock_service_instance.get_llm_models_by_provider.assert_called_once_with(
-            provider_name="openai", active_only=None, limit=100, offset=0
+            llm_provider="openai", active_only=None, limit=100, offset=0
         )
 
         # Cleanup
@@ -446,7 +444,7 @@ class TestListLLMModelsByProvider:
 
         # Verify service was called with active_only filter
         mock_service_instance.get_llm_models_by_provider.assert_called_once_with(
-            provider_name="openai", active_only=True, limit=100, offset=0
+            llm_provider="openai", active_only=True, limit=100, offset=0
         )
 
         # Cleanup
@@ -480,7 +478,7 @@ class TestListLLMModelsByProvider:
 
         # Verify service was called with pagination parameters
         mock_service_instance.get_llm_models_by_provider.assert_called_once_with(
-            provider_name="openai", active_only=None, limit=50, offset=10
+            llm_provider="openai", active_only=None, limit=50, offset=10
         )
 
         # Cleanup
@@ -618,13 +616,13 @@ class TestGetLLMModel:
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert data["provider_name"] == sample_llm_model_data["provider_name"]
+        assert data["llm_provider"] == sample_llm_model_data["llm_provider"]
         assert data["llm_model_name"] == sample_llm_model_data["llm_model_name"]
         assert data["llm_model_version"] == sample_llm_model_data["llm_model_version"]
 
         # Verify service was called correctly
         mock_service_instance.get_llm_model_by_provider_and_model.assert_called_once_with(
-            provider_name="openai", llm_model_name="gpt-4o", llm_model_version=None
+            llm_provider="openai", llm_model_name="gpt-4o", llm_model_version=None
         )
 
         # Cleanup
@@ -660,7 +658,7 @@ class TestGetLLMModel:
 
         # Verify service was called with version
         mock_service_instance.get_llm_model_by_provider_and_model.assert_called_once_with(
-            provider_name="openai", llm_model_name="gpt-4o", llm_model_version="2024-08"
+            llm_provider="openai", llm_model_name="gpt-4o", llm_model_version="2024-08"
         )
 
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
@@ -774,9 +772,7 @@ class TestGetLLMModel:
 
         # Validate LLMModelResponse model can be created from response
         llm_model_response = LLMModelResponse(**data)
-        assert (
-            llm_model_response.provider_name == sample_llm_model_data["provider_name"]
-        )
+        assert llm_model_response.llm_provider == sample_llm_model_data["llm_provider"]
         assert (
             llm_model_response.llm_model_name == sample_llm_model_data["llm_model_name"]
         )
@@ -866,7 +862,7 @@ class TestUpdateLLMModel:
         # Verify service was called correctly
         mock_service_instance.update_llm_model.assert_called_once()
         call_args = mock_service_instance.update_llm_model.call_args
-        assert call_args[1]["provider_name"] == "openai"
+        assert call_args[1]["llm_provider"] == "openai"
         assert call_args[1]["llm_model_name"] == "gpt-4o"
         assert call_args[1]["llm_model_version"] is None
         assert call_args[1]["max_tokens"] == sample_update_request["max_tokens"]
@@ -1071,7 +1067,7 @@ class TestUpdateLLMModel:
         assert response.status_code == 200
         call_args = mock_service_instance.update_llm_model.call_args
         # Verify all parameters are passed correctly
-        assert call_args[1]["provider_name"] == "openai"
+        assert call_args[1]["llm_provider"] == "openai"
         assert call_args[1]["llm_model_name"] == "gpt-4o"
         assert call_args[1]["llm_model_version"] == "2024-08"
         # Check only the fields that are present in sample_update_request
@@ -1090,7 +1086,7 @@ class TestUpdateLLMModel:
             == sample_update_request["deployment_region"]
         )
         # Check that None values are passed for fields not in the update request
-        assert call_args[1]["new_provider_name"] is None
+        assert call_args[1]["new_llm_provider"] is None
         assert call_args[1]["new_llm_model_name"] is None
         assert call_args[1]["deployment_name"] is None
         assert call_args[1]["api_key_variable_name"] is None
@@ -1167,12 +1163,12 @@ class TestActivateLLMModel:
         assert response.status_code == 200
         data = response.json()
         assert data["is_active_status"] is True
-        assert data["provider_name"] == sample_llm_model_data["provider_name"]
+        assert data["llm_provider"] == sample_llm_model_data["llm_provider"]
         assert data["llm_model_name"] == sample_llm_model_data["llm_model_name"]
 
         # Verify service was called correctly
         mock_service_instance.activate_llm_model.assert_called_once_with(
-            provider_name="openai", llm_model_name="gpt-4o", llm_model_version=None
+            llm_provider="openai", llm_model_name="gpt-4o", llm_model_version=None
         )
 
         # Cleanup
@@ -1207,7 +1203,7 @@ class TestActivateLLMModel:
 
         # Verify service was called with version
         mock_service_instance.activate_llm_model.assert_called_once_with(
-            provider_name="openai", llm_model_name="gpt-4o", llm_model_version="2024-08"
+            llm_provider="openai", llm_model_name="gpt-4o", llm_model_version="2024-08"
         )
 
         # Cleanup
@@ -1333,12 +1329,12 @@ class TestDeactivateLLMModel:
         assert response.status_code == 200
         data = response.json()
         assert data["is_active_status"] is False
-        assert data["provider_name"] == sample_llm_model_data["provider_name"]
+        assert data["llm_provider"] == sample_llm_model_data["llm_provider"]
         assert data["llm_model_name"] == sample_llm_model_data["llm_model_name"]
 
         # Verify service was called correctly
         mock_service_instance.deactivate_llm_model.assert_called_once_with(
-            provider_name="openai", llm_model_name="gpt-4o", llm_model_version=None
+            llm_provider="openai", llm_model_name="gpt-4o", llm_model_version=None
         )
 
         # Cleanup
@@ -1373,7 +1369,7 @@ class TestDeactivateLLMModel:
 
         # Verify service was called with version
         mock_service_instance.deactivate_llm_model.assert_called_once_with(
-            provider_name="openai", llm_model_name="gpt-4o", llm_model_version="2024-08"
+            llm_provider="openai", llm_model_name="gpt-4o", llm_model_version="2024-08"
         )
 
         # Cleanup

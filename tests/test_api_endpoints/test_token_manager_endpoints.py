@@ -50,7 +50,7 @@ def client(app):
 def sample_client_request():
     """Sample token allocation client request data."""
     return {
-        "provider": "openai",
+        "llm_provider": "openai",
         "llm_model_name": "gpt-4",
         "input_data": "Test prompt for token estimation",
         "region": "eastus2",
@@ -80,6 +80,7 @@ def sample_allocation_response():
     return {
         "token_request_id": "req_123abc",
         "user_id": "89e0d113-912f-4272-ba13-6b3b6d9677c4",
+        "llm_provider": "openai",
         "llm_model_name": "gpt-4",
         "token_count": 150,
         "allocation_status": "ACQUIRED",
@@ -172,6 +173,7 @@ class TestAcquireTokens:
         )
         mock_service.acquire_tokens.assert_called_once_with(
             user_id=mock_developer_user.user_id,
+            llm_provider="openai",
             model_name="gpt-4",
             token_count=150,
             request_context={"project": "test", "team": "research"},
@@ -208,6 +210,7 @@ class TestAcquireTokens:
         waiting_allocation = {
             "token_request_id": "req_waiting_123",
             "user_id": "89e0d113-912f-4272-ba13-6b3b6d9677c4",
+            "llm_provider": "openai",
             "llm_model_name": "gpt-4",
             "token_count": 150,
             "allocation_status": "ACQUIRED",  # WAITING is not a valid status for response
@@ -270,7 +273,7 @@ class TestAcquireTokens:
 
         # Request with optional fields
         request_with_optional = {
-            "provider": "openai",
+            "llm_provider": "openai",
             "llm_model_name": "gpt-4",
             "input_data": "Test prompt",
             "deployment_name": "gpt-4-custom-deployment",
@@ -289,6 +292,7 @@ class TestAcquireTokens:
         # Verify optional fields were passed through
         mock_service.acquire_tokens.assert_called_once_with(
             user_id=mock_developer_user.user_id,
+            llm_provider="openai",
             model_name="gpt-4",
             token_count=150,
             request_context={"project": "custom", "team": "dev"},
@@ -451,7 +455,7 @@ class TestAcquireTokens:
 
         # Request with invalid provider (not in the allowed enum)
         invalid_request = {
-            "provider": "invalid_provider_type",
+            "llm_provider": "invalid_provider_type",
             "llm_model_name": "gpt-4",
             "input_data": "Test prompt",
             "region": "eastus2",
@@ -666,7 +670,7 @@ class TestAcquireTokens:
 
         # Request with invalid provider
         invalid_request = {
-            "provider": "invalid_provider",
+            "llm_provider": "invalid_provider",
             "llm_model_name": "gpt-4",
             "input_data": "Test prompt",
         }

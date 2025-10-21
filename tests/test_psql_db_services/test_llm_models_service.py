@@ -113,7 +113,7 @@ class TestLLMModelsServiceValidation:
     def test_validate_llm_provider_valid(self, llm_models_service, valid_provider):
         """Test that valid LLM providers pass validation."""
         # Should not raise any exception
-        llm_models_service.validate_llm_provider_name(valid_provider)
+        llm_models_service.validate_llm_provider(valid_provider)
 
     def test_validate_model_numerical_parameters_valid(self, llm_models_service):
         """Test that valid numerical parameters pass validation."""
@@ -143,7 +143,7 @@ class TestLLMModelsServiceValidation:
     def test_validate_llm_provider_invalid(self, llm_models_service, invalid_provider):
         """Test that invalid LLM providers raise ValueError."""
         with pytest.raises(ValueError, match="Invalid LLM provider"):
-            llm_models_service.validate_llm_provider_name(invalid_provider)
+            llm_models_service.validate_llm_provider(invalid_provider)
 
     @pytest.mark.parametrize("invalid_max_tokens", [-1, 0, "invalid"])
     def test_validate_maximum_tokens_invalid(
@@ -251,7 +251,7 @@ class TestLLMModelsServiceCreate:
 
         # Act
         result = await llm_models_service.create_llm_model(
-            provider_name="openai",
+            llm_provider="openai",
             llm_model_name="gpt-4",
             deployment_name="gpt-4-deployment",
             api_key_variable_name="vault-key-123",
@@ -302,7 +302,7 @@ class TestLLMModelsServiceCreate:
 
         # Act
         result = await llm_models_service.create_llm_model(
-            provider_name="openai",
+            llm_provider="openai",
             llm_model_name="gpt-4",
             api_key_variable_name="test-key",
             llm_model_version=None,
@@ -327,7 +327,7 @@ class TestLLMModelsServiceCreate:
         # Act & Assert
         with pytest.raises(IntegrityError):
             await llm_models_service.create_llm_model(
-                provider_name="openai",
+                llm_provider="openai",
                 llm_model_name="gpt-4",
                 api_key_variable_name="test-key",
                 llm_model_version=None,
@@ -349,7 +349,7 @@ class TestLLMModelsServiceCreate:
         # Act & Assert
         with pytest.raises(RuntimeError, match="Failed to create model record"):
             await llm_models_service.create_llm_model(
-                provider_name="invalid",
+                llm_provider="invalid",
                 llm_model_name="gpt-4",
                 api_key_variable_name="test-key",
                 llm_model_version=None,
@@ -366,7 +366,7 @@ class TestLLMModelsServiceCreate:
         # Act & Assert
         with pytest.raises(ValueError, match="temperature_value must be between"):
             await llm_models_service.create_llm_model(
-                provider_name="openai",
+                llm_provider="openai",
                 llm_model_name="gpt-4",
                 api_key_variable_name="test-key",
                 llm_model_version=None,
@@ -388,7 +388,7 @@ class TestLLMModelsServiceCreate:
         # Act & Assert
         with pytest.raises(psycopg.Error):
             await llm_models_service.create_llm_model(
-                provider_name="openai",
+                llm_provider="openai",
                 llm_model_name="gpt-4",
                 api_key_variable_name="test-key",
                 llm_model_version=None,
@@ -862,7 +862,7 @@ class TestLLMModelsServiceUpdate:
         )
         # Act
         result = await llm_models_service.update_llm_model(
-            provider_name="openai",
+            llm_provider="openai",
             llm_model_name="gpt-4",
             llm_model_version=None,
             temperature=0.5,
@@ -887,7 +887,7 @@ class TestLLMModelsServiceUpdate:
         )
         # Act
         result = await llm_models_service.update_llm_model(
-            provider_name="openai",
+            llm_provider="openai",
             llm_model_name="gpt-4",
             llm_model_version=None,
             temperature=0.7,
@@ -924,10 +924,10 @@ class TestLLMModelsServiceUpdate:
         )
         # Act
         result = await llm_models_service.update_llm_model(
-            provider_name="openai",
+            llm_provider="openai",
             llm_model_name="gpt-4",
             llm_model_version=None,
-            new_provider_name="gemini",
+            new_llm_provider="gemini",
             new_llm_model_name="gemini-pro",
             deployment_name="gemini-pro-deployment",
             api_key_variable_name="vault-key-456",
@@ -957,7 +957,7 @@ class TestLLMModelsServiceUpdate:
         )
         # Act
         result = await llm_models_service.update_llm_model(
-            provider_name="openai", llm_model_name="gpt-4", llm_model_version=None
+            llm_provider="openai", llm_model_name="gpt-4", llm_model_version=None
         )
 
         # Assert
@@ -978,7 +978,7 @@ class TestLLMModelsServiceUpdate:
         )
         # Act
         result = await llm_models_service.update_llm_model_status(
-            provider_name="openai",
+            llm_provider="openai",
             llm_model_name="gpt-4",
             llm_model_version=None,
             is_active_status=False,
@@ -1001,7 +1001,7 @@ class TestLLMModelsServiceUpdate:
         )
         # Act
         result = await llm_models_service.activate_llm_model(
-            provider_name="openai", llm_model_name="gpt-4", llm_model_version=None
+            llm_provider="openai", llm_model_name="gpt-4", llm_model_version=None
         )
 
         # Assert
@@ -1021,7 +1021,7 @@ class TestLLMModelsServiceUpdate:
         )
         # Act
         result = await llm_models_service.deactivate_llm_model(
-            provider_name="openai", llm_model_name="gpt-4", llm_model_version=None
+            llm_provider="openai", llm_model_name="gpt-4", llm_model_version=None
         )
 
         # Assert
@@ -1049,7 +1049,7 @@ class TestLLMModelsServiceUpdate:
 
         # Act
         result = await llm_models_service.update_llm_model(
-            provider_name="openai",
+            llm_provider="openai",
             llm_model_name="gpt-4",
             llm_model_version=None,
             temperature=0.5,
@@ -1080,7 +1080,7 @@ class TestLLMModelsServiceUpdate:
 
         # Act
         result = await llm_models_service.update_llm_model(
-            provider_name="openai",
+            llm_provider="openai",
             llm_model_name="gpt-4",
             llm_model_version=None,
             temperature=3.0,
@@ -1101,23 +1101,23 @@ class TestLLMModelsServiceUpdate:
         # Act & Assert
         with pytest.raises(psycopg.Error):
             await llm_models_service.update_llm_model(
-                provider_name="openai",
+                llm_provider="openai",
                 llm_model_name="gpt-4",
                 llm_model_version=None,
                 temperature=0.5,
             )
 
     @pytest.mark.asyncio
-    async def test_update_llm_model_empty_provider_name(
+    async def test_update_llm_model_empty_llm_provider(
         self, llm_models_service, mock_db_manager
     ):
-        """Test that empty provider_name raises ValueError."""
+        """Test that empty llm_provider raises ValueError."""
         # Act & Assert
         with pytest.raises(
-            ValueError, match="provider_name and llm_model_name must be provided"
+            ValueError, match="llm_provider and llm_model_name must be provided"
         ):
             await llm_models_service.update_llm_model(
-                provider_name="",
+                llm_provider="",
                 llm_model_name="gpt-4",
                 temperature=0.5,
             )
@@ -1129,10 +1129,10 @@ class TestLLMModelsServiceUpdate:
         """Test that empty llm_model_name raises ValueError."""
         # Act & Assert
         with pytest.raises(
-            ValueError, match="provider_name and llm_model_name must be provided"
+            ValueError, match="llm_provider and llm_model_name must be provided"
         ):
             await llm_models_service.update_llm_model(
-                provider_name="openai",
+                llm_provider="openai",
                 llm_model_name="",
                 temperature=0.5,
             )
@@ -1151,7 +1151,7 @@ class TestLLMModelsServiceUpdate:
 
         # Act
         result = await llm_models_service.update_llm_model(
-            provider_name="openai",
+            llm_provider="openai",
             llm_model_name="gpt-4",
             llm_model_version="0613",
             temperature=0.5,
@@ -1168,20 +1168,20 @@ class TestLLMModelsServiceUpdate:
         """Test that empty identifiers in update_llm_model_status raise ValueError."""
         # Act & Assert
         with pytest.raises(
-            ValueError, match="provider_name and llm_model_name must be provided"
+            ValueError, match="llm_provider and llm_model_name must be provided"
         ):
             await llm_models_service.update_llm_model_status(
-                provider_name="",
+                llm_provider="",
                 llm_model_name="gpt-4",
                 is_active_status=True,
             )
 
         # Test empty model name
         with pytest.raises(
-            ValueError, match="provider_name and llm_model_name must be provided"
+            ValueError, match="llm_provider and llm_model_name must be provided"
         ):
             await llm_models_service.update_llm_model_status(
-                provider_name="openai",
+                llm_provider="openai",
                 llm_model_name="",
                 is_active_status=True,
             )
@@ -1235,7 +1235,7 @@ class TestLLMModelsServiceDelete:
         mock_result.rowcount = 1  # Simulate successful deletion
         # Act
         result = await llm_models_service.delete_llm_model(
-            provider_name="openai", llm_model_name="gpt-4", llm_model_version=None
+            llm_provider="openai", llm_model_name="gpt-4", llm_model_version=None
         )
 
         # Assert
@@ -1253,7 +1253,7 @@ class TestLLMModelsServiceDelete:
 
         # Act
         result = await llm_models_service.delete_llm_model(
-            provider_name="openai", llm_model_name="gpt-4", llm_model_version=None
+            llm_provider="openai", llm_model_name="gpt-4", llm_model_version=None
         )
 
         # Assert
@@ -1299,16 +1299,16 @@ class TestLLMModelsServiceDelete:
             await llm_models_service.delete_llm_models_by_provider("openai")
 
     @pytest.mark.asyncio
-    async def test_delete_llm_model_empty_provider_name(
+    async def test_delete_llm_model_empty_llm_provider(
         self, llm_models_service, mock_db_manager
     ):
-        """Test that empty provider_name raises ValueError."""
+        """Test that empty llm_provider raises ValueError."""
         # Act & Assert
         with pytest.raises(
-            ValueError, match="provider_name and llm_model_name must be provided"
+            ValueError, match="llm_provider and llm_model_name must be provided"
         ):
             await llm_models_service.delete_llm_model(
-                provider_name="",
+                llm_provider="",
                 llm_model_name="gpt-4",
             )
 
@@ -1319,10 +1319,10 @@ class TestLLMModelsServiceDelete:
         """Test that empty llm_model_name raises ValueError."""
         # Act & Assert
         with pytest.raises(
-            ValueError, match="provider_name and llm_model_name must be provided"
+            ValueError, match="llm_provider and llm_model_name must be provided"
         ):
             await llm_models_service.delete_llm_model(
-                provider_name="openai",
+                llm_provider="openai",
                 llm_model_name="",
             )
 
@@ -1337,7 +1337,7 @@ class TestLLMModelsServiceDelete:
 
         # Act
         result = await llm_models_service.delete_llm_model(
-            provider_name="openai",
+            llm_provider="openai",
             llm_model_name="gpt-4",
             llm_model_version="0613",
         )
@@ -1358,7 +1358,7 @@ class TestLLMModelsServiceDelete:
         # Act & Assert
         with pytest.raises(psycopg.Error):
             await llm_models_service.delete_llm_model(
-                provider_name="openai",
+                llm_provider="openai",
                 llm_model_name="gpt-4",
             )
 

@@ -5,8 +5,8 @@ DROP TABLE IF EXISTS llm_models CASCADE;
 -- Represents available LLM models with their configurations and usage metrics.
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS llm_models (
-    provider_name TEXT NOT NULL DEFAULT 'openai'
-        CHECK (provider_name IN ('openai', 'gemini', 'anthropic', 'mistral', 'cohere', 'xai', 'deepseek', 'meta')),
+    llm_provider TEXT NOT NULL DEFAULT 'openai'
+        CHECK (llm_provider IN ('openai', 'gemini', 'anthropic', 'mistral', 'cohere', 'xai', 'deepseek', 'meta')),
     llm_model_name TEXT NOT NULL,
     deployment_name TEXT,
     api_key_variable_name TEXT,
@@ -25,10 +25,10 @@ CREATE TABLE IF NOT EXISTS llm_models (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- Composite Primary Key
-    PRIMARY KEY (provider_name, llm_model_name, llm_model_version)
+    PRIMARY KEY (llm_provider, llm_model_name)
 );
 COMMENT ON TABLE llm_models IS 'Catalog of LLM models, tracking configurations and usage metrics';
-COMMENT ON COLUMN llm_models.provider_name IS 'LLM provider name (e.g., openai, gemini, anthropic)';
+COMMENT ON COLUMN llm_models.llm_provider IS 'LLM provider name (e.g., openai, gemini, anthropic)';
 COMMENT ON COLUMN llm_models.llm_model_name IS 'Name of the LLM model (e.g., GPT-4)';
 COMMENT ON COLUMN llm_models.deployment_name IS 'Name of the LLM deployment (e.g., gpt-4o)';
 COMMENT ON COLUMN llm_models.api_key_variable_name IS 'Variable Name of LLM API Key (e.g., OPENAI_API_KEY_GPT4O)';

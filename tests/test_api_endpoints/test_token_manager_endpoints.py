@@ -130,13 +130,20 @@ class TestAcquireTokens:
         mock_users_service,
         mock_estimate_tokens,
         mock_service_class,
+        app,
         client,
+        mock_developer_user,
         sample_client_request,
         sample_user_response,
         sample_allocation_response,
         sample_token_estimation,
     ):
         """Test successful immediate token allocation."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Setup mocks
         mock_users_service.get_user_by_id = AsyncMock(return_value=sample_user_response)
         mock_estimate_tokens.return_value = sample_token_estimation
@@ -158,17 +165,20 @@ class TestAcquireTokens:
 
         # Verify service calls
         mock_users_service.get_user_by_id.assert_called_once_with(
-            UUID("89e0d113-912f-4272-ba13-6b3b6d9677c4")
+            mock_developer_user.user_id
         )
         mock_estimate_tokens.assert_called_once_with(
             "Test prompt for token estimation", "gpt-4"
         )
         mock_service.acquire_tokens.assert_called_once_with(
-            user_id=UUID("89e0d113-912f-4272-ba13-6b3b6d9677c4"),
+            user_id=mock_developer_user.user_id,
             model_name="gpt-4",
             token_count=150,
             request_context={"project": "test", "team": "research"},
         )
+
+        # Cleanup
+        app.dependency_overrides.clear()
 
     @patch("app.api.token_manager_endpoints.TokenAllocationService")
     @patch("app.api.token_manager_endpoints.estimate_tokens")
@@ -178,12 +188,19 @@ class TestAcquireTokens:
         mock_users_service,
         mock_estimate_tokens,
         mock_service_class,
+        app,
         client,
+        mock_developer_user,
         sample_client_request,
         sample_user_response,
         sample_token_estimation,
     ):
         """Test successful token allocation with ACQUIRED status."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Setup mocks
         mock_users_service.get_user_by_id = AsyncMock(return_value=sample_user_response)
         mock_estimate_tokens.return_value = sample_token_estimation
@@ -219,6 +236,9 @@ class TestAcquireTokens:
         assert data["allocation_status"] == "ACQUIRED"
         assert data["token_request_id"] == "req_waiting_123"
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.token_manager_endpoints.TokenAllocationService")
     @patch("app.api.token_manager_endpoints.estimate_tokens")
     @patch("app.api.token_manager_endpoints.users_service")
@@ -227,12 +247,19 @@ class TestAcquireTokens:
         mock_users_service,
         mock_estimate_tokens,
         mock_service_class,
+        app,
         client,
+        mock_developer_user,
         sample_user_response,
         sample_allocation_response,
         sample_token_estimation,
     ):
         """Test successful token allocation with optional fields."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Setup mocks
         mock_users_service.get_user_by_id = AsyncMock(return_value=sample_user_response)
         mock_estimate_tokens.return_value = sample_token_estimation
@@ -261,19 +288,32 @@ class TestAcquireTokens:
 
         # Verify optional fields were passed through
         mock_service.acquire_tokens.assert_called_once_with(
-            user_id=UUID("89e0d113-912f-4272-ba13-6b3b6d9677c4"),
+            user_id=mock_developer_user.user_id,
             model_name="gpt-4",
             token_count=150,
             request_context={"project": "custom", "team": "dev"},
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     # Group 2: User Validation Errors (3 tests)
 
     @patch("app.api.token_manager_endpoints.users_service")
     def test_acquire_tokens_user_not_found(
-        self, mock_users_service, client, sample_client_request
+        self,
+        mock_users_service,
+        app,
+        client,
+        mock_developer_user,
+        sample_client_request,
     ):
         """Test token allocation when user is not found."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Setup mock - return None for user not found
         mock_users_service.get_user_by_id = AsyncMock(return_value=None)
 
@@ -284,11 +324,24 @@ class TestAcquireTokens:
         assert response.status_code == 404
         assert response.json()["detail"] == "User not found"
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.token_manager_endpoints.users_service")
     def test_acquire_tokens_user_inactive(
-        self, mock_users_service, client, sample_client_request
+        self,
+        mock_users_service,
+        app,
+        client,
+        mock_developer_user,
+        sample_client_request,
     ):
         """Test token allocation when user is inactive."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Setup mock - return inactive user
         inactive_user = UserResponse(
             user_id=UUID("89e0d113-912f-4272-ba13-6b3b6d9677c4"),
@@ -310,11 +363,24 @@ class TestAcquireTokens:
         assert response.status_code == 403
         assert response.json()["detail"] == "User is not active"
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.token_manager_endpoints.users_service")
     def test_acquire_tokens_user_suspended(
-        self, mock_users_service, client, sample_client_request
+        self,
+        mock_users_service,
+        app,
+        client,
+        mock_developer_user,
+        sample_client_request,
     ):
         """Test token allocation when user is suspended."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Setup mock - return suspended user
         suspended_user = UserResponse(
             user_id=UUID("89e0d113-912f-4272-ba13-6b3b6d9677c4"),
@@ -335,6 +401,9 @@ class TestAcquireTokens:
         # Assertions
         assert response.status_code == 403
         assert response.json()["detail"] == "User is not active"
+
+        # Cleanup
+        app.dependency_overrides.clear()
 
     # Group 3: Token Estimation Errors (2 tests)
 
@@ -371,8 +440,15 @@ class TestAcquireTokens:
         assert response.status_code == 500
         assert "Failed to acquire tokens" in response.json()["detail"]
 
-    def test_acquire_tokens_invalid_provider_enum(self, client):
+    def test_acquire_tokens_invalid_provider_enum(
+        self, app, client, mock_developer_user
+    ):
         """Test token allocation with invalid provider enum value."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Request with invalid provider (not in the allowed enum)
         invalid_request = {
             "provider": "invalid_provider_type",
@@ -388,6 +464,9 @@ class TestAcquireTokens:
         assert response.status_code == 422
         assert "Input should be" in str(response.json())
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     # Group 4: Allocation Service Errors (4 tests)
 
     @patch("app.api.token_manager_endpoints.TokenAllocationService")
@@ -398,12 +477,19 @@ class TestAcquireTokens:
         mock_users_service,
         mock_estimate_tokens,
         mock_service_class,
+        app,
         client,
+        mock_developer_user,
         sample_client_request,
         sample_user_response,
         sample_token_estimation,
     ):
         """Test token allocation when allocation service returns error."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Setup mocks
         mock_users_service.get_user_by_id = AsyncMock(return_value=sample_user_response)
         mock_estimate_tokens.return_value = sample_token_estimation
@@ -421,6 +507,9 @@ class TestAcquireTokens:
         assert response.status_code == 400
         assert response.json()["detail"] == "No deployments found"
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.token_manager_endpoints.TokenAllocationService")
     @patch("app.api.token_manager_endpoints.estimate_tokens")
     @patch("app.api.token_manager_endpoints.users_service")
@@ -429,12 +518,19 @@ class TestAcquireTokens:
         mock_users_service,
         mock_estimate_tokens,
         mock_service_class,
+        app,
         client,
+        mock_developer_user,
         sample_client_request,
         sample_user_response,
         sample_token_estimation,
     ):
         """Test token allocation when token limit is exceeded."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Setup mocks
         mock_users_service.get_user_by_id = AsyncMock(return_value=sample_user_response)
         mock_estimate_tokens.return_value = sample_token_estimation
@@ -452,6 +548,9 @@ class TestAcquireTokens:
         assert response.status_code == 400
         assert response.json()["detail"] == "Token count exceeds limit"
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.token_manager_endpoints.TokenAllocationService")
     @patch("app.api.token_manager_endpoints.estimate_tokens")
     @patch("app.api.token_manager_endpoints.users_service")
@@ -460,12 +559,19 @@ class TestAcquireTokens:
         mock_users_service,
         mock_estimate_tokens,
         mock_service_class,
+        app,
         client,
+        mock_developer_user,
         sample_client_request,
         sample_user_response,
         sample_token_estimation,
     ):
         """Test token allocation when allocation service raises ValueError."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Setup mocks
         mock_users_service.get_user_by_id = AsyncMock(return_value=sample_user_response)
         mock_estimate_tokens.return_value = sample_token_estimation
@@ -483,6 +589,9 @@ class TestAcquireTokens:
         assert response.status_code == 400
         assert response.json()["detail"] == "Invalid allocation parameters"
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.token_manager_endpoints.TokenAllocationService")
     @patch("app.api.token_manager_endpoints.estimate_tokens")
     @patch("app.api.token_manager_endpoints.users_service")
@@ -491,12 +600,19 @@ class TestAcquireTokens:
         mock_users_service,
         mock_estimate_tokens,
         mock_service_class,
+        app,
         client,
+        mock_developer_user,
         sample_client_request,
         sample_user_response,
         sample_token_estimation,
     ):
         """Test token allocation when allocation service raises generic exception."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Setup mocks
         mock_users_service.get_user_by_id = AsyncMock(return_value=sample_user_response)
         mock_estimate_tokens.return_value = sample_token_estimation
@@ -514,10 +630,20 @@ class TestAcquireTokens:
         assert response.status_code == 500
         assert "Failed to acquire tokens" in response.json()["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     # Group 5: Request Validation (3 tests)
 
-    def test_acquire_tokens_missing_required_fields(self, client):
+    def test_acquire_tokens_missing_required_fields(
+        self, app, client, mock_developer_user
+    ):
         """Test token allocation with missing required fields."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Request missing provider
         invalid_request = {"llm_model_name": "gpt-4", "input_data": "Test prompt"}
 
@@ -528,8 +654,16 @@ class TestAcquireTokens:
         assert response.status_code == 422
         assert "Field required" in str(response.json())
 
-    def test_acquire_tokens_invalid_provider(self, client):
+        # Cleanup
+        app.dependency_overrides.clear()
+
+    def test_acquire_tokens_invalid_provider(self, app, client, mock_developer_user):
         """Test token allocation with invalid provider."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Request with invalid provider
         invalid_request = {
             "provider": "invalid_provider",
@@ -544,8 +678,16 @@ class TestAcquireTokens:
         assert response.status_code == 422
         assert "Input should be" in str(response.json())
 
-    def test_acquire_tokens_empty_model_name(self, client):
+        # Cleanup
+        app.dependency_overrides.clear()
+
+    def test_acquire_tokens_empty_model_name(self, app, client, mock_developer_user):
         """Test token allocation with empty model name."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Request with empty model name
         invalid_request = {
             "provider": "openai",
@@ -559,6 +701,9 @@ class TestAcquireTokens:
         # Assertions
         assert response.status_code == 422
         assert "String should have at least 1 character" in str(response.json())
+
+        # Cleanup
+        app.dependency_overrides.clear()
 
 
 # ============================================================================
@@ -592,9 +737,20 @@ class TestReleaseTokens:
 
     @patch("app.api.token_manager_endpoints.TokenAllocationService")
     def test_release_tokens_success_normal_release(
-        self, mock_service_class, client, sample_release_request, sample_allocation_data
+        self,
+        mock_service_class,
+        app,
+        client,
+        mock_developer_user,
+        sample_release_request,
+        sample_allocation_data,
     ):
         """Test successful token release when allocation exists."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Setup mocks
         mock_service = MagicMock()
         mock_service.get_allocation_by_request_id = AsyncMock(
@@ -617,11 +773,24 @@ class TestReleaseTokens:
         mock_service.get_allocation_by_request_id.assert_called_once_with("req_123abc")
         mock_service.delete_allocation.assert_called_once_with("req_123abc")
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.token_manager_endpoints.TokenAllocationService")
     def test_release_tokens_success_already_released(
-        self, mock_service_class, client, sample_release_request
+        self,
+        mock_service_class,
+        app,
+        client,
+        mock_developer_user,
+        sample_release_request,
     ):
         """Test idempotent behavior when allocation already released."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Setup mocks - allocation doesn't exist (already released)
         mock_service = MagicMock()
         mock_service.get_allocation_by_request_id = AsyncMock(return_value=None)
@@ -637,15 +806,29 @@ class TestReleaseTokens:
         assert data["allocation_status"] == "RELEASED"
         assert data["message"] == "Tokens released successfully"
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
         # Verify only get_allocation_by_request_id was called, not delete_allocation
         mock_service.get_allocation_by_request_id.assert_called_once_with("req_123abc")
         mock_service.delete_allocation.assert_not_called()
 
     @patch("app.api.token_manager_endpoints.TokenAllocationService")
     def test_release_tokens_success_delete_fails_after_check(
-        self, mock_service_class, client, sample_release_request, sample_allocation_data
+        self,
+        mock_service_class,
+        app,
+        client,
+        mock_developer_user,
+        sample_release_request,
+        sample_allocation_data,
     ):
         """Test edge case where allocation exists but delete returns False."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Setup mocks
         mock_service = MagicMock()
         mock_service.get_allocation_by_request_id = AsyncMock(
@@ -665,11 +848,24 @@ class TestReleaseTokens:
         mock_service.get_allocation_by_request_id.assert_called_once_with("req_123abc")
         mock_service.delete_allocation.assert_called_once_with("req_123abc")
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.token_manager_endpoints.TokenAllocationService")
     def test_release_tokens_service_exception(
-        self, mock_service_class, client, sample_release_request
+        self,
+        mock_service_class,
+        app,
+        client,
+        mock_developer_user,
+        sample_release_request,
     ):
         """Test handling of service exceptions during release."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Setup mocks - service raises exception
         mock_service = MagicMock()
         mock_service.get_allocation_by_request_id = AsyncMock(
@@ -687,8 +883,18 @@ class TestReleaseTokens:
             in response.json()["detail"]
         )
 
-    def test_release_tokens_missing_token_request_id(self, client):
+        # Cleanup
+        app.dependency_overrides.clear()
+
+    def test_release_tokens_missing_token_request_id(
+        self, app, client, mock_developer_user
+    ):
         """Test request validation for missing token_request_id."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Request missing token_request_id
         invalid_request = {"user_role": "developer"}
 
@@ -699,8 +905,18 @@ class TestReleaseTokens:
         assert response.status_code == 422
         assert "Field required" in str(response.json())
 
-    def test_release_tokens_empty_token_request_id(self, client):
+        # Cleanup
+        app.dependency_overrides.clear()
+
+    def test_release_tokens_empty_token_request_id(
+        self, app, client, mock_developer_user
+    ):
         """Test handling of empty token_request_id."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Request with empty token_request_id
         invalid_request = {
             "token_request_id": "",
@@ -716,3 +932,6 @@ class TestReleaseTokens:
             "Failed to release tokens due to an internal error"
             in response.json()["detail"]
         )
+
+        # Cleanup
+        app.dependency_overrides.clear()

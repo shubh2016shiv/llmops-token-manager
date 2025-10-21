@@ -6,6 +6,9 @@ Sets up the Python path and common test fixtures.
 import os
 import sys
 from pathlib import Path
+from datetime import datetime, timedelta
+from uuid import uuid4
+import pytest
 
 # Add the project root to Python path for all tests
 project_root = Path(__file__).parent.parent
@@ -19,3 +22,92 @@ os.environ.setdefault("DATABASE_USER", "myuser")
 os.environ.setdefault("DATABASE_PASSWORD", "mypassword")
 os.environ.setdefault("REDIS_HOST", "localhost")
 os.environ.setdefault("REDIS_PORT", "6379")
+
+# ============================================================================
+# AUTHENTICATION FIXTURES FOR TESTING
+# ============================================================================
+
+
+@pytest.fixture
+def mock_developer_user():
+    """
+    Create mock developer user token payload.
+
+    NOTE: Returns TokenPayload directly, not an actual JWT token.
+    This is used with app.dependency_overrides to bypass real JWT validation.
+    Best Practice: Testing secured endpoints should mock the dependency,
+    not generate real tokens, for speed and isolation.
+    """
+    from app.auth.models import TokenPayload
+
+    return TokenPayload(
+        user_id=uuid4(),
+        role="developer",
+        exp=datetime.utcnow() + timedelta(hours=24),
+        iat=datetime.utcnow(),
+        type="access",
+    )
+
+
+@pytest.fixture
+def mock_operator_user():
+    """Mock operator user token payload for testing."""
+    from app.auth.models import TokenPayload
+
+    return TokenPayload(
+        user_id=uuid4(),
+        role="operator",
+        exp=datetime.utcnow() + timedelta(hours=24),
+        iat=datetime.utcnow(),
+        type="access",
+    )
+
+
+@pytest.fixture
+def mock_admin_user():
+    """Mock admin user token payload for testing."""
+    from app.auth.models import TokenPayload
+
+    return TokenPayload(
+        user_id=uuid4(),
+        role="admin",
+        exp=datetime.utcnow() + timedelta(hours=24),
+        iat=datetime.utcnow(),
+        type="access",
+    )
+
+
+@pytest.fixture
+def mock_owner_user():
+    """Mock owner user token payload for testing."""
+    from app.auth.models import TokenPayload
+
+    return TokenPayload(
+        user_id=uuid4(),
+        role="owner",
+        exp=datetime.utcnow() + timedelta(hours=24),
+        iat=datetime.utcnow(),
+        type="access",
+    )
+
+
+@pytest.fixture
+def override_get_current_user(app):
+    """
+    Factory fixture to override get_current_user dependency.
+
+    Usage in tests:
+        override_get_current_user(app, mock_developer_user)
+
+    NOTE: This uses FastAPI's dependency_overrides feature.
+    Best Practice: Override dependencies at the app level rather than
+    mocking internal functions. This tests the actual dependency injection
+    flow while controlling the authentication result.
+    """
+    from app.auth.dependencies import get_current_user
+
+    def _override(app, user_payload):
+        app.dependency_overrides[get_current_user] = lambda: user_payload
+        return app
+
+    return _override

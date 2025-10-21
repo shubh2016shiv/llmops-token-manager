@@ -258,8 +258,17 @@ class TestGetUserById:
     """Test cases for get user by ID endpoint."""
 
     @patch("app.api.user_endpoints.UsersService")
-    def test_get_user_by_id_success(self, mock_users_service, client, sample_user_data):
+    def test_get_user_by_id_success(
+        self, mock_users_service, app, client, mock_developer_user, sample_user_data
+    ):
         """Test successful user retrieval by ID returns correct response."""
+        # Override auth dependency
+        # NOTE: Using dependency_overrides is FastAPI's recommended approach
+        # for testing. It bypasses JWT validation while testing business logic.
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_user_by_id.return_value = sample_user_data
@@ -283,9 +292,19 @@ class TestGetUserById:
         # Verify service was called correctly
         mock_service_instance.get_user_by_id.assert_called_once_with(user_id)
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
-    def test_get_user_by_id_not_found(self, mock_users_service, client):
+    def test_get_user_by_id_not_found(
+        self, mock_users_service, app, client, mock_developer_user
+    ):
         """Test user not found by ID returns 404 error."""
+        # Override auth dependency
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_user_by_id.return_value = None
@@ -300,8 +319,16 @@ class TestGetUserById:
         data = response.json()
         assert f"User with ID '{user_id}' not found" in data["detail"]
 
-    def test_get_user_by_id_invalid_uuid(self, client):
+        # Cleanup
+        app.dependency_overrides.clear()
+
+    def test_get_user_by_id_invalid_uuid(self, app, client, mock_developer_user):
         """Test invalid UUID format returns 400 validation error."""
+        # Override auth dependency
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         invalid_uuid = "invalid-uuid-format"
 
@@ -313,9 +340,19 @@ class TestGetUserById:
         data = response.json()
         assert "detail" in data
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
-    def test_get_user_by_id_value_error(self, mock_users_service, client):
+    def test_get_user_by_id_value_error(
+        self, mock_users_service, app, client, mock_developer_user
+    ):
         """Test ValueError from service returns 400 error."""
+        # Override auth dependency
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_user_by_id.side_effect = ValueError(
@@ -332,9 +369,19 @@ class TestGetUserById:
         data = response.json()
         assert "Invalid user ID format" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
-    def test_get_user_by_id_database_error(self, mock_users_service, client):
+    def test_get_user_by_id_database_error(
+        self, mock_users_service, app, client, mock_developer_user
+    ):
         """Test database error returns 500 error."""
+        # Override auth dependency
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_user_by_id.side_effect = Exception(
@@ -351,11 +398,19 @@ class TestGetUserById:
         data = response.json()
         assert "Failed to retrieve user" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
     def test_get_user_by_id_response_structure(
-        self, mock_users_service, client, sample_user_data
+        self, mock_users_service, app, client, mock_developer_user, sample_user_data
     ):
         """Test response structure matches UserResponse schema."""
+        # Override auth dependency
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_user_by_id.return_value = sample_user_data
@@ -389,6 +444,9 @@ class TestGetUserById:
         assert user_response.user_id == user_id
         assert user_response.username == sample_user_data["username"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
 
 # ============================================================================
 # GET USER BY EMAIL TESTS
@@ -400,9 +458,14 @@ class TestGetUserByEmail:
 
     @patch("app.api.user_endpoints.UsersService")
     def test_get_user_by_email_success(
-        self, mock_users_service, client, sample_user_data
+        self, mock_users_service, app, client, mock_developer_user, sample_user_data
     ):
         """Test successful user retrieval by email returns correct response."""
+        # Override auth dependency
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_user_by_email.return_value = sample_user_data
@@ -422,9 +485,19 @@ class TestGetUserByEmail:
         # Verify service was called correctly
         mock_service_instance.get_user_by_email.assert_called_once_with(email)
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
-    def test_get_user_by_email_not_found(self, mock_users_service, client):
+    def test_get_user_by_email_not_found(
+        self, mock_users_service, app, client, mock_developer_user
+    ):
         """Test user not found by email returns 404 error."""
+        # Override auth dependency
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_user_by_email.return_value = None
@@ -439,9 +512,19 @@ class TestGetUserByEmail:
         data = response.json()
         assert f"User with email '{email}' not found" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
-    def test_get_user_by_email_value_error(self, mock_users_service, client):
+    def test_get_user_by_email_value_error(
+        self, mock_users_service, app, client, mock_developer_user
+    ):
         """Test ValueError from service returns 400 error."""
+        # Override auth dependency
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_user_by_email.side_effect = ValueError(
@@ -458,9 +541,19 @@ class TestGetUserByEmail:
         data = response.json()
         assert "Invalid email format" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
-    def test_get_user_by_email_database_error(self, mock_users_service, client):
+    def test_get_user_by_email_database_error(
+        self, mock_users_service, app, client, mock_developer_user
+    ):
         """Test database error returns 500 error."""
+        # Override auth dependency
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_user_by_email.side_effect = Exception(
@@ -477,11 +570,19 @@ class TestGetUserByEmail:
         data = response.json()
         assert "Failed to retrieve user" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
     def test_get_user_by_email_response_structure(
-        self, mock_users_service, client, sample_user_data
+        self, mock_users_service, app, client, mock_developer_user, sample_user_data
     ):
         """Test response structure matches UserResponse schema."""
+        # Override auth dependency
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_user_by_email.return_value = sample_user_data
@@ -500,6 +601,9 @@ class TestGetUserByEmail:
         assert user_response.email == email
         assert user_response.username == sample_user_data["username"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
 
 # ============================================================================
 # UPDATE USER TESTS
@@ -511,9 +615,20 @@ class TestUpdateUser:
 
     @patch("app.api.user_endpoints.UsersService")
     def test_update_user_success(
-        self, mock_users_service, client, sample_user_data, sample_update_request
+        self,
+        mock_users_service,
+        app,
+        client,
+        mock_admin_user,
+        sample_user_data,
+        sample_update_request,
     ):
         """Test successful user update returns correct response."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         updated_user_data = sample_user_data.copy()
@@ -532,6 +647,9 @@ class TestUpdateUser:
         assert data["email"] == sample_update_request["email"]
         assert data["role"] == sample_update_request["role"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
         # Verify service was called correctly
         mock_service_instance.update_user.assert_called_once()
         call_args = mock_service_instance.update_user.call_args
@@ -542,9 +660,14 @@ class TestUpdateUser:
 
     @patch("app.api.user_endpoints.UsersService")
     def test_update_user_not_found(
-        self, mock_users_service, client, sample_update_request
+        self, mock_users_service, app, client, mock_admin_user, sample_update_request
     ):
         """Test user not found for update returns 404 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.update_user.return_value = None
@@ -559,11 +682,19 @@ class TestUpdateUser:
         data = response.json()
         assert f"User with ID '{user_id}' not found" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
     def test_update_user_duplicate_email(
-        self, mock_users_service, client, sample_update_request
+        self, mock_users_service, app, client, mock_admin_user, sample_update_request
     ):
         """Test update with duplicate email returns 400 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.update_user.side_effect = ValueError(
@@ -580,8 +711,16 @@ class TestUpdateUser:
         data = response.json()
         assert "Email 'john.updated@example.com' already exists" in data["detail"]
 
-    def test_update_user_invalid_role(self, client):
+        # Cleanup
+        app.dependency_overrides.clear()
+
+    def test_update_user_invalid_role(self, app, client, mock_admin_user):
         """Test update with invalid role returns 422 validation error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         user_id = uuid4()
         update_request = {"role": "invalid_role"}
@@ -595,8 +734,18 @@ class TestUpdateUser:
         assert "detail" in data
         # Should have validation error for invalid role enum value
 
-    def test_update_user_invalid_uuid(self, client, sample_update_request):
+        # Cleanup
+        app.dependency_overrides.clear()
+
+    def test_update_user_invalid_uuid(
+        self, app, client, mock_admin_user, sample_update_request
+    ):
         """Test invalid UUID format returns 400 validation error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         invalid_uuid = "invalid-uuid-format"
 
@@ -610,11 +759,19 @@ class TestUpdateUser:
         data = response.json()
         assert "detail" in data
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
     def test_update_user_database_error(
-        self, mock_users_service, client, sample_update_request
+        self, mock_users_service, app, client, mock_admin_user, sample_update_request
     ):
         """Test database error returns appropriate error status."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.update_user.side_effect = Exception(
@@ -631,11 +788,19 @@ class TestUpdateUser:
         data = response.json()
         assert "Email 'john.updated@example.com' is already in use" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
     def test_update_user_general_database_error(
-        self, mock_users_service, client, sample_update_request
+        self, mock_users_service, app, client, mock_admin_user, sample_update_request
     ):
         """Test general database error returns 500 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.update_user.side_effect = Exception(
@@ -652,6 +817,9 @@ class TestUpdateUser:
         data = response.json()
         assert "Failed to update user" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
 
 # ============================================================================
 # SUSPEND USER TESTS
@@ -662,8 +830,15 @@ class TestSuspendUser:
     """Test cases for suspend user endpoint."""
 
     @patch("app.api.user_endpoints.UsersService")
-    def test_suspend_user_success(self, mock_users_service, client, sample_user_data):
+    def test_suspend_user_success(
+        self, mock_users_service, app, client, mock_admin_user, sample_user_data
+    ):
         """Test successful user suspension returns correct response."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         suspended_user_data = sample_user_data.copy()
@@ -684,9 +859,19 @@ class TestSuspendUser:
         # Verify service was called correctly
         mock_service_instance.suspend_user.assert_called_once_with(user_id)
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
-    def test_suspend_user_not_found(self, mock_users_service, client):
+    def test_suspend_user_not_found(
+        self, mock_users_service, app, client, mock_admin_user
+    ):
         """Test user not found for suspension returns 404 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.suspend_user.return_value = None
@@ -701,9 +886,19 @@ class TestSuspendUser:
         data = response.json()
         assert f"User with ID '{user_id}' not found" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
-    def test_suspend_user_database_error(self, mock_users_service, client):
+    def test_suspend_user_database_error(
+        self, mock_users_service, app, client, mock_admin_user
+    ):
         """Test database error during suspension returns 500 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.suspend_user.side_effect = Exception(
@@ -720,6 +915,9 @@ class TestSuspendUser:
         data = response.json()
         assert "Failed to suspend user" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
 
 # ============================================================================
 # ACTIVATE USER TESTS
@@ -730,8 +928,15 @@ class TestActivateUser:
     """Test cases for activate user endpoint."""
 
     @patch("app.api.user_endpoints.UsersService")
-    def test_activate_user_success(self, mock_users_service, client, sample_user_data):
+    def test_activate_user_success(
+        self, mock_users_service, app, client, mock_admin_user, sample_user_data
+    ):
         """Test successful user activation returns correct response."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         activated_user_data = sample_user_data.copy()
@@ -752,9 +957,19 @@ class TestActivateUser:
         # Verify service was called correctly
         mock_service_instance.activate_user.assert_called_once_with(user_id)
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
-    def test_activate_user_not_found(self, mock_users_service, client):
+    def test_activate_user_not_found(
+        self, mock_users_service, app, client, mock_admin_user
+    ):
         """Test user not found for activation returns 404 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.activate_user.return_value = None
@@ -769,9 +984,19 @@ class TestActivateUser:
         data = response.json()
         assert f"User with ID '{user_id}' not found" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.user_endpoints.UsersService")
-    def test_activate_user_database_error(self, mock_users_service, client):
+    def test_activate_user_database_error(
+        self, mock_users_service, app, client, mock_admin_user
+    ):
         """Test database error during activation returns 500 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.activate_user.side_effect = Exception(
@@ -787,3 +1012,6 @@ class TestActivateUser:
         assert response.status_code == 500
         data = response.json()
         assert "Failed to activate user" in data["detail"]
+
+        # Cleanup
+        app.dependency_overrides.clear()

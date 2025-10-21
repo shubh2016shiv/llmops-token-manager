@@ -110,11 +110,18 @@ class TestCreateLLMModel:
     def test_create_llm_model_success(
         self,
         mock_llm_service,
+        app,
         client,
+        mock_admin_user,
         sample_create_request,
         sample_llm_model_data,
     ):
         """Test successful LLM model creation returns correct response."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.create_llm_model.return_value = sample_llm_model_data
@@ -138,6 +145,9 @@ class TestCreateLLMModel:
             data["requests_per_minute_limit"]
             == sample_llm_model_data["requests_per_minute_limit"]
         )
+
+        # Cleanup
+        app.dependency_overrides.clear()
         assert data["is_active_status"] == sample_llm_model_data["is_active_status"]
 
         # Verify service was called correctly
@@ -182,9 +192,14 @@ class TestCreateLLMModel:
 
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_create_llm_model_duplicate_model(
-        self, mock_llm_service, client, sample_create_request
+        self, mock_llm_service, app, client, mock_admin_user, sample_create_request
     ):
         """Test LLM model creation with duplicate model returns 400 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.create_llm_model.side_effect = ValueError(
@@ -200,11 +215,19 @@ class TestCreateLLMModel:
         data = response.json()
         assert "Model 'gpt-4o' for provider 'openai' already exists" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_create_llm_model_invalid_provider(
-        self, mock_llm_service, client, sample_create_request
+        self, mock_llm_service, app, client, mock_admin_user, sample_create_request
     ):
         """Test LLM model creation with invalid provider returns 400 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.create_llm_model.side_effect = ValueError(
@@ -220,8 +243,16 @@ class TestCreateLLMModel:
         data = response.json()
         assert "Invalid provider name 'invalid_provider'" in data["detail"]
 
-    def test_create_llm_model_invalid_request_body(self, client):
+        # Cleanup
+        app.dependency_overrides.clear()
+
+    def test_create_llm_model_invalid_request_body(self, app, client, mock_admin_user):
         """Test LLM model creation with invalid request body returns 422 validation error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         invalid_request = {
             "provider_name": "openai",
@@ -244,9 +275,14 @@ class TestCreateLLMModel:
 
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_create_llm_model_database_error(
-        self, mock_llm_service, client, sample_create_request
+        self, mock_llm_service, app, client, mock_admin_user, sample_create_request
     ):
         """Test LLM model creation with database error returns 500 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.create_llm_model.side_effect = Exception(
@@ -265,11 +301,25 @@ class TestCreateLLMModel:
             in data["detail"]
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_create_llm_model_response_structure(
-        self, mock_llm_service, client, sample_create_request, sample_llm_model_data
+        self,
+        mock_llm_service,
+        app,
+        client,
+        mock_admin_user,
+        sample_create_request,
+        sample_llm_model_data,
     ):
         """Test response structure matches LLMModelResponse schema."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.create_llm_model.return_value = sample_llm_model_data
@@ -312,6 +362,9 @@ class TestCreateLLMModel:
             llm_model_response.llm_model_name == sample_llm_model_data["llm_model_name"]
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
 
 # ============================================================================
 # LIST MODELS BY PROVIDER TESTS
@@ -323,9 +376,14 @@ class TestListLLMModelsByProvider:
 
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_list_llm_models_by_provider_success(
-        self, mock_llm_service, client, sample_llm_model_data
+        self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
         """Test successful listing of LLM models by provider returns correct response."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_llm_models_by_provider.return_value = [
@@ -358,11 +416,19 @@ class TestListLLMModelsByProvider:
             provider_name="openai", active_only=None, limit=100, offset=0
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_list_llm_models_by_provider_with_active_filter(
-        self, mock_llm_service, client, sample_llm_model_data
+        self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
         """Test listing with active_only filter returns correct response."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_llm_models_by_provider.return_value = [
@@ -383,11 +449,19 @@ class TestListLLMModelsByProvider:
             provider_name="openai", active_only=True, limit=100, offset=0
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_list_llm_models_by_provider_with_pagination(
-        self, mock_llm_service, client, sample_llm_model_data
+        self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
         """Test listing with pagination parameters returns correct response."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_llm_models_by_provider.return_value = [
@@ -409,9 +483,19 @@ class TestListLLMModelsByProvider:
             provider_name="openai", active_only=None, limit=50, offset=10
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
-    def test_list_llm_models_by_provider_value_error(self, mock_llm_service, client):
+    def test_list_llm_models_by_provider_value_error(
+        self, mock_llm_service, app, client, mock_developer_user
+    ):
         """Test ValueError from service returns 400 error."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_llm_models_by_provider.side_effect = ValueError(
@@ -427,9 +511,19 @@ class TestListLLMModelsByProvider:
         data = response.json()
         assert "Invalid provider name" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
-    def test_list_llm_models_by_provider_database_error(self, mock_llm_service, client):
+    def test_list_llm_models_by_provider_database_error(
+        self, mock_llm_service, app, client, mock_developer_user
+    ):
         """Test database error returns 500 error."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_llm_models_by_provider.side_effect = Exception(
@@ -445,11 +539,19 @@ class TestListLLMModelsByProvider:
         data = response.json()
         assert "Failed to retrieve LLM model configurations" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_list_llm_models_by_provider_response_structure(
-        self, mock_llm_service, client, sample_llm_model_data
+        self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
         """Test response structure matches LLMModelListResponse schema."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_llm_models_by_provider.return_value = [
@@ -481,6 +583,9 @@ class TestListLLMModelsByProvider:
         assert len(llm_model_list_response.models) == 1
         assert llm_model_list_response.total_count == 1
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
 
 # ============================================================================
 # GET LLM MODEL TESTS
@@ -492,9 +597,14 @@ class TestGetLLMModel:
 
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_get_llm_model_success(
-        self, mock_llm_service, client, sample_llm_model_data
+        self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
         """Test successful LLM model retrieval returns correct response."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_llm_model_by_provider_and_model.return_value = (
@@ -517,11 +627,19 @@ class TestGetLLMModel:
             provider_name="openai", llm_model_name="gpt-4o", llm_model_version=None
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_get_llm_model_with_version(
-        self, mock_llm_service, client, sample_llm_model_data
+        self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
         """Test successful LLM model retrieval with version parameter."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_llm_model_by_provider_and_model.return_value = (
@@ -537,14 +655,24 @@ class TestGetLLMModel:
         data = response.json()
         assert data["llm_model_version"] == "2024-08"
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
         # Verify service was called with version
         mock_service_instance.get_llm_model_by_provider_and_model.assert_called_once_with(
             provider_name="openai", llm_model_name="gpt-4o", llm_model_version="2024-08"
         )
 
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
-    def test_get_llm_model_not_found(self, mock_llm_service, client):
+    def test_get_llm_model_not_found(
+        self, mock_llm_service, app, client, mock_developer_user
+    ):
         """Test LLM model not found returns 404 error."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_llm_model_by_provider_and_model.return_value = None
@@ -561,9 +689,19 @@ class TestGetLLMModel:
             in data["detail"]
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
-    def test_get_llm_model_value_error(self, mock_llm_service, client):
+    def test_get_llm_model_value_error(
+        self, mock_llm_service, app, client, mock_developer_user
+    ):
         """Test ValueError from service returns 400 error."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_llm_model_by_provider_and_model.side_effect = (
@@ -579,9 +717,19 @@ class TestGetLLMModel:
         data = response.json()
         assert "Invalid parameters" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
-    def test_get_llm_model_database_error(self, mock_llm_service, client):
+    def test_get_llm_model_database_error(
+        self, mock_llm_service, app, client, mock_developer_user
+    ):
         """Test database error returns 500 error."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_llm_model_by_provider_and_model.side_effect = (
@@ -597,11 +745,19 @@ class TestGetLLMModel:
         data = response.json()
         assert "Failed to retrieve LLM model configuration" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_get_llm_model_response_structure(
-        self, mock_llm_service, client, sample_llm_model_data
+        self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
         """Test response structure matches LLMModelResponse schema."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.get_llm_model_by_provider_and_model.return_value = (
@@ -625,9 +781,19 @@ class TestGetLLMModel:
             llm_model_response.llm_model_name == sample_llm_model_data["llm_model_name"]
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
-    def test_get_llm_model_http_exception_re_raise(self, mock_llm_service, client):
+    def test_get_llm_model_http_exception_re_raise(
+        self, mock_llm_service, app, client, mock_developer_user
+    ):
         """Test that HTTPException is re-raised and not caught by general handler."""
+        # Override auth dependency with developer user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
         # Arrange
         from fastapi import HTTPException
 
@@ -645,6 +811,9 @@ class TestGetLLMModel:
         data = response.json()
         assert "Access denied" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
 
 # ============================================================================
 # UPDATE LLM MODEL TESTS
@@ -656,9 +825,20 @@ class TestUpdateLLMModel:
 
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_update_llm_model_success(
-        self, mock_llm_service, client, sample_llm_model_data, sample_update_request
+        self,
+        mock_llm_service,
+        app,
+        client,
+        mock_admin_user,
+        sample_llm_model_data,
+        sample_update_request,
     ):
         """Test successful LLM model update returns correct response."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         updated_model_data = sample_llm_model_data.copy()
@@ -704,11 +884,19 @@ class TestUpdateLLMModel:
             == sample_update_request["deployment_region"]
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_update_llm_model_partial_update(
-        self, mock_llm_service, client, sample_llm_model_data
+        self, mock_llm_service, app, client, mock_admin_user, sample_llm_model_data
     ):
         """Test partial update with only some fields returns correct response."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         updated_model_data = sample_llm_model_data.copy()
@@ -726,11 +914,19 @@ class TestUpdateLLMModel:
         data = response.json()
         assert data["max_tokens"] == 16384
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_update_llm_model_not_found(
-        self, mock_llm_service, client, sample_update_request
+        self, mock_llm_service, app, client, mock_admin_user, sample_update_request
     ):
         """Test LLM model not found for update returns 404 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.update_llm_model.return_value = None
@@ -749,11 +945,19 @@ class TestUpdateLLMModel:
             in data["detail"]
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_update_llm_model_value_error(
-        self, mock_llm_service, client, sample_update_request
+        self, mock_llm_service, app, client, mock_admin_user, sample_update_request
     ):
         """Test ValueError from service returns 400 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.update_llm_model.side_effect = ValueError(
@@ -771,11 +975,19 @@ class TestUpdateLLMModel:
         data = response.json()
         assert "Invalid update parameters" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_update_llm_model_constraint_violation(
-        self, mock_llm_service, client, sample_update_request
+        self, mock_llm_service, app, client, mock_admin_user, sample_update_request
     ):
         """Test constraint violation (duplicate key) returns 400 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.update_llm_model.side_effect = Exception(
@@ -795,11 +1007,19 @@ class TestUpdateLLMModel:
             "Model configuration already exists with these parameters" in data["detail"]
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_update_llm_model_database_error(
-        self, mock_llm_service, client, sample_update_request
+        self, mock_llm_service, app, client, mock_admin_user, sample_update_request
     ):
         """Test database error returns 500 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.update_llm_model.side_effect = Exception(
@@ -817,11 +1037,25 @@ class TestUpdateLLMModel:
         data = response.json()
         assert "Failed to update LLM model configuration" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_update_llm_model_service_call_verification(
-        self, mock_llm_service, client, sample_update_request, sample_llm_model_data
+        self,
+        mock_llm_service,
+        app,
+        client,
+        mock_admin_user,
+        sample_update_request,
+        sample_llm_model_data,
     ):
         """Test that all parameters are correctly mapped to service call."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.update_llm_model.return_value = sample_llm_model_data
@@ -865,11 +1099,19 @@ class TestUpdateLLMModel:
         assert call_args[1]["requests_per_minute_limit"] is None
         assert call_args[1]["random_seed"] is None
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_update_llm_model_http_exception_re_raise(
-        self, mock_llm_service, client, sample_update_request
+        self, mock_llm_service, app, client, mock_admin_user, sample_update_request
     ):
         """Test that HTTPException is re-raised and not caught by general handler."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         from fastapi import HTTPException
 
@@ -889,6 +1131,9 @@ class TestUpdateLLMModel:
         data = response.json()
         assert "Access denied" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
 
 # ============================================================================
 # ACTIVATE LLM MODEL TESTS
@@ -900,9 +1145,14 @@ class TestActivateLLMModel:
 
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_activate_llm_model_success(
-        self, mock_llm_service, client, sample_llm_model_data
+        self, mock_llm_service, app, client, mock_admin_user, sample_llm_model_data
     ):
         """Test successful LLM model activation returns correct response."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         activated_model_data = sample_llm_model_data.copy()
@@ -925,11 +1175,19 @@ class TestActivateLLMModel:
             provider_name="openai", llm_model_name="gpt-4o", llm_model_version=None
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_activate_llm_model_with_version(
-        self, mock_llm_service, client, sample_llm_model_data
+        self, mock_llm_service, app, client, mock_admin_user, sample_llm_model_data
     ):
         """Test successful LLM model activation with version parameter."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         activated_model_data = sample_llm_model_data.copy()
@@ -952,9 +1210,19 @@ class TestActivateLLMModel:
             provider_name="openai", llm_model_name="gpt-4o", llm_model_version="2024-08"
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
-    def test_activate_llm_model_not_found(self, mock_llm_service, client):
+    def test_activate_llm_model_not_found(
+        self, mock_llm_service, app, client, mock_admin_user
+    ):
         """Test LLM model not found for activation returns 404 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.activate_llm_model.return_value = None
@@ -971,9 +1239,19 @@ class TestActivateLLMModel:
             in data["detail"]
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
-    def test_activate_llm_model_database_error(self, mock_llm_service, client):
+    def test_activate_llm_model_database_error(
+        self, mock_llm_service, app, client, mock_admin_user
+    ):
         """Test database error during activation returns 500 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.activate_llm_model.side_effect = Exception(
@@ -989,9 +1267,19 @@ class TestActivateLLMModel:
         data = response.json()
         assert "Failed to activate LLM model configuration" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
-    def test_activate_llm_model_http_exception_re_raise(self, mock_llm_service, client):
+    def test_activate_llm_model_http_exception_re_raise(
+        self, mock_llm_service, app, client, mock_admin_user
+    ):
         """Test that HTTPException is re-raised and not caught by general handler."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         from fastapi import HTTPException
 
@@ -1009,6 +1297,9 @@ class TestActivateLLMModel:
         data = response.json()
         assert "Access denied" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
 
 # ============================================================================
 # DEACTIVATE LLM MODEL TESTS
@@ -1020,9 +1311,14 @@ class TestDeactivateLLMModel:
 
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_deactivate_llm_model_success(
-        self, mock_llm_service, client, sample_llm_model_data
+        self, mock_llm_service, app, client, mock_admin_user, sample_llm_model_data
     ):
         """Test successful LLM model deactivation returns correct response."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         deactivated_model_data = sample_llm_model_data.copy()
@@ -1045,11 +1341,19 @@ class TestDeactivateLLMModel:
             provider_name="openai", llm_model_name="gpt-4o", llm_model_version=None
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_deactivate_llm_model_with_version(
-        self, mock_llm_service, client, sample_llm_model_data
+        self, mock_llm_service, app, client, mock_admin_user, sample_llm_model_data
     ):
         """Test successful LLM model deactivation with version parameter."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         deactivated_model_data = sample_llm_model_data.copy()
@@ -1072,9 +1376,19 @@ class TestDeactivateLLMModel:
             provider_name="openai", llm_model_name="gpt-4o", llm_model_version="2024-08"
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
-    def test_deactivate_llm_model_not_found(self, mock_llm_service, client):
+    def test_deactivate_llm_model_not_found(
+        self, mock_llm_service, app, client, mock_admin_user
+    ):
         """Test LLM model not found for deactivation returns 404 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.deactivate_llm_model.return_value = None
@@ -1093,9 +1407,19 @@ class TestDeactivateLLMModel:
             in data["detail"]
         )
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
-    def test_deactivate_llm_model_database_error(self, mock_llm_service, client):
+    def test_deactivate_llm_model_database_error(
+        self, mock_llm_service, app, client, mock_admin_user
+    ):
         """Test database error during deactivation returns 500 error."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         mock_service_instance = AsyncMock()
         mock_service_instance.deactivate_llm_model.side_effect = Exception(
@@ -1111,11 +1435,19 @@ class TestDeactivateLLMModel:
         data = response.json()
         assert "Failed to deactivate LLM model configuration" in data["detail"]
 
+        # Cleanup
+        app.dependency_overrides.clear()
+
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
     def test_deactivate_llm_model_http_exception_re_raise(
-        self, mock_llm_service, client
+        self, mock_llm_service, app, client, mock_admin_user
     ):
         """Test that HTTPException is re-raised and not caught by general handler."""
+        # Override auth dependency with admin user
+        from app.auth.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
         # Arrange
         from fastapi import HTTPException
 
@@ -1132,3 +1464,6 @@ class TestDeactivateLLMModel:
         assert response.status_code == 403
         data = response.json()
         assert "Access denied" in data["detail"]
+
+        # Cleanup
+        app.dependency_overrides.clear()

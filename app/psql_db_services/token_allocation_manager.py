@@ -748,6 +748,7 @@ class TokenAllocationService(BaseDatabaseService):
     async def pause_deployment(
         self,
         user_id: UUID,
+        llm_provider: str,
         model_name: str,
         api_endpoint: str,
         pause_reason: str = "",
@@ -758,6 +759,8 @@ class TokenAllocationService(BaseDatabaseService):
         Similar to MongoDB's pause_llm_deployment method
 
         Args:
+            user_id: User requesting the pause
+            llm_provider: LLM provider name
             model_name: Model name
             api_endpoint: API endpoint URL to pause
             pause_reason: Reason for pausing
@@ -1100,6 +1103,7 @@ class TokenAllocationService(BaseDatabaseService):
     async def acquire_tokens(
         self,
         user_id: UUID,
+        llm_provider: str,
         model_name: str,
         token_count: int,
         request_context: Optional[Dict[str, Any]] = None,
@@ -1109,6 +1113,7 @@ class TokenAllocationService(BaseDatabaseService):
 
         Args:
             user_id: User requesting tokens
+            llm_provider: LLM provider name
             model_name: Model name
             token_count: Number of tokens to allocate
             request_context: Optional request context

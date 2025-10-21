@@ -159,7 +159,7 @@ class TokenAllocationClientRequest(BaseModel):
     Client provides only essential fields - system derives the rest.
     """
 
-    provider: ProviderType = Field(
+    llm_provider: ProviderType = Field(
         ..., description="LLM provider type - determines routing"
     )
 
@@ -197,7 +197,7 @@ class TokenAllocationClientRequest(BaseModel):
         populate_by_name = True
         json_schema_extra = {
             "example": {
-                "provider": "openai",
+                "llm_provider": "openai",
                 "llm_model_name": "gpt-4.1",
                 "input_data": "Your prompt text here for token estimation",
                 "region": "eastus2",
@@ -220,7 +220,7 @@ class TokenAllocationRequest(BaseModel):
         default=UserRole.DEVELOPER,
     )
 
-    provider: ProviderType = Field(
+    llm_provider: ProviderType = Field(
         ..., description="LLM provider type - determines routing"
     )
     llm_model_name: str = Field(
@@ -282,7 +282,7 @@ class TokenAllocationRequest(BaseModel):
         populate_by_name = True
         json_schema_extra = {
             "example": {
-                "provider": "azure_openai",
+                "llm_provider": "azure_openai",
                 "llm_model_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
                 "token_count": 5000,
                 "deployment_name": None,
@@ -322,7 +322,7 @@ class PauseDeploymentRequest(BaseModel):
         default=UserRole.OPERATOR,
     )
 
-    provider: ProviderType = Field(..., description="Provider to pause")
+    llm_provider: ProviderType = Field(..., description="Provider to pause")
 
     llm_model_name: str = Field(
         ...,
@@ -357,7 +357,7 @@ class PauseDeploymentRequest(BaseModel):
         populate_by_name = True
         json_schema_extra = {
             "example": {
-                "provider": "azure_openai",
+                "llm_provider": "azure_openai",
                 "llm_model_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
                 "api_endpoint_url": "https://<deployment>-<region>.openai.azure.com/",
                 "pause_reason": "Azure region outage - 503 errors",
@@ -380,7 +380,7 @@ class ResumeDeploymentRequest(BaseModel):
         default=UserRole.OPERATOR,
     )
 
-    provider: ProviderType = Field(..., description="Provider to resume")
+    llm_provider: ProviderType = Field(..., description="Provider to resume")
 
     llm_model_name: str = Field(
         ...,
@@ -401,7 +401,7 @@ class ResumeDeploymentRequest(BaseModel):
         populate_by_name = True
         json_schema_extra = {
             "example": {
-                "provider": "azure_openai",
+                "llm_provider": "azure_openai",
                 "llm_model_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
                 "api_base": "https://<deployment>-<region>.openai.azure.com/",
             }
@@ -422,7 +422,7 @@ class DeploymentConfigCreate(BaseModel):
         default=UserRole.ADMIN,
     )
 
-    provider: ProviderType = Field(..., description="LLM provider type")
+    llm_provider: ProviderType = Field(..., description="LLM provider type")
 
     llm_model_name: str = Field(
         ...,
@@ -446,7 +446,7 @@ class DeploymentConfigCreate(BaseModel):
         max_length=100,
     )
 
-    api_base: Optional[str] = Field(
+    api_endpoint_url: Optional[str] = Field(
         default=None,
         description="Base URL for API calls",
         min_length=1,
@@ -505,11 +505,11 @@ class DeploymentConfigCreate(BaseModel):
         populate_by_name = True
         json_schema_extra = {
             "example": {
-                "provider": "azure_openai",
+                "llm_provider": "azure_openai",
                 "llm_model_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
                 "api_version": "2023-03-15",
                 "deployment_name": "gpt-4-turbo-2024-04-09-gp",
-                "api_base": "https://<deployment>-<region>.openai.azure.com/",
+                "api_endpoint_url": "https://<deployment>-<region>.openai.azure.com/",
                 "api_key_identifier": "AZURE_OPENAI_API_KEY_GPT4T",
                 "region": "eastus2",
                 "max_tokens": 120000,
@@ -643,7 +643,9 @@ class LLMModelCreateRequest(BaseModel):
     a new LLM model in the system for token allocation and rate limiting.
     """
 
-    provider_name: str = Field(
+    # TODO: Add Cloud Provider also
+
+    llm_provider: str = Field(
         ...,
         description="LLM provider name (e.g., 'openai', 'anthropic', 'gemini')",
         min_length=1,
@@ -727,7 +729,7 @@ class LLMModelCreateRequest(BaseModel):
         max_length=50,
     )
 
-    @field_validator("provider_name")
+    @field_validator("llm_provider")
     @classmethod
     def validate_provider_name(cls, v: str) -> str:
         """Validate that provider name is one of the supported providers."""
@@ -765,7 +767,7 @@ class LLMModelCreateRequest(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "provider_name": "openai",
+                "llm_provider": "openai",
                 "llm_model_name": "gpt-4o",
                 "api_key_variable_name": "OPENAI_API_KEY_GPT4O",
                 "llm_model_version": "2024-08",
@@ -790,7 +792,9 @@ class LLMModelUpdateRequest(BaseModel):
     Used for modifying rate limits, endpoints, settings, or activation status.
     """
 
-    provider_name: Optional[str] = Field(
+    # TODO: Add Cloud Provider also
+
+    llm_provider: Optional[str] = Field(
         default=None,
         description="Updated LLM provider name",
         min_length=1,
@@ -874,7 +878,7 @@ class LLMModelUpdateRequest(BaseModel):
         max_length=50,
     )
 
-    @field_validator("provider_name")
+    @field_validator("llm_provider")
     @classmethod
     def validate_provider_name(cls, v: Optional[str]) -> Optional[str]:
         """Validate that provider name is one of the supported providers."""

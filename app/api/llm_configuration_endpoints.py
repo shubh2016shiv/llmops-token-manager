@@ -79,14 +79,14 @@ async def create_llm_model(
         HTTPException 500: On internal server error
     """
     logger.info(
-        f"Creating LLM model: provider={request.provider_name}, model={request.llm_model_name}"
+        f"Creating LLM model: provider={request.llm_provider}, model={request.llm_model_name}"
     )
 
     try:
         # Create model in database
         llm_service = LLMModelsService()
         model = await llm_service.create_llm_model(
-            provider_name=request.provider_name,
+            llm_provider=request.llm_provider,
             llm_model_name=request.llm_model_name,
             api_key_variable_name=request.api_key_variable_name,
             llm_model_version=request.llm_model_version,
@@ -102,7 +102,7 @@ async def create_llm_model(
         )
 
         logger.info(
-            f"LLM model created successfully: {model['provider_name']}/{model['llm_model_name']}/{model['llm_model_version']}"
+            f"LLM model created successfully: {model['llm_provider']}/{model['llm_model_name']}/{model['llm_model_version']}"
         )
         return LLMModelResponse(**model)
 
@@ -145,13 +145,13 @@ async def create_llm_model(
 
 
 @router.get(
-    "/provider/{provider}",
+    "/provider/{llm_provider}",
     response_model=LLMModelListResponse,
     summary="List LLM models by provider",
     description="Retrieve all LLM model configurations for a specific provider with optional filtering and pagination.",
 )
 async def list_llm_models_by_provider(
-    provider: str,
+    llm_provider: str,
     active_only: Optional[bool] = Query(
         None, description="Filter for active models only"
     ),
@@ -163,7 +163,7 @@ async def list_llm_models_by_provider(
     List LLM model configurations for a specific provider.
 
     Args:
-        provider: LLM provider name (e.g., 'openai', 'anthropic')
+        llm_provider: LLM provider name (e.g., 'openai', 'anthropic')
         active_only: Optional filter for active models only
         limit: Maximum results per page (1-1000)
         offset: Pagination offset
@@ -176,13 +176,16 @@ async def list_llm_models_by_provider(
         HTTPException 500: On internal server error
     """
     logger.debug(
-        f"Listing LLM models: provider={provider}, active_only={active_only}, limit={limit}, offset={offset}"
+        f"Listing LLM models: provider={llm_provider}, active_only={active_only}, limit={limit}, offset={offset}"
     )
 
     try:
         llm_service = LLMModelsService()
         models = await llm_service.get_llm_models_by_provider(
-            provider_name=provider, active_only=active_only, limit=limit, offset=offset
+            llm_provider=llm_provider,
+            active_only=active_only,
+            limit=limit,
+            offset=offset,
         )
 
         # Calculate pagination info
@@ -215,13 +218,13 @@ async def list_llm_models_by_provider(
 
 
 @router.get(
-    "/{provider}/{model_name}",
+    "/{llm_provider}/{model_name}",
     response_model=LLMModelResponse,
     summary="Get LLM model configuration",
     description="Retrieve a specific LLM model configuration by provider and model name.",
 )
 async def get_llm_model(
-    provider: str,
+    llm_provider: str,
     model_name: str,
     version: Optional[str] = Query(None, description="Optional model version"),
     current_user: AuthTokenPayload = Depends(require_developer),
@@ -230,7 +233,7 @@ async def get_llm_model(
     Retrieve an LLM model configuration by provider and model name.
 
     Args:
-        provider: LLM provider name (e.g., 'openai', 'anthropic')
+        llm_provider: LLM provider name (e.g., 'openai', 'anthropic')
         model_name: Model name (e.g., 'gpt-4o', 'claude-3.5-sonnet')
         version: Optional model version (e.g., '2024-08')
 
@@ -242,22 +245,24 @@ async def get_llm_model(
         HTTPException 500: On internal server error
     """
     logger.debug(
-        f"Fetching LLM model: provider={provider}, model={model_name}, version={version}"
+        f"Fetching LLM model: provider={llm_provider}, model={model_name}, version={version}"
     )
 
     try:
         llm_service = LLMModelsService()
         model = await llm_service.get_llm_model_by_provider_and_model(
-            provider_name=provider, llm_model_name=model_name, llm_model_version=version
+            llm_provider=llm_provider,
+            llm_model_name=model_name,
+            llm_model_version=version,
         )
 
         if not model:
             logger.warning(
-                f"LLM model not found: provider={provider}, model={model_name}"
+                f"LLM model not found: provider={llm_provider}, model={model_name}"
             )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"LLM model '{model_name}' for provider '{provider}' not found",
+                detail=f"LLM model '{model_name}' for provider '{llm_provider}' not found",
             )
 
         return LLMModelResponse(**model)
@@ -283,13 +288,13 @@ async def get_llm_model(
 
 
 @router.patch(
-    "/{provider}/{model_name}",
+    "/{llm_provider}/{model_name}",
     response_model=LLMModelResponse,
     summary="Update LLM model configuration",
     description="Update LLM model configuration fields. Only provided fields will be updated. Admin access required.",
 )
 async def update_llm_model(
-    provider: str,
+    llm_provider: str,
     model_name: str,
     request: LLMModelUpdateRequest,
     version: Optional[str] = Query(None, description="Optional model version"),
@@ -299,7 +304,7 @@ async def update_llm_model(
     Update an LLM model configuration.
 
     Args:
-        provider: Current provider name identifying the model
+        llm_provider: Current provider name identifying the model
         model_name: Current model name identifying the model
         version: Optional current model version
         request: Fields to update (all optional)
@@ -312,15 +317,15 @@ async def update_llm_model(
         HTTPException 400: On invalid parameters or constraint violations
         HTTPException 500: On internal server error
     """
-    logger.info(f"Updating LLM model: provider={provider}, model={model_name}")
+    logger.info(f"Updating LLM model: provider={llm_provider}, model={model_name}")
 
     try:
         llm_service = LLMModelsService()
         updated_model = await llm_service.update_llm_model(
-            provider_name=provider,
+            llm_provider=llm_provider,
             llm_model_name=model_name,
             llm_model_version=version,
-            new_provider_name=request.provider_name,
+            new_llm_provider=request.llm_provider,
             new_llm_model_name=request.llm_model_name,
             deployment_name=request.deployment_name,
             api_key_variable_name=request.api_key_variable_name,
@@ -337,15 +342,15 @@ async def update_llm_model(
 
         if not updated_model:
             logger.warning(
-                f"LLM model not found for update: provider={provider}, model={model_name}"
+                f"LLM model not found for update: provider={llm_provider}, model={model_name}"
             )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"LLM model '{model_name}' for provider '{provider}' not found",
+                detail=f"LLM model '{model_name}' for provider '{llm_provider}' not found",
             )
 
         logger.info(
-            f"LLM model updated successfully: provider={provider}, model={model_name}"
+            f"LLM model updated successfully: provider={llm_provider}, model={model_name}"
         )
         return LLMModelResponse(**updated_model)
 
@@ -379,13 +384,13 @@ async def update_llm_model(
 
 
 @router.patch(
-    "/{provider}/{model_name}/activate",
+    "/{llm_provider}/{model_name}/activate",
     response_model=LLMModelResponse,
     summary="Activate LLM model",
     description="Activate an LLM model configuration for token allocation. Admin access required.",
 )
 async def activate_llm_model(
-    provider: str,
+    llm_provider: str,
     model_name: str,
     version: Optional[str] = Query(None, description="Optional model version"),
     current_user: AuthTokenPayload = Depends(require_admin),
@@ -394,7 +399,7 @@ async def activate_llm_model(
     Activate an LLM model configuration.
 
     Args:
-        provider: Provider name identifying the model
+        llm_provider: Provider name identifying the model
         model_name: Model name identifying the model
         version: Optional model version
 
@@ -405,27 +410,27 @@ async def activate_llm_model(
         HTTPException 404: If model configuration not found
         HTTPException 500: On internal server error
     """
-    logger.info(f"Activating LLM model: provider={provider}, model={model_name}")
+    logger.info(f"Activating LLM model: provider={llm_provider}, model={model_name}")
 
     try:
         llm_service = LLMModelsService()
         activated_model = await llm_service.activate_llm_model(
-            provider_name=provider,
+            llm_provider=llm_provider,
             llm_model_name=model_name,
             llm_model_version=version,
         )
 
         if not activated_model:
             logger.warning(
-                f"LLM model not found for activation: provider={provider}, model={model_name}"
+                f"LLM model not found for activation: provider={llm_provider}, model={model_name}"
             )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"LLM model '{model_name}' for provider '{provider}' not found",
+                detail=f"LLM model '{model_name}' for provider '{llm_provider}' not found",
             )
 
         logger.info(
-            f"LLM model activated successfully: provider={provider}, model={model_name}"
+            f"LLM model activated successfully: provider={llm_provider}, model={model_name}"
         )
         return LLMModelResponse(**activated_model)
 
@@ -440,13 +445,13 @@ async def activate_llm_model(
 
 
 @router.patch(
-    "/{provider}/{model_name}/deactivate",
+    "/{llm_provider}/{model_name}/deactivate",
     response_model=LLMModelResponse,
     summary="Deactivate LLM model",
     description="Deactivate an LLM model configuration to prevent token allocation. Admin access required.",
 )
 async def deactivate_llm_model(
-    provider: str,
+    llm_provider: str,
     model_name: str,
     version: Optional[str] = Query(None, description="Optional model version"),
     current_user: AuthTokenPayload = Depends(require_admin),
@@ -455,7 +460,7 @@ async def deactivate_llm_model(
     Deactivate an LLM model configuration.
 
     Args:
-        provider: Provider name identifying the model
+        llm_provider: Provider name identifying the model
         model_name: Model name identifying the model
         version: Optional model version
 
@@ -466,27 +471,27 @@ async def deactivate_llm_model(
         HTTPException 404: If model configuration not found
         HTTPException 500: On internal server error
     """
-    logger.info(f"Deactivating LLM model: provider={provider}, model={model_name}")
+    logger.info(f"Deactivating LLM model: provider={llm_provider}, model={model_name}")
 
     try:
         llm_service = LLMModelsService()
         deactivated_model = await llm_service.deactivate_llm_model(
-            provider_name=provider,
+            llm_provider=llm_provider,
             llm_model_name=model_name,
             llm_model_version=version,
         )
 
         if not deactivated_model:
             logger.warning(
-                f"LLM model not found for deactivation: provider={provider}, model={model_name}"
+                f"LLM model not found for deactivation: provider={llm_provider}, model={model_name}"
             )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"LLM model '{model_name}' for provider '{provider}' not found",
+                detail=f"LLM model '{model_name}' for provider '{llm_provider}' not found",
             )
 
         logger.info(
-            f"LLM model deactivated successfully: provider={provider}, model={model_name}"
+            f"LLM model deactivated successfully: provider={llm_provider}, model={model_name}"
         )
         return LLMModelResponse(**deactivated_model)
 

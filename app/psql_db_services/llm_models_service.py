@@ -56,12 +56,12 @@ class LLMModelsService(BaseDatabaseService):
         """
         super().__init__(database_manager)
 
-    def validate_llm_provider_name(self, provider_name: str) -> None:
+    def validate_llm_provider(self, llm_provider: str) -> None:
         """
-        Validate that an LLM provider name is one of the supported providers.
+        Validate that an LLM provider is one of the supported providers.
         """
         self.validate_enum_value(
-            provider_name, self.VALID_LLM_PROVIDER_NAMES, "LLM provider name"
+            llm_provider, self.VALID_LLM_PROVIDER_NAMES, "LLM provider"
         )
 
     def validate_llm_model_numerical_parameters(
@@ -116,7 +116,7 @@ class LLMModelsService(BaseDatabaseService):
 
     async def create_llm_model(
         self,
-        provider_name: str,
+        llm_provider: str,
         llm_model_name: str,
         api_key_variable_name: str,
         max_tokens: int,
@@ -170,11 +170,11 @@ class LLMModelsService(BaseDatabaseService):
             async with self.get_session() as session:
                 sql_query = """
                     INSERT INTO llm_models (
-                        provider_name, llm_model_name, deployment_name, api_key_variable_name,
+                        llm_provider, llm_model_name, deployment_name, api_key_variable_name,
                         api_endpoint_url, llm_model_version, max_tokens, tokens_per_minute_limit,
                         requests_per_minute_limit, is_active_status, temperature, random_seed, deployment_region
                     ) VALUES (
-                        :provider_name, :llm_model_name, :deployment_name, :api_key_variable_name,
+                        :llm_provider, :llm_model_name, :deployment_name, :api_key_variable_name,
                         :api_endpoint_url, :llm_model_version, :max_tokens, :tokens_per_minute_limit,
                         :requests_per_minute_limit, :is_active_status, :temperature, :random_seed, :deployment_region
                     )
@@ -182,7 +182,7 @@ class LLMModelsService(BaseDatabaseService):
                 """
 
                 params = {
-                    "provider_name": provider_name,
+                    "llm_provider": llm_provider,
                     "llm_model_name": llm_model_name,
                     "deployment_name": deployment_name,
                     "api_key_variable_name": api_key_variable_name,
@@ -204,7 +204,7 @@ class LLMModelsService(BaseDatabaseService):
                     raise RuntimeError("Failed to create model record")
 
                 self.log_operation(
-                    "CREATE", f"{provider_name}/{llm_model_name}", success=True
+                    "CREATE", f"{llm_provider}/{llm_model_name}", success=True
                 )
                 return dict(created_model)
         except Exception as e:
@@ -217,7 +217,7 @@ class LLMModelsService(BaseDatabaseService):
 
     async def get_llm_model_by_provider_and_model(
         self,
-        provider_name: str,
+        llm_provider: str,
         llm_model_name: str,
         llm_model_version: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
@@ -227,7 +227,7 @@ class LLMModelsService(BaseDatabaseService):
         This is the primary method for fetching a specific model configuration using the composite key.
 
         Args:
-            provider_name: Provider name (e.g., 'openai', 'anthropic').
+            llm_provider: Provider name (e.g., 'openai', 'anthropic').
             llm_model_name: Model name (e.g., 'gpt-4o').
             llm_model_version: Optional model version (e.g., '2024-08'), or None if not versioned.
 
@@ -236,16 +236,18 @@ class LLMModelsService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
-            ValueError: If provider_name or llm_model_name is invalid or empty.
+            ValueError: If llm_provider or llm_model_name is invalid or empty.
         """
-        self.validate_llm_provider_name(provider_name)
+        self.validate_llm_provider(llm_provider)
         self.validate_string_not_empty(llm_model_name, "llm_model_name")
 
         try:
             async with self.get_session() as session:
-                where_conditions = "provider_name = :provider_name AND llm_model_name = :llm_model_name"
+                where_conditions = (
+                    "llm_provider = :llm_provider AND llm_model_name = :llm_model_name"
+                )
                 params = {
-                    "provider_name": provider_name,
+                    "llm_provider": llm_provider,
                     "llm_model_name": llm_model_name,
                 }
                 if llm_model_version is not None:
@@ -263,13 +265,13 @@ class LLMModelsService(BaseDatabaseService):
                 return dict(model_record) if model_record else None
         except Exception as e:
             logger.error(
-                f"Error fetching model ({provider_name}, {llm_model_name}, {llm_model_version}): {e}"
+                f"Error fetching model ({llm_provider}, {llm_model_name}, {llm_model_version}): {e}"
             )
             raise
 
     async def get_llm_models_by_provider(
         self,
-        provider_name: str,
+        llm_provider: str,
         active_only: Optional[bool] = None,
         limit: int = 100,
         offset: int = 0,
@@ -281,7 +283,7 @@ class LLMModelsService(BaseDatabaseService):
         discovery and management workflows.
 
         Args:
-            provider_name: Provider name to filter by (e.g., 'openai', 'anthropic').
+            llm_provider: Provider name to filter by (e.g., 'openai', 'anthropic').
             active_only: Optional filter for active models only (True/False); defaults to all.
             limit: Maximum number of records to return (default: 100, max: 1000).
             offset: Number of records to skip for pagination (default: 0).
@@ -291,17 +293,17 @@ class LLMModelsService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
-            ValueError: On invalid provider_name or pagination parameters.
+            ValueError: On invalid llm_provider or pagination parameters.
         """
-        self.validate_llm_provider_name(provider_name)
+        self.validate_llm_provider(llm_provider)
         self.validate_pagination_parameters(limit, offset)
 
         try:
             async with self.get_session() as session:
                 sql_query = (
-                    "SELECT * FROM llm_models WHERE provider_name = :provider_name"
+                    "SELECT * FROM llm_models WHERE llm_provider = :llm_provider"
                 )
-                params: Dict[str, Any] = {"provider_name": provider_name}
+                params: Dict[str, Any] = {"llm_provider": llm_provider}
 
                 if active_only is not None:
                     sql_query += " AND is_active_status = :is_active_status"
@@ -314,16 +316,16 @@ class LLMModelsService(BaseDatabaseService):
                 result = await session.execute(text(sql_query), params)
                 model_records = result.mappings().all()
                 logger.debug(
-                    f"Retrieved {len(model_records)} models for provider {provider_name}"
+                    f"Retrieved {len(model_records)} models for provider {llm_provider}"
                 )
                 return [dict(row) for row in model_records]
         except Exception as e:
-            logger.error(f"Error fetching models for provider {provider_name}: {e}")
+            logger.error(f"Error fetching models for provider {llm_provider}: {e}")
             raise
 
     async def get_active_llm_models_by_provider(
         self,
-        provider_name: str,
+        llm_provider: str,
         limit: int = 100,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
@@ -333,7 +335,7 @@ class LLMModelsService(BaseDatabaseService):
         Convenience wrapper for business-critical active model discovery per provider.
 
         Args:
-            provider_name: Provider name to filter by (e.g., 'openai', 'anthropic').
+            llm_provider: Provider name to filter by (e.g., 'openai', 'anthropic').
             limit: Maximum number of records to return (default: 100).
             offset: Number of records to skip for pagination (default: 0).
 
@@ -342,45 +344,45 @@ class LLMModelsService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
-            ValueError: On invalid provider_name or pagination parameters.
+            ValueError: On invalid llm_provider or pagination parameters.
         """
         return await self.get_llm_models_by_provider(
-            provider_name=provider_name,
+            llm_provider=llm_provider,
             active_only=True,
             limit=limit,
             offset=offset,
         )
 
-    async def count_llm_models_by_provider(self, provider_name: str) -> int:
+    async def count_llm_models_by_provider(self, llm_provider: str) -> int:
         """
         Count the number of LLM models for a specific provider.
 
         Useful for dashboard metrics and capacity planning.
 
         Args:
-            provider_name: Provider name (e.g., 'openai', 'anthropic').
+            llm_provider: Provider name (e.g., 'openai', 'anthropic').
 
         Returns:
             Number of models for the specified provider.
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
-            ValueError: If provider_name is invalid.
+            ValueError: If llm_provider is invalid.
         """
-        self.validate_llm_provider_name(provider_name)
+        self.validate_llm_provider(llm_provider)
 
         try:
             async with self.get_session() as session:
                 sql_query = """
                     SELECT COUNT(*) FROM llm_models
-                    WHERE provider_name = :provider_name
+                    WHERE llm_provider = :llm_provider
                 """
                 result = await session.execute(
-                    text(sql_query), {"provider_name": provider_name}
+                    text(sql_query), {"llm_provider": llm_provider}
                 )
                 return result.scalar_one_or_none() or 0
         except Exception as e:
-            logger.error(f"Error counting models for provider {provider_name}: {e}")
+            logger.error(f"Error counting models for provider {llm_provider}: {e}")
             raise
 
     # ========================================================================
@@ -389,10 +391,10 @@ class LLMModelsService(BaseDatabaseService):
 
     async def update_llm_model(
         self,
-        provider_name: str,
+        llm_provider: str,
         llm_model_name: str,
         llm_model_version: Optional[str] = None,
-        new_provider_name: Optional[str] = None,
+        new_llm_provider: Optional[str] = None,
         new_llm_model_name: Optional[str] = None,
         deployment_name: Optional[str] = None,
         api_key_variable_name: Optional[str] = None,
@@ -410,15 +412,15 @@ class LLMModelsService(BaseDatabaseService):
         Update an LLM model configuration with dynamic field updates.
 
         Only provided fields will be updated, optimizing database writes. The model is identified by
-        its composite key (provider_name, llm_model_name, llm_model_version). Updates to the composite
-        key fields (new_provider_name, new_llm_model_name, new_llm_model_version) will change the
+        its composite key (llm_provider, llm_model_name, llm_model_version). Updates to the composite
+        key fields (new_llm_provider, new_llm_model_name, new_llm_model_version) will change the
         model's identity in the table.
 
         Args:
-            provider_name: Current provider name identifying the model (e.g., 'openai').
+            llm_provider: Current provider name identifying the model (e.g., 'openai').
             llm_model_name: Current model name identifying the model (e.g., 'gpt-4o').
             llm_model_version: Current model version identifying the model (e.g., '2024-08'), or None if not versioned.
-            new_provider_name: Optional new provider name (e.g., 'openai', 'anthropic').
+            new_llm_provider: Optional new provider name (e.g., 'openai', 'anthropic').
             new_llm_model_name: Optional new model name (e.g., 'gpt-4o', 'claude-3.5-sonnet').
             deployment_name: Optional new deployment name (e.g., 'gpt-4o').
             api_key_variable_name: Optional new API key variable name (e.g., 'OPENAI_API_KEY_GPT4O').
@@ -441,19 +443,19 @@ class LLMModelsService(BaseDatabaseService):
             ValueError: On invalid input parameters (e.g., invalid provider name).
         """
         # Validate composite key inputs
-        if not provider_name or not llm_model_name:
+        if not llm_provider or not llm_model_name:
             raise ValueError(
-                "provider_name and llm_model_name must be provided to identify the model"
+                "llm_provider and llm_model_name must be provided to identify the model"
             )
 
         # Validate new provider name if provided
-        if new_provider_name:
-            self.validate_llm_provider_name(new_provider_name)
+        if new_llm_provider:
+            self.validate_llm_provider(new_llm_provider)
 
         # Build update fields dictionary
         update_fields_dict: Dict[str, Any] = {}
-        if new_provider_name is not None:
-            update_fields_dict["provider_name"] = new_provider_name
+        if new_llm_provider is not None:
+            update_fields_dict["llm_provider"] = new_llm_provider
         if new_llm_model_name is not None:
             update_fields_dict["llm_model_name"] = new_llm_model_name
         if deployment_name is not None:
@@ -482,19 +484,19 @@ class LLMModelsService(BaseDatabaseService):
         # If no fields to update, return current model
         if not update_fields_dict:
             logger.warning(
-                f"No fields to update for model ({provider_name}, {llm_model_name}, {llm_model_version})"
+                f"No fields to update for model ({llm_provider}, {llm_model_name}, {llm_model_version})"
             )
             return await self.get_llm_model_by_provider_and_model(
-                provider_name, llm_model_name, llm_model_version
+                llm_provider, llm_model_name, llm_model_version
             )
 
         try:
             # Build where clause for composite key
             where_clause = (
-                "provider_name = :provider_name AND llm_model_name = :llm_model_name"
+                "llm_provider = :llm_provider AND llm_model_name = :llm_model_name"
             )
             where_parameters = {
-                "provider_name": provider_name,
+                "llm_provider": llm_provider,
                 "llm_model_name": llm_model_name,
             }
             if llm_model_version is not None:
@@ -517,24 +519,24 @@ class LLMModelsService(BaseDatabaseService):
                 if updated_model:
                     self.log_operation(
                         "UPDATE",
-                        f"({provider_name}, {llm_model_name}, {llm_model_version})",
+                        f"({llm_provider}, {llm_model_name}, {llm_model_version})",
                         success=True,
                     )
                     return dict(updated_model)
 
                 logger.warning(
-                    f"Model ({provider_name}, {llm_model_name}, {llm_model_version}) not found for update"
+                    f"Model ({llm_provider}, {llm_model_name}, {llm_model_version}) not found for update"
                 )
                 return None
         except Exception as e:
             logger.error(
-                f"Error updating model ({provider_name}, {llm_model_name}, {llm_model_version}): {e}"
+                f"Error updating model ({llm_provider}, {llm_model_name}, {llm_model_version}): {e}"
             )
             raise
 
     async def update_llm_model_status(
         self,
-        provider_name: str,
+        llm_provider: str,
         llm_model_name: str,
         llm_model_version: Optional[str] = None,
         is_active_status: bool = True,
@@ -543,7 +545,7 @@ class LLMModelsService(BaseDatabaseService):
         Update a model's active status.
 
         Args:
-            provider_name: Current provider name identifying the model (e.g., 'openai').
+            llm_provider: Current provider name identifying the model (e.g., 'openai').
             llm_model_name: Current model name identifying the model (e.g., 'gpt-4o').
             llm_model_version: Current model version identifying the model (e.g., '2024-08'), or None if not versioned.
             is_active_status: New active status (True for active, False for inactive).
@@ -553,15 +555,15 @@ class LLMModelsService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
-            ValueError: If provider_name or llm_model_name is empty.
+            ValueError: If llm_provider or llm_model_name is empty.
         """
-        if not provider_name or not llm_model_name:
+        if not llm_provider or not llm_model_name:
             raise ValueError(
-                "provider_name and llm_model_name must be provided to identify the model"
+                "llm_provider and llm_model_name must be provided to identify the model"
             )
 
         return await self.update_llm_model(
-            provider_name=provider_name,
+            llm_provider=llm_provider,
             llm_model_name=llm_model_name,
             llm_model_version=llm_model_version,
             is_active_status=is_active_status,
@@ -569,7 +571,7 @@ class LLMModelsService(BaseDatabaseService):
 
     async def activate_llm_model(
         self,
-        provider_name: str,
+        llm_provider: str,
         llm_model_name: str,
         llm_model_version: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
@@ -577,7 +579,7 @@ class LLMModelsService(BaseDatabaseService):
         Activate a model by setting its active status to True.
 
         Args:
-            provider_name: Current provider name identifying the model (e.g., 'openai').
+            llm_provider: Current provider name identifying the model (e.g., 'openai').
             llm_model_name: Current model name identifying the model (e.g., 'gpt-4o').
             llm_model_version: Current model version identifying the model (e.g., '2024-08'), or None if not versioned.
 
@@ -586,10 +588,10 @@ class LLMModelsService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
-            ValueError: If provider_name or llm_model_name is empty.
+            ValueError: If llm_provider or llm_model_name is empty.
         """
         return await self.update_llm_model_status(
-            provider_name=provider_name,
+            llm_provider=llm_provider,
             llm_model_name=llm_model_name,
             llm_model_version=llm_model_version,
             is_active_status=True,
@@ -597,7 +599,7 @@ class LLMModelsService(BaseDatabaseService):
 
     async def deactivate_llm_model(
         self,
-        provider_name: str,
+        llm_provider: str,
         llm_model_name: str,
         llm_model_version: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
@@ -605,7 +607,7 @@ class LLMModelsService(BaseDatabaseService):
         Deactivate a model by setting its active status to False.
 
         Args:
-            provider_name: Current provider name identifying the model (e.g., 'openai').
+            llm_provider: Current provider name identifying the model (e.g., 'openai').
             llm_model_name: Current model name identifying the model (e.g., 'gpt-4o').
             llm_model_version: Current model version identifying the model (e.g., '2024-08'), or None if not versioned.
 
@@ -614,10 +616,10 @@ class LLMModelsService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
-            ValueError: If provider_name or llm_model_name is empty.
+            ValueError: If llm_provider or llm_model_name is empty.
         """
         return await self.update_llm_model_status(
-            provider_name=provider_name,
+            llm_provider=llm_provider,
             llm_model_name=llm_model_name,
             llm_model_version=llm_model_version,
             is_active_status=False,
@@ -629,7 +631,7 @@ class LLMModelsService(BaseDatabaseService):
 
     async def delete_llm_model(
         self,
-        provider_name: str,
+        llm_provider: str,
         llm_model_name: str,
         llm_model_version: Optional[str] = None,
     ) -> bool:
@@ -640,7 +642,7 @@ class LLMModelsService(BaseDatabaseService):
         database foreign key constraints.
 
         Args:
-            provider_name: Provider name identifying the model (e.g., 'openai').
+            llm_provider: Provider name identifying the model (e.g., 'openai').
             llm_model_name: Model name identifying the model (e.g., 'gpt-4o').
             llm_model_version: Model version identifying the model (e.g., '2024-08'), or None if not versioned.
 
@@ -649,21 +651,23 @@ class LLMModelsService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
-            ValueError: If provider_name or llm_model_name is empty.
+            ValueError: If llm_provider or llm_model_name is empty.
         """
-        if not provider_name or not llm_model_name:
+        if not llm_provider or not llm_model_name:
             raise ValueError(
-                "provider_name and llm_model_name must be provided to identify the model"
+                "llm_provider and llm_model_name must be provided to identify the model"
             )
 
-        if provider_name:
-            self.validate_llm_provider_name(provider_name)
+        if llm_provider:
+            self.validate_llm_provider(llm_provider)
 
         try:
             async with self.get_session() as session:
-                where_conditions = "provider_name = :provider_name AND llm_model_name = :llm_model_name"
+                where_conditions = (
+                    "llm_provider = :llm_provider AND llm_model_name = :llm_model_name"
+                )
                 params = {
-                    "provider_name": provider_name,
+                    "llm_provider": llm_provider,
                     "llm_model_name": llm_model_name,
                 }
                 if llm_model_version is not None:
@@ -683,61 +687,61 @@ class LLMModelsService(BaseDatabaseService):
                 if was_deleted:
                     self.log_operation(
                         "DELETE",
-                        f"({provider_name}, {llm_model_name}, {llm_model_version})",
+                        f"({llm_provider}, {llm_model_name}, {llm_model_version})",
                         success=True,
                     )
                 else:
                     logger.debug(
-                        f"Model not found for deletion: ({provider_name}, {llm_model_name}, {llm_model_version})"
+                        f"Model not found for deletion: ({llm_provider}, {llm_model_name}, {llm_model_version})"
                     )
 
                 return bool(was_deleted)
         except Exception as e:
             logger.error(
-                f"Error deleting model ({provider_name}, {llm_model_name}, {llm_model_version}): {e}"
+                f"Error deleting model ({llm_provider}, {llm_model_name}, {llm_model_version}): {e}"
             )
             raise
 
-    async def delete_llm_models_by_provider(self, provider_name: str) -> int:
+    async def delete_llm_models_by_provider(self, llm_provider: str) -> int:
         """
         Delete all models for a specific LLM provider.
 
         Note: This is a bulk operation that may cascade to related records.
 
         Args:
-            provider_name: Provider name (e.g., 'openai', 'anthropic').
+            llm_provider: Provider name (e.g., 'openai', 'anthropic').
 
         Returns:
             Number of deleted model records.
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
-            ValueError: If provider_name is invalid.
+            ValueError: If llm_provider is invalid.
         """
-        self.validate_llm_provider_name(provider_name)
+        self.validate_llm_provider(llm_provider)
 
         try:
             async with self.get_session() as session:
                 sql_query = """
                     DELETE FROM llm_models
-                    WHERE provider_name = :provider_name
+                    WHERE llm_provider = :llm_provider
                 """
                 result = await session.execute(
-                    text(sql_query), {"provider_name": provider_name}
+                    text(sql_query), {"llm_provider": llm_provider}
                 )
                 deleted_count = getattr(result, "rowcount", 0)
 
                 if deleted_count > 0:
                     self.log_operation(
                         "DELETE_BULK",
-                        provider_name,
+                        llm_provider,
                         success=True,
                         additional_context=f"{deleted_count} models deleted",
                     )
                 else:
-                    logger.debug(f"No models found for provider {provider_name}")
+                    logger.debug(f"No models found for provider {llm_provider}")
 
                 return int(deleted_count)
         except Exception as e:
-            logger.error(f"Error deleting models for provider {provider_name}: {e}")
+            logger.error(f"Error deleting models for provider {llm_provider}: {e}")
             raise

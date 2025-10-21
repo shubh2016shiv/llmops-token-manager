@@ -99,7 +99,7 @@ async def acquire_tokens(
     estimated_token_count = token_count_estimation.total_tokens
 
     logger.info(
-        f"Acquiring tokens: user={user_id_uuid}, model={request.llm_model_name}, tokens={estimated_token_count}"
+        f"Acquiring tokens: user={user_id_uuid}, provider={request.llm_provider}, model={request.llm_model_name}, tokens={estimated_token_count}"
     )
 
     try:
@@ -109,6 +109,7 @@ async def acquire_tokens(
         # Acquire tokens
         allocation = await allocation_service.acquire_tokens(
             user_id=user_id_uuid,
+            llm_provider=request.llm_provider,
             model_name=request.llm_model_name,
             token_count=estimated_token_count,
             request_context=request.request_context,
@@ -365,7 +366,7 @@ async def pause_deployment(
         HTTPException 500: On internal server error
     """
     logger.info(
-        f"Pausing deployment: model={request.llm_model_name}, endpoint={request.api_endpoint_url}, reason={request.pause_reason}"
+        f"Pausing deployment: provider={request.llm_provider}, model={request.llm_model_name}, endpoint={request.api_endpoint_url}, reason={request.pause_reason}"
     )
 
     try:
@@ -400,6 +401,7 @@ async def pause_deployment(
         # Pause the deployment
         result = await allocation_service.pause_deployment(
             user_id=user_id_uuid,
+            llm_provider=request.llm_provider,
             model_name=request.llm_model_name,
             api_endpoint=request.api_endpoint_url,
             pause_reason=request.pause_reason,
@@ -417,15 +419,15 @@ async def pause_deployment(
         # Check if deployment not found
         if result.get("alloc_status") == "NOT_FOUND":
             logger.warning(
-                f"Deployment not found: {request.llm_model_name} at {request.api_endpoint_url}"
+                f"Deployment not found: {request.llm_provider}/{request.llm_model_name} at {request.api_endpoint_url}"
             )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Deployment '{request.llm_model_name}' at '{request.api_endpoint_url}' not found",
+                detail=f"Deployment '{request.llm_provider}/{request.llm_model_name}' at '{request.api_endpoint_url}' not found",
             )
 
         logger.info(
-            f"Deployment paused successfully: {request.llm_model_name} at {request.api_endpoint_url}"
+            f"Deployment paused successfully: {request.llm_provider}/{request.llm_model_name} at {request.api_endpoint_url}"
         )
         return result
 

@@ -61,6 +61,7 @@ class TokenAllocationResponse(BaseModel):
     Response schema for successful token allocation.
     """
 
+    # TODO: Add llm_provider
     # -- Request Identity: Unique identifier for the token allocation request
     token_request_id: str = Field(
         ..., description="Unique identifier for this allocation"
@@ -209,7 +210,7 @@ class LLMModelResponse(BaseModel):
     (provider_name, llm_model_name, llm_model_version).
     """
 
-    provider_name: str = Field(..., description="LLM provider name")
+    llm_provider: str = Field(..., description="LLM provider name")
     llm_model_name: str = Field(..., description="Name of the LLM model")
     deployment_name: Optional[str] = Field(default=None, description="Deployment name")
     api_key_variable_name: Optional[str] = Field(
@@ -246,7 +247,7 @@ class LLMModelResponse(BaseModel):
         from_attributes = True
         json_schema_extra = {
             "example": {
-                "provider_name": "openai",
+                "llm_provider": "openai",
                 "llm_model_name": "gpt-4o",
                 "deployment_name": "gpt-4o-eastus",
                 "api_key_variable_name": "OPENAI_API_KEY_GPT4O",
@@ -296,7 +297,7 @@ class LLMModelListResponse(BaseModel):
             "example": {
                 "models": [
                     {
-                        "provider_name": "openai",
+                        "llm_provider": "openai",
                         "llm_model_name": "gpt-4o",
                         "deployment_name": "gpt-4o-eastus",
                         "api_key_variable_name": "OPENAI_API_KEY_GPT4O",

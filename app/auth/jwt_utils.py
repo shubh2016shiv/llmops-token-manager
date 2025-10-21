@@ -57,7 +57,7 @@ def create_access_token(user_id: UUID, role: str) -> str:
 
     try:
         # Generate JWT token
-        token = jwt.encode(
+        token: str = jwt.encode(
             payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
         )
 
@@ -110,7 +110,7 @@ def create_refresh_token(user_id: UUID, role: str) -> str:
 
     try:
         # Generate JWT token
-        token = jwt.encode(
+        token: str = jwt.encode(
             payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
         )
 

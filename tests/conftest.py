@@ -38,9 +38,9 @@ def mock_developer_user():
     Best Practice: Testing secured endpoints should mock the dependency,
     not generate real tokens, for speed and isolation.
     """
-    from app.auth.models import TokenPayload
+    from app.auth.models import AuthTokenPayload
 
-    return TokenPayload(
+    return AuthTokenPayload(
         user_id=uuid4(),
         role="developer",
         exp=datetime.utcnow() + timedelta(hours=24),
@@ -52,9 +52,9 @@ def mock_developer_user():
 @pytest.fixture
 def mock_operator_user():
     """Mock operator user token payload for testing."""
-    from app.auth.models import TokenPayload
+    from app.auth.models import AuthTokenPayload
 
-    return TokenPayload(
+    return AuthTokenPayload(
         user_id=uuid4(),
         role="operator",
         exp=datetime.utcnow() + timedelta(hours=24),
@@ -66,9 +66,9 @@ def mock_operator_user():
 @pytest.fixture
 def mock_admin_user():
     """Mock admin user token payload for testing."""
-    from app.auth.models import TokenPayload
+    from app.auth.models import AuthTokenPayload
 
-    return TokenPayload(
+    return AuthTokenPayload(
         user_id=uuid4(),
         role="admin",
         exp=datetime.utcnow() + timedelta(hours=24),
@@ -80,9 +80,9 @@ def mock_admin_user():
 @pytest.fixture
 def mock_owner_user():
     """Mock owner user token payload for testing."""
-    from app.auth.models import TokenPayload
+    from app.auth.models import AuthTokenPayload
 
-    return TokenPayload(
+    return AuthTokenPayload(
         user_id=uuid4(),
         role="owner",
         exp=datetime.utcnow() + timedelta(hours=24),

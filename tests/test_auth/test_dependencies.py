@@ -18,7 +18,7 @@ from app.auth.dependencies import (
     require_admin,
     require_owner,
 )
-from app.auth.models import TokenPayload
+from app.auth.models import AuthTokenPayload
 from app.models.response_models import UserResponse
 
 
@@ -28,7 +28,7 @@ class TestAuthDependencies:
     def setup_method(self):
         """Set up test data."""
         self.test_user_id = uuid4()
-        self.test_payload = TokenPayload(
+        self.test_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="developer",
             exp="2025-12-31T23:59:59Z",
@@ -73,7 +73,7 @@ class TestAuthDependencies:
     @pytest.mark.asyncio
     async def test_get_current_user_wrong_token_type(self):
         """Test user extraction with refresh token instead of access token."""
-        refresh_payload = TokenPayload(
+        refresh_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="developer",
             exp="2025-12-31T23:59:59Z",
@@ -184,7 +184,7 @@ class TestAuthDependencies:
 
     def test_require_developer_admin_success(self):
         """Test require_developer with admin role (should pass)."""
-        admin_payload = TokenPayload(
+        admin_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="admin",
             exp="2025-12-31T23:59:59Z",
@@ -197,7 +197,7 @@ class TestAuthDependencies:
 
     def test_require_operator_success(self):
         """Test require_operator with operator role."""
-        operator_payload = TokenPayload(
+        operator_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="operator",
             exp="2025-12-31T23:59:59Z",
@@ -217,7 +217,7 @@ class TestAuthDependencies:
 
     def test_require_admin_success(self):
         """Test require_admin with admin role."""
-        admin_payload = TokenPayload(
+        admin_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="admin",
             exp="2025-12-31T23:59:59Z",
@@ -237,7 +237,7 @@ class TestAuthDependencies:
 
     def test_require_owner_success(self):
         """Test require_owner with owner role."""
-        owner_payload = TokenPayload(
+        owner_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="owner",
             exp="2025-12-31T23:59:59Z",
@@ -250,7 +250,7 @@ class TestAuthDependencies:
 
     def test_require_owner_admin_fails(self):
         """Test require_owner with admin role (should fail)."""
-        admin_payload = TokenPayload(
+        admin_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="admin",
             exp="2025-12-31T23:59:59Z",
@@ -266,7 +266,7 @@ class TestAuthDependencies:
     def test_role_hierarchy(self):
         """Test that role hierarchy works correctly."""
         # Owner should have access to all roles
-        owner_payload = TokenPayload(
+        owner_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="owner",
             exp="2025-12-31T23:59:59Z",
@@ -280,7 +280,7 @@ class TestAuthDependencies:
         assert require_owner(owner_payload) == owner_payload
 
         # Admin should have access to admin and below
-        admin_payload = TokenPayload(
+        admin_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="admin",
             exp="2025-12-31T23:59:59Z",

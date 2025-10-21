@@ -17,7 +17,7 @@ from app.auth.jwt_utils import (
     get_token_expiration_seconds,
     is_refresh_enabled,
 )
-from app.auth.models import TokenPayload
+from app.auth.models import AuthTokenPayload
 from app.core.config_manager import settings
 
 
@@ -75,7 +75,7 @@ class TestJWTUtils:
         token = create_access_token(self.test_user_id, self.test_role)
         payload = decode_token(token)
 
-        assert isinstance(payload, TokenPayload)
+        assert isinstance(payload, AuthTokenPayload)
         assert payload.user_id == self.test_user_id
         assert payload.role == self.test_role
         assert payload.type == "access"

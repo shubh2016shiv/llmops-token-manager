@@ -902,7 +902,7 @@ class TestTokenAllocationServiceBusinessLogic:
                 }
 
                 # Call method
-                result = await service.acquire_tokens(uuid4(), "gpt-4", 5000)
+                result = await service.acquire_tokens(uuid4(), "openai", "gpt-4", 5000)
 
                 # Assertions
                 assert result["allocation_status"] == "ACQUIRED"
@@ -935,7 +935,7 @@ class TestTokenAllocationServiceBusinessLogic:
                 }
 
                 # Call method
-                result = await service.acquire_tokens(uuid4(), "gpt-4", 5000)
+                result = await service.acquire_tokens(uuid4(), "openai", "gpt-4", 5000)
 
                 # Assertions
                 assert result["allocation_status"] == "WAITING"
@@ -947,10 +947,10 @@ class TestTokenAllocationServiceBusinessLogic:
         service = TokenAllocationService()
 
         with pytest.raises(ValueError, match="must be positive"):
-            await service.acquire_tokens(uuid4(), "gpt-4", 0)
+            await service.acquire_tokens(uuid4(), "openai", "gpt-4", 0)
 
         with pytest.raises(ValueError, match="must be positive"):
-            await service.acquire_tokens(uuid4(), "gpt-4", -100)
+            await service.acquire_tokens(uuid4(), "openai", "gpt-4", -100)
 
     @pytest.mark.asyncio
     async def test_acquire_tokens_exceeds_limit(self):
@@ -968,7 +968,7 @@ class TestTokenAllocationServiceBusinessLogic:
             )
 
             # Call method with token count exceeding single request limit (150000 > 100000)
-            result = await service.acquire_tokens(uuid4(), "gpt-4", 150000)
+            result = await service.acquire_tokens(uuid4(), "openai", "gpt-4", 150000)
 
             # Assertions - should return error when single request exceeds limit
             assert "error" in result
@@ -988,7 +988,7 @@ class TestTokenAllocationServiceBusinessLogic:
 
             # Call method
             with pytest.raises(ValueError, match="No deployments found"):
-                await service.acquire_tokens(uuid4(), "gpt-4", 1000)
+                await service.acquire_tokens(uuid4(), "openai", "gpt-4", 1000)
 
     @pytest.mark.asyncio
     async def test_retry_acquire_tokens_success(self):
@@ -1153,7 +1153,7 @@ class TestTokenAllocationServiceBusinessLogic:
 
             # Call method
             result = await service.pause_deployment(
-                uuid4(), "gpt-4", "https://api.openai.com"
+                uuid4(), "openai", "gpt-4", "https://api.openai.com"
             )
 
             # Assertions
@@ -1173,7 +1173,7 @@ class TestTokenAllocationServiceBusinessLogic:
 
         # Call method
         result = await service.pause_deployment(
-            uuid4(), "gpt-4", "https://api.openai.com"
+            uuid4(), "openai", "gpt-4", "https://api.openai.com"
         )
 
         # Assertions

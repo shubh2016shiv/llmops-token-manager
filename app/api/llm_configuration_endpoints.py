@@ -21,7 +21,7 @@ from loguru import logger
 from app.psql_db_services.llm_models_service import LLMModelsService
 from app.models.request_models import LLMModelCreateRequest, LLMModelUpdateRequest
 from app.models.response_models import LLMModelResponse, LLMModelListResponse
-from app.auth import require_developer, require_admin, TokenPayload
+from app.auth import require_developer, require_admin, AuthTokenPayload
 
 # ============================================================================
 # ROUTER INITIALIZATION
@@ -54,7 +54,8 @@ router = APIRouter(prefix="/api/v1/llm-models", tags=["LLM Model Configuration"]
     description="Register a new LLM model configuration with rate limits, endpoints, and settings. Admin access required.",
 )
 async def create_llm_model(
-    request: LLMModelCreateRequest, current_user: TokenPayload = Depends(require_admin)
+    request: LLMModelCreateRequest,
+    current_user: AuthTokenPayload = Depends(require_admin),
 ):
     """
     Create a new LLM model configuration in the system.
@@ -156,7 +157,7 @@ async def list_llm_models_by_provider(
     ),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
-    current_user: TokenPayload = Depends(require_developer),
+    current_user: AuthTokenPayload = Depends(require_developer),
 ):
     """
     List LLM model configurations for a specific provider.
@@ -223,7 +224,7 @@ async def get_llm_model(
     provider: str,
     model_name: str,
     version: Optional[str] = Query(None, description="Optional model version"),
-    current_user: TokenPayload = Depends(require_developer),
+    current_user: AuthTokenPayload = Depends(require_developer),
 ):
     """
     Retrieve an LLM model configuration by provider and model name.
@@ -292,7 +293,7 @@ async def update_llm_model(
     model_name: str,
     request: LLMModelUpdateRequest,
     version: Optional[str] = Query(None, description="Optional model version"),
-    current_user: TokenPayload = Depends(require_admin),
+    current_user: AuthTokenPayload = Depends(require_admin),
 ):
     """
     Update an LLM model configuration.
@@ -387,7 +388,7 @@ async def activate_llm_model(
     provider: str,
     model_name: str,
     version: Optional[str] = Query(None, description="Optional model version"),
-    current_user: TokenPayload = Depends(require_admin),
+    current_user: AuthTokenPayload = Depends(require_admin),
 ):
     """
     Activate an LLM model configuration.
@@ -448,7 +449,7 @@ async def deactivate_llm_model(
     provider: str,
     model_name: str,
     version: Optional[str] = Query(None, description="Optional model version"),
-    current_user: TokenPayload = Depends(require_admin),
+    current_user: AuthTokenPayload = Depends(require_admin),
 ):
     """
     Deactivate an LLM model configuration.

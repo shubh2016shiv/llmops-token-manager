@@ -1,21 +1,21 @@
 """
 JWT Authentication Endpoints
 ----------------------------
-FastAPI endpoints for JWT token management and testing.
-Provides token generation and refresh capabilities for development and testing.
+FastAPI endpoints for JWT token management and authentication.
+Provides login, token generation, and refresh capabilities.
 
-WARNING: These endpoints are for development/testing only.
-In production, token generation should be handled by a separate authentication service.
+The /login endpoint is for production use, while /token/generate is for development/testing only.
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends
 from loguru import logger
 
 from app.auth.models import (
-    TokenGenerateRequest,
-    TokenResponse,
-    TokenRefreshRequest,
-    TokenPayload,
+    AuthTokenGenerateRequest,
+    AuthTokenResponse,
+    AuthTokenRefreshRequest,
+    AuthTokenPayload,
+    AuthLoginRequest,
 )
 from app.auth.jwt_utils import (
     create_access_token,
@@ -24,6 +24,7 @@ from app.auth.jwt_utils import (
     verify_token_type,
     get_token_expiration_seconds,
     is_refresh_enabled,
+    authenticate_user,
 )
 from app.auth.dependencies import get_current_user
 
@@ -35,13 +36,91 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
 
 # ============================================================================
+# AUTHENTICATION ENDPOINTS
+# ============================================================================
+
+
+@router.post(
+    "/login",
+    response_model=AuthTokenResponse,
+    summary="Authenticate user and get JWT auth token",
+    description="""
+    Authenticate user with username and password.
+    Returns JWT auth token for API access upon successful authentication.
+
+    Use this endpoint to:
+    - Log in with username and password
+    - Get JWT auth token for API access
+    - Authenticate before accessing protected endpoints
+    """,
+)
+async def login(request: AuthLoginRequest):
+    """
+    Authenticate user with username and password and return JWT auth token.
+
+    Args:
+        request: Login request with username and password
+
+    Returns:
+        AuthTokenResponse: JWT auth token response
+
+    Raises:
+        HTTPException 401: If authentication fails
+        HTTPException 500: If token generation fails
+    """
+    logger.info(f"Login attempt for user: {request.username}")
+
+    try:
+        # Authenticate user
+        user = await authenticate_user(request.username, request.password)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Generate access token
+        access_token = create_access_token(user["user_id"], user["role"])
+
+        # Generate refresh token if enabled
+        refresh_token = None
+        if is_refresh_enabled():
+            refresh_token = create_refresh_token(user["user_id"], user["role"])
+            logger.debug(f"Refresh auth token generated for user {request.username}")
+
+        # Calculate expiration time
+        expires_in = get_token_expiration_seconds()
+
+        response = AuthTokenResponse(
+            access_token=access_token,
+            token_type="bearer",
+            expires_in=expires_in,
+            refresh_token=refresh_token,
+        )
+
+        logger.info(f"User {request.username} authenticated successfully")
+        return response
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Login error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication failed",
+        )
+
+
+# ============================================================================
 # TOKEN GENERATION ENDPOINTS
 # ============================================================================
 
 
 @router.post(
     "/token/generate",
-    response_model=TokenResponse,
+    response_model=AuthTokenResponse,
     summary="Generate JWT token (Development Only)",
     description="""
     Generate JWT access and refresh tokens for a user.
@@ -59,7 +138,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
     Security Note: This endpoint bypasses normal authentication flows.
     """,
 )
-async def generate_token(request: TokenGenerateRequest):
+async def generate_token(request: AuthTokenGenerateRequest):
     """
     Generate JWT tokens for a user.
 
@@ -70,7 +149,7 @@ async def generate_token(request: TokenGenerateRequest):
         request: Token generation parameters (user_id, role)
 
     Returns:
-        TokenResponse: Generated access token and optional refresh token
+        AuthTokenResponse: Generated access token and optional refresh token
 
     Raises:
         HTTPException 400: If role is invalid or refresh tokens disabled
@@ -95,7 +174,7 @@ async def generate_token(request: TokenGenerateRequest):
         # Calculate expiration time
         expires_in = get_token_expiration_seconds()
 
-        response = TokenResponse(
+        response = AuthTokenResponse(
             access_token=access_token,
             token_type="bearer",
             expires_in=expires_in,
@@ -118,7 +197,7 @@ async def generate_token(request: TokenGenerateRequest):
 
 @router.post(
     "/token/refresh",
-    response_model=TokenResponse,
+    response_model=AuthTokenResponse,
     summary="Refresh access token",
     description="""
     Refresh an access token using a valid refresh token.
@@ -132,7 +211,7 @@ async def generate_token(request: TokenGenerateRequest):
     - Maintain user session across token expiration
     """,
 )
-async def refresh_access_token(request: TokenRefreshRequest):
+async def refresh_access_token(request: AuthTokenRefreshRequest):
     """
     Refresh access token using refresh token.
 
@@ -143,7 +222,7 @@ async def refresh_access_token(request: TokenRefreshRequest):
         request: Refresh token request
 
     Returns:
-        TokenResponse: New access token and optional new refresh token
+        AuthTokenResponse: New access token and optional new refresh token
 
     Raises:
         HTTPException 400: If refresh tokens disabled or invalid refresh token
@@ -176,7 +255,7 @@ async def refresh_access_token(request: TokenRefreshRequest):
         # Calculate expiration time
         expires_in = get_token_expiration_seconds()
 
-        response = TokenResponse(
+        response = AuthTokenResponse(
             access_token=new_access_token,
             token_type="bearer",
             expires_in=expires_in,
@@ -204,7 +283,7 @@ async def refresh_access_token(request: TokenRefreshRequest):
 
 @router.get(
     "/token/validate",
-    response_model=TokenPayload,
+    response_model=AuthTokenPayload,
     summary="Validate current token",
     description="""
     Validate the current JWT token and return its payload.
@@ -217,8 +296,8 @@ async def refresh_access_token(request: TokenRefreshRequest):
     """,
 )
 async def validate_token(
-    current_user: TokenPayload = Depends(get_current_user),
-) -> TokenPayload:
+    current_user: AuthTokenPayload = Depends(get_current_user),
+) -> AuthTokenPayload:
     """
     Validate the current JWT token.
 
@@ -229,7 +308,7 @@ async def validate_token(
         current_user: Current user from JWT token (injected by dependency)
 
     Returns:
-        TokenPayload: Current token payload with user information
+        AuthTokenPayload: Current token payload with user information
 
     Raises:
         HTTPException 401: If token is invalid or expired

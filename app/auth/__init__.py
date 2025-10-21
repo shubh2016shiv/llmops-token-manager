@@ -53,14 +53,16 @@ from app.auth.jwt_utils import (
     verify_token_type,
     get_token_expiration_seconds,
     is_refresh_enabled,
+    authenticate_user,
 )
 
 # Pydantic models for JWT operations
 from app.auth.models import (
-    TokenPayload,
-    TokenResponse,
-    TokenRefreshRequest,
-    TokenGenerateRequest,
+    AuthTokenPayload,
+    AuthTokenResponse,
+    AuthTokenRefreshRequest,
+    AuthTokenGenerateRequest,
+    AuthLoginRequest,
 )
 
 # Router for auth endpoints
@@ -86,11 +88,13 @@ __all__ = [
     "verify_token_type",
     "get_token_expiration_seconds",
     "is_refresh_enabled",
+    "authenticate_user",
     # Models
-    "TokenPayload",
-    "TokenResponse",
-    "TokenRefreshRequest",
-    "TokenGenerateRequest",
+    "AuthTokenPayload",
+    "AuthTokenResponse",
+    "AuthTokenRefreshRequest",
+    "AuthTokenGenerateRequest",
+    "AuthLoginRequest",
     # Router
     "auth_router",
 ]

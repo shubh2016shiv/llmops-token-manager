@@ -310,6 +310,32 @@ class UsersService(BaseDatabaseService):
             logger.error(f"Error fetching user by email {email_address}: {e}")
             raise
 
+    async def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a user by their username.
+
+        Args:
+            username: User's username
+
+        Returns:
+            Dictionary containing user record or None if not found
+
+        Raises:
+            sqlalchemy.exc.SQLAlchemyError: On database errors
+        """
+        try:
+            async with self.get_session() as session:
+                sql_query = """
+                    SELECT * FROM users
+                    WHERE username = :username
+                """
+                result = await session.execute(text(sql_query), {"username": username})
+                user_record = result.mappings().one_or_none()
+                return dict(user_record) if user_record else None
+        except Exception as e:
+            logger.error(f"Error fetching user by username {username}: {e}")
+            raise
+
     async def get_all_users(
         self,
         role_filter: Optional[str] = None,

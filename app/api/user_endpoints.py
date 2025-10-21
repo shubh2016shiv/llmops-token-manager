@@ -12,7 +12,7 @@ from loguru import logger
 
 from app.utils.passwrd_hashing import PasswordHasher
 from app.psql_db_services.users_service import UsersService
-from app.auth import require_developer, require_admin, TokenPayload
+from app.auth import require_developer, require_admin, AuthTokenPayload
 
 from app.models.request_models import UserCreateRequest, UserUpdateRequest
 from app.models.response_models import UserResponse
@@ -120,7 +120,7 @@ async def create_user(request: UserCreateRequest):
     description="Retrieve a specific user by their unique identifier.",
 )
 async def get_user(
-    user_id: UUID, current_user: TokenPayload = Depends(require_developer)
+    user_id: UUID, current_user: AuthTokenPayload = Depends(require_developer)
 ):
     """
     Retrieve a user by their ID.
@@ -172,7 +172,7 @@ async def get_user(
     description="Retrieve a specific user by their email address.",
 )
 async def get_user_by_email(
-    email: str, current_user: TokenPayload = Depends(require_developer)
+    email: str, current_user: AuthTokenPayload = Depends(require_developer)
 ):
     """
     Retrieve a user by their email address.
@@ -293,7 +293,7 @@ async def get_user_by_email(
 async def update_user(
     user_id: UUID,
     request: UserUpdateRequest,
-    current_user: TokenPayload = Depends(require_admin),
+    current_user: AuthTokenPayload = Depends(require_admin),
 ):
     """
     Update user information.
@@ -362,7 +362,7 @@ async def update_user(
     description="Suspend a user account by setting status to 'suspended'.",
 )
 async def suspend_user(
-    user_id: UUID, current_user: TokenPayload = Depends(require_admin)
+    user_id: UUID, current_user: AuthTokenPayload = Depends(require_admin)
 ):
     """
     Suspend a user account.
@@ -410,7 +410,7 @@ async def suspend_user(
     description="Activate a user account by setting status to 'active'.",
 )
 async def activate_user(
-    user_id: UUID, current_user: TokenPayload = Depends(require_admin)
+    user_id: UUID, current_user: AuthTokenPayload = Depends(require_admin)
 ):
     """
     Activate a user account.

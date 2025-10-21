@@ -11,7 +11,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
-class TokenPayload(BaseModel):
+class AuthTokenPayload(BaseModel):
     """
     JWT token payload structure.
 
@@ -42,7 +42,7 @@ class TokenPayload(BaseModel):
         }
 
 
-class TokenResponse(BaseModel):
+class AuthTokenResponse(BaseModel):
     """
     Token generation response.
 
@@ -70,7 +70,7 @@ class TokenResponse(BaseModel):
         }
 
 
-class TokenRefreshRequest(BaseModel):
+class AuthTokenRefreshRequest(BaseModel):
     """
     Request model for refreshing access tokens.
 
@@ -86,7 +86,7 @@ class TokenRefreshRequest(BaseModel):
         }
 
 
-class TokenGenerateRequest(BaseModel):
+class AuthTokenGenerateRequest(BaseModel):
     """
     Request model for generating tokens (testing/development only).
 
@@ -103,4 +103,21 @@ class TokenGenerateRequest(BaseModel):
                 "user_id": "550e8400-e29b-41d4-a716-446655440000",
                 "role": "developer",
             }
+        }
+
+
+class AuthLoginRequest(BaseModel):
+    """
+    Request model for user authentication login.
+
+    Used to authenticate users with username/password credentials
+    and generate JWT auth tokens upon successful authentication.
+    """
+
+    username: str = Field(..., description="User's username")
+    password: str = Field(..., description="User's password")
+
+    class Config:
+        json_schema_extra = {
+            "example": {"username": "johndoe", "password": "SecurePass123"}
         }

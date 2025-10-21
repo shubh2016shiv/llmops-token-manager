@@ -29,7 +29,7 @@ from app.models.response_models import (
     TokenReleaseResponse,
     UserResponse,
 )
-from app.auth import require_developer, require_operator, TokenPayload
+from app.auth import require_developer, require_operator, AuthTokenPayload
 
 # Services
 from app.utils.token_count_estimation import estimate_tokens
@@ -57,7 +57,7 @@ users_service = UsersService()
 )
 async def acquire_tokens(
     request: TokenAllocationClientRequest,
-    current_user: TokenPayload = Depends(require_developer),
+    current_user: AuthTokenPayload = Depends(require_developer),
 ):
     """
     Acquire tokens for LLM usage.
@@ -152,7 +152,8 @@ async def acquire_tokens(
     description="Retry acquiring tokens for a WAITING allocation. Checks if capacity is now available.",
 )
 async def retry_acquire_tokens(
-    request: TokenRetryRequest, current_user: TokenPayload = Depends(require_developer)
+    request: TokenRetryRequest,
+    current_user: AuthTokenPayload = Depends(require_developer),
 ):
     """
     Retry acquiring tokens for a WAITING allocation.
@@ -240,7 +241,7 @@ async def retry_acquire_tokens(
 )
 async def release_tokens(
     request: TokenReleaseRequest,
-    current_user: TokenPayload = Depends(require_developer),
+    current_user: AuthTokenPayload = Depends(require_developer),
 ):
     """
     Release allocated tokens back to the pool.
@@ -327,7 +328,7 @@ async def release_tokens(
 )
 async def pause_deployment(
     request: PauseDeploymentRequest,
-    current_user: TokenPayload = Depends(require_operator),
+    current_user: AuthTokenPayload = Depends(require_operator),
 ):
     """
     Pause a failing deployment for emergency failover and capacity management.

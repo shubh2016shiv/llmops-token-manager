@@ -21,20 +21,20 @@ from jose import JWTError
 from loguru import logger
 
 from app.auth.jwt_utils import decode_token, verify_token_type
-from app.auth.models import TokenPayload
+from app.auth.models import AuthTokenPayload
 from app.psql_db_services.users_service import UsersService
 from app.models.response_models import UserResponse
 
 # OAuth2 scheme for extracting Bearer tokens from Authorization header
 oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/auth/token/generate",  # For OpenAPI documentation
+    tokenUrl="/api/v1/auth/login",  # Production login endpoint
     auto_error=False,  # Don't auto-raise 401, let us handle it
 )
 
 
 async def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
-) -> TokenPayload:
+) -> AuthTokenPayload:
     """
     Extract and validate JWT token from Authorization header.
 
@@ -45,7 +45,7 @@ async def get_current_user(
         token: JWT token from Authorization header (extracted by OAuth2PasswordBearer)
 
     Returns:
-        TokenPayload: Decoded and validated token payload with user_id and role
+        AuthTokenPayload: Decoded and validated token payload with user_id and role
 
     Raises:
         HTTPException 401: If token is missing, invalid, or expired
@@ -87,8 +87,8 @@ async def get_current_user(
 
 
 async def get_active_user(
-    payload: TokenPayload = Depends(get_current_user),
-) -> TokenPayload:
+    payload: AuthTokenPayload = Depends(get_current_user),
+) -> AuthTokenPayload:
     """
     Verify user exists and is active in database.
 
@@ -100,7 +100,7 @@ async def get_active_user(
         payload: Token payload from get_current_user dependency
 
     Returns:
-        TokenPayload: Validated token payload if user is active
+        AuthTokenPayload: Validated token payload if user is active
 
     Raises:
         HTTPException 403: If user not found or not active
@@ -170,8 +170,8 @@ class RoleChecker:
                 )
 
     def __call__(
-        self, payload: TokenPayload = Depends(get_current_user)
-    ) -> TokenPayload:
+        self, payload: AuthTokenPayload = Depends(get_current_user)
+    ) -> AuthTokenPayload:
         """
         Check if user's role is authorized for the endpoint.
 
@@ -179,7 +179,7 @@ class RoleChecker:
             payload: Token payload from get_current_user dependency
 
         Returns:
-            TokenPayload: Authorized token payload
+            AuthTokenPayload: Authorized token payload
 
         Raises:
             HTTPException 403: If user's role is not authorized
@@ -231,8 +231,8 @@ Use for system administration endpoints.
 
 
 async def require_active_developer(
-    payload: TokenPayload = Depends(require_developer),
-) -> TokenPayload:
+    payload: AuthTokenPayload = Depends(require_developer),
+) -> AuthTokenPayload:
     """
     Require developer role or higher AND verify user is active.
 
@@ -242,8 +242,8 @@ async def require_active_developer(
 
 
 async def require_active_operator(
-    payload: TokenPayload = Depends(require_operator),
-) -> TokenPayload:
+    payload: AuthTokenPayload = Depends(require_operator),
+) -> AuthTokenPayload:
     """
     Require operator role or higher AND verify user is active.
 
@@ -253,8 +253,8 @@ async def require_active_operator(
 
 
 async def require_active_admin(
-    payload: TokenPayload = Depends(require_admin),
-) -> TokenPayload:
+    payload: AuthTokenPayload = Depends(require_admin),
+) -> AuthTokenPayload:
     """
     Require admin role or higher AND verify user is active.
 
@@ -264,8 +264,8 @@ async def require_active_admin(
 
 
 async def require_active_owner(
-    payload: TokenPayload = Depends(require_owner),
-) -> TokenPayload:
+    payload: AuthTokenPayload = Depends(require_owner),
+) -> AuthTokenPayload:
     """
     Require owner role AND verify user is active.
 

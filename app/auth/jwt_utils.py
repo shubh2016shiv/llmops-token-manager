@@ -13,12 +13,15 @@ Security Best Practices:
 """
 
 from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
 from uuid import UUID
 from jose import JWTError, jwt
 from loguru import logger
 
 from app.core.config_manager import settings
-from app.auth.models import TokenPayload
+from app.auth.models import AuthTokenPayload
+from app.psql_db_services.users_service import UsersService
+from app.utils.passwrd_hashing import PasswordHasher
 
 
 def create_access_token(user_id: UUID, role: str) -> str:
@@ -122,7 +125,7 @@ def create_refresh_token(user_id: UUID, role: str) -> str:
         raise JWTError(f"Refresh token creation failed: {str(e)}")
 
 
-def decode_token(token: str) -> TokenPayload:
+def decode_token(token: str) -> AuthTokenPayload:
     """
     Decode and validate a JWT token.
 
@@ -133,7 +136,7 @@ def decode_token(token: str) -> TokenPayload:
         token: JWT token string
 
     Returns:
-        TokenPayload: Decoded and validated token payload
+        AuthTokenPayload: Decoded and validated token payload
 
     Raises:
         JWTError: If token is invalid, expired, or malformed
@@ -162,7 +165,7 @@ def decode_token(token: str) -> TokenPayload:
         iat_datetime = datetime.utcfromtimestamp(payload["iat"])
 
         # Convert to TokenPayload
-        token_payload = TokenPayload(
+        token_payload = AuthTokenPayload(
             user_id=UUID(payload["user_id"]),
             role=payload["role"],
             exp=exp_datetime,
@@ -181,7 +184,7 @@ def decode_token(token: str) -> TokenPayload:
         raise ValueError(f"Invalid token payload: {str(e)}")
 
 
-def verify_token_type(payload: TokenPayload, expected_type: str) -> None:
+def verify_token_type(payload: AuthTokenPayload, expected_type: str) -> None:
     """
     Verify that a token is of the expected type.
 
@@ -221,3 +224,45 @@ def is_refresh_enabled() -> bool:
         True if refresh tokens are enabled, False otherwise
     """
     return settings.jwt_refresh_enabled
+
+
+async def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
+    """
+    Authenticate a user with username and password.
+
+    Args:
+        username: User's username
+        password: User's password
+
+    Returns:
+        User data dictionary if authentication successful, None otherwise
+
+    Raises:
+        ValueError: If username or password is invalid
+    """
+    try:
+        # Get user by username
+        users_service = UsersService()
+        user = await users_service.get_user_by_username(username)
+
+        if not user:
+            logger.warning(f"Authentication failed: User '{username}' not found")
+            return None
+
+        # Verify password
+        if not PasswordHasher.verify_password(password, user.get("password_hash", "")):
+            logger.warning(
+                f"Authentication failed: Invalid password for user '{username}'"
+            )
+            return None
+
+        # Check if user is active
+        if user.get("status") != "active":
+            logger.warning(f"Authentication failed: User '{username}' is not active")
+            return None
+
+        logger.info(f"User '{username}' authenticated successfully")
+        return user
+    except Exception as e:
+        logger.error(f"Error authenticating user '{username}': {e}")
+        raise

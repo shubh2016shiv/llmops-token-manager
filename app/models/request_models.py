@@ -37,8 +37,11 @@ class ProviderType(str, Enum):
     anthropic = (
         "anthropic"  # Anthropic API (e.g., model_name="claude-3-5-sonnet-20240620")
     )
+    gemini = "gemini"  # Gemini API (e.g., model_name="gemini-2.5-flash")
     cohere = "cohere"  # Cohere API (e.g., model_name="command-r-plus")
     mistral = "mistral"  # Mistral API (e.g., model_name="mistral-large-2407")
+    deepseek = "deepseek"  # DeepSeek API (e.g., model_name="deepseek-chat")
+    meta = "meta"  # Meta API (e.g., model_name="llama-3-70b")
     hugging_face = "hugging_face"  # Hugging Face Inference API, supports thousands of models (e.g., model_name="meta-llama/Llama-3-70b")
     together_ai = "together_ai"  # Together AI, aggregator for open models (e.g., model_name="meta-llama/Llama-3-70b")
     fireworks_ai = "fireworks_ai"  # Fireworks AI, fast inference for various models (e.g., model_name="accounts/fireworks/models/llama-v3-70b")

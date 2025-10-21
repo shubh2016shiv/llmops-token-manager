@@ -6,7 +6,11 @@ DROP TABLE IF EXISTS llm_models CASCADE;
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS llm_models (
     llm_provider TEXT NOT NULL DEFAULT 'openai'
-        CHECK (llm_provider IN ('openai', 'gemini', 'anthropic', 'mistral', 'cohere', 'xai', 'deepseek', 'meta')),
+        CHECK (llm_provider IN (
+        'azure_openai', 'google_vertex', 'aws_bedrock', 'ibm_watsonx', 'oracle',
+        'openai', 'gemini', 'anthropic', 'cohere', 'mistral', 'deepseek', 'meta', 'hugging_face', 'together_ai',
+        'fireworks_ai', 'replicate', 'xai', 'deepinfra', 'novita', 'on_premise'
+    )),
     llm_model_name TEXT NOT NULL,
     deployment_name TEXT,
     api_key_variable_name TEXT,

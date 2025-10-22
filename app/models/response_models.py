@@ -557,3 +557,91 @@ class HealthStatus(BaseModel):
         if value not in valid_values:
             raise ValueError(f"Status must be one of: {', '.join(valid_values)}")
         return value
+
+
+# ============================================================================
+# USER LLM ENTITLEMENTS RESPONSE MODELS
+# ============================================================================
+
+
+class UserEntitlementResponse(BaseModel):
+    """
+    Response schema for user LLM entitlement.
+
+    Security: API key is intentionally excluded from response for security.
+    """
+
+    entitlement_id: int = Field(..., description="Unique entitlement identifier")
+    user_id: UUID = Field(..., description="User who has the entitlement")
+    llm_provider: str = Field(..., description="LLM provider type")
+    llm_model_name: str = Field(..., description="Logical model name")
+    api_endpoint_url: Optional[str] = Field(
+        None, description="Specific API endpoint URL"
+    )
+    cloud_provider: Optional[str] = Field(
+        None, description="Cloud provider hosting the LLM"
+    )
+    deployment_name: Optional[str] = Field(
+        None, description="Physical deployment identifier"
+    )
+    region: Optional[str] = Field(None, description="Geographic region")
+    created_at: datetime = Field(..., description="When entitlement was created")
+    updated_at: datetime = Field(..., description="When entitlement was last updated")
+    created_by_user_id: UUID = Field(
+        ..., description="Admin who created this entitlement"
+    )
+
+    class Config:
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "entitlement_id": 1,
+                "user_id": "550e8400-e29b-41d4-a716-446655440000",
+                "llm_provider": "openai",
+                "llm_model_name": "gpt-4o",
+                "api_endpoint_url": "https://api.openai.com/v1",
+                "cloud_provider": None,
+                "deployment_name": None,
+                "region": "us-east-1",
+                "created_at": "2025-10-21T10:00:00Z",
+                "updated_at": "2025-10-21T10:00:00Z",
+                "created_by_user_id": "a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6",
+            }
+        }
+
+
+class UserEntitlementListResponse(BaseModel):
+    """
+    Response schema for paginated list of user LLM entitlements.
+    """
+
+    entitlements: List[UserEntitlementResponse] = Field(
+        ..., description="List of user entitlements"
+    )
+    total_count: int = Field(..., description="Total number of entitlements")
+    page: int = Field(..., description="Current page number")
+    page_size: int = Field(..., description="Items per page")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "entitlements": [
+                    {
+                        "entitlement_id": 1,
+                        "user_id": "550e8400-e29b-41d4-a716-446655440000",
+                        "llm_provider": "openai",
+                        "llm_model_name": "gpt-4o",
+                        "api_endpoint_url": "https://api.openai.com/v1",
+                        "cloud_provider": None,
+                        "deployment_name": None,
+                        "region": "us-east-1",
+                        "created_at": "2025-10-21T10:00:00Z",
+                        "updated_at": "2025-10-21T10:00:00Z",
+                        "created_by_user_id": "a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6",
+                    }
+                ],
+                "total_count": 1,
+                "page": 1,
+                "page_size": 50,
+            }
+        }

@@ -26,6 +26,7 @@ from app.api import (
     user_endpoints,
     llm_configuration_endpoints,
     token_manager_endpoints,
+    user_entitlement_endpoints,
 )
 from app.auth import auth_router
 
@@ -127,6 +128,7 @@ app.include_router(health_endpoints.router)
 app.include_router(auth_router)  # JWT authentication endpoints
 app.include_router(llm_configuration_endpoints.router)
 app.include_router(user_endpoints.router)
+app.include_router(user_entitlement_endpoints.router)  # User LLM entitlements
 app.include_router(token_manager_endpoints.router)
 
 

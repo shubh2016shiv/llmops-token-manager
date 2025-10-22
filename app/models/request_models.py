@@ -934,3 +934,132 @@ class TokenRetryRequest(BaseModel):
 
     class Config:
         json_schema_extra = {"example": {"token_request_id": "req_abc123xyz"}}
+
+
+# ============================================================================
+# USER LLM ENTITLEMENTS REQUEST MODELS
+# ============================================================================
+
+
+class UserEntitlementCreateRequest(BaseModel):
+    """
+    Request model for creating a new user LLM entitlement.
+
+    Only users with admin or owner role can create entitlements.
+    API keys are encrypted before storage using bcrypt hashing.
+    The target user ID is taken from the URL path, not from the request body.
+    """
+
+    llm_provider: ProviderType = Field(
+        ..., description="LLM provider type (validated against ProviderType enum)"
+    )
+    llm_model_name: str = Field(
+        ...,
+        description="Logical model name (must exist in llm_models table)",
+        min_length=1,
+        max_length=100,
+    )
+    api_key: str = Field(
+        ...,
+        description="Plain API key (will be encrypted before storage)",
+        min_length=1,
+    )
+    api_endpoint_url: Optional[str] = Field(
+        None, description="Specific API endpoint URL", max_length=500
+    )
+    cloud_provider: Optional[str] = Field(
+        None,
+        description="Cloud provider hosting the LLM (e.g., azure_openai, google_vertex)",
+        max_length=50,
+    )
+    deployment_name: Optional[str] = Field(
+        None,
+        description="Physical deployment identifier for cloud providers",
+        max_length=100,
+    )
+    region: Optional[str] = Field(
+        None,
+        description="Geographic region where model is deployed",
+        max_length=50,
+    )
+
+    @field_validator("llm_provider")
+    @classmethod
+    def validate_provider(cls, v: ProviderType) -> ProviderType:
+        """Validate provider type is from ProviderType enum."""
+        if not isinstance(v, ProviderType):
+            raise ValueError(
+                f"Provider must be a valid ProviderType enum value, got: {v}"
+            )
+        return v
+
+    @field_validator("api_key")
+    @classmethod
+    def validate_api_key(cls, v: str) -> str:
+        """Validate API key format."""
+        if not v or not v.strip():
+            raise ValueError("API key cannot be empty")
+        if len(v) < 10:
+            raise ValueError("API key must be at least 10 characters")
+        return v.strip()
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "llm_provider": "openai",
+                "llm_model_name": "gpt-4o",
+                "api_key": "sk-1234567890abcdefgh",
+                "api_endpoint_url": "https://api.openai.com/v1",
+                "cloud_provider": None,
+                "deployment_name": None,
+                "region": "us-east-1",
+            }
+        }
+
+
+# class UserEntitlementUpdateRequest(BaseModel):
+#     """
+#     Request model for updating an existing user LLM entitlement.
+
+#     Only users with admin or owner role can update entitlements.
+#     All fields are optional - only provided fields will be updated.
+#     """
+
+#     api_key: Optional[str] = Field(
+#         None,
+#         description="New API key (will be encrypted before storage)",
+#         min_length=10,
+#     )
+#     api_endpoint_url: Optional[str] = Field(
+#         None, description="Updated API endpoint URL", max_length=500
+#     )
+#     cloud_provider: Optional[str] = Field(
+#         None, description="Updated cloud provider", max_length=50
+#     )
+#     deployment_name: Optional[str] = Field(
+#         None, description="Updated deployment identifier", max_length=100
+#     )
+#     region: Optional[str] = Field(
+#         None, description="Updated geographic region", max_length=50
+#     )
+
+#     @field_validator("api_key")
+#     @classmethod
+#     def validate_api_key(cls, v: Optional[str]) -> Optional[str]:
+#         """Validate API key format if provided."""
+#         if v is not None:
+#             if not v or not v.strip():
+#                 raise ValueError("API key cannot be empty")
+#             if len(v) < 10:
+#                 raise ValueError("API key must be at least 10 characters")
+#             return v.strip()
+#         return v
+
+#     class Config:
+#         json_schema_extra = {
+#             "example": {
+#                 "api_key": "sk-new1234567890abcdefgh",
+#                 "api_endpoint_url": "https://api.openai.com/v1",
+#                 "region": "us-west-2",
+#             }
+#         }

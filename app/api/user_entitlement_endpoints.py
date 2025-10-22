@@ -506,8 +506,8 @@ async def delete_entitlement(
             "entitlement_id": entitlement_id,
             "user_details": {
                 "user_id": str(user_id),
-                "username": user_details.get("username", "N/A"),
-                "email": user_details.get("email", "N/A"),
+                "username": user_details.username if user_details else "N/A",
+                "email": user_details.email if user_details else "N/A",
             },
             "entitlement_details": {
                 "llm_provider": existing_entitlement.get("llm_provider", "N/A"),
@@ -521,7 +521,7 @@ async def delete_entitlement(
                 if hasattr(current_user, "username")
                 else "N/A",
             },
-            "message": f"Entitlement for {user_details.get('username', 'user')} ({user_details.get('email', 'N/A')}) has been successfully deleted",
+            "message": f"Entitlement for {user_details.username if user_details else 'user'} ({user_details.email if user_details else 'N/A'}) has been successfully deleted",
         }
 
         logger.info(
@@ -539,8 +539,8 @@ async def delete_entitlement(
         try:
             users_service = UsersService()
             user_details = await users_service.get_user_by_id(user_id)
-            username = user_details.get("username", "N/A") if user_details else "N/A"
-            email = user_details.get("email", "N/A") if user_details else "N/A"
+            username = user_details.username if user_details else "N/A"
+            email = user_details.email if user_details else "N/A"
         except:
             username = "N/A"
             email = "N/A"

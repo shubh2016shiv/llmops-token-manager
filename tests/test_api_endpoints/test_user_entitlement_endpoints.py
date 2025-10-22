@@ -919,12 +919,19 @@ class TestDeleteEntitlement:
         mock_users_service_instance = AsyncMock()
         mock_users_service.return_value = mock_users_service_instance
         from uuid import UUID
+        from app.models.response_models import UserResponse
 
-        mock_users_service_instance.get_user_by_id.return_value = {
-            "user_id": UUID("550e8400-e29b-41d4-a716-446655440000"),
-            "username": "testuser",
-            "email": "test@example.com",
-        }
+        mock_users_service_instance.get_user_by_id.return_value = UserResponse(
+            user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
+            username="testuser",
+            email="test@example.com",
+            first_name="Test",
+            last_name="User",
+            role="developer",
+            status="active",
+            created_at=None,
+            updated_at=None,
+        )
 
         # Override auth dependency
         override_auth_dependency(app, mock_admin_user)
@@ -972,12 +979,19 @@ class TestDeleteEntitlement:
         mock_users_service_instance = AsyncMock()
         mock_users_service.return_value = mock_users_service_instance
         from uuid import UUID
+        from app.models.response_models import UserResponse
 
-        mock_users_service_instance.get_user_by_id.return_value = {
-            "user_id": UUID("550e8400-e29b-41d4-a716-446655440000"),
-            "username": "testuser",
-            "email": "test@example.com",
-        }
+        mock_users_service_instance.get_user_by_id.return_value = UserResponse(
+            user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
+            username="testuser",
+            email="test@example.com",
+            first_name="Test",
+            last_name="User",
+            role="developer",
+            status="active",
+            created_at=None,
+            updated_at=None,
+        )
 
         # Override auth dependency
         override_auth_dependency(app, mock_owner_user)
@@ -1071,12 +1085,19 @@ class TestDeleteEntitlement:
         mock_users_service_instance = AsyncMock()
         mock_users_service.return_value = mock_users_service_instance
         from uuid import UUID
+        from app.models.response_models import UserResponse
 
-        mock_users_service_instance.get_user_by_id.return_value = {
-            "user_id": UUID("550e8400-e29b-41d4-a716-446655440000"),
-            "username": "testuser",
-            "email": "test@example.com",
-        }
+        mock_users_service_instance.get_user_by_id.return_value = UserResponse(
+            user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
+            username="testuser",
+            email="test@example.com",
+            first_name="Test",
+            last_name="User",
+            role="developer",
+            status="active",
+            created_at=None,
+            updated_at=None,
+        )
 
         # Override auth dependency
         override_auth_dependency(app, mock_admin_user)
@@ -1117,12 +1138,19 @@ class TestDeleteEntitlement:
         mock_users_service_instance = AsyncMock()
         mock_users_service.return_value = mock_users_service_instance
         from uuid import UUID
+        from app.models.response_models import UserResponse
 
-        mock_users_service_instance.get_user_by_id.return_value = {
-            "user_id": UUID("550e8400-e29b-41d4-a716-446655440000"),
-            "username": "testuser",
-            "email": "test@example.com",
-        }
+        mock_users_service_instance.get_user_by_id.return_value = UserResponse(
+            user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
+            username="testuser",
+            email="test@example.com",
+            first_name="Test",
+            last_name="User",
+            role="developer",
+            status="active",
+            created_at=None,
+            updated_at=None,
+        )
 
         # Override auth dependency
         override_auth_dependency(app, mock_admin_user)
@@ -1164,12 +1192,19 @@ class TestDeleteEntitlement:
         mock_users_service_instance = AsyncMock()
         mock_users_service.return_value = mock_users_service_instance
         from uuid import UUID
+        from app.models.response_models import UserResponse
 
-        mock_users_service_instance.get_user_by_id.return_value = {
-            "user_id": UUID("550e8400-e29b-41d4-a716-446655440000"),
-            "username": "testuser",
-            "email": "test@example.com",
-        }
+        mock_users_service_instance.get_user_by_id.return_value = UserResponse(
+            user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
+            username="testuser",
+            email="test@example.com",
+            first_name="Test",
+            last_name="User",
+            role="developer",
+            status="active",
+            created_at=None,
+            updated_at=None,
+        )
 
         # Override auth dependency
         override_auth_dependency(app, mock_admin_user)

@@ -103,17 +103,14 @@ class TokenAllocation(BaseModel):
         ..., description="Unique identifier for the token allocation request"
     )
     user_id: UUID = Field(..., description="Reference to the user requesting tokens")
+    llm_provider: str = Field(
+        ..., description="LLM provider (e.g., openai, anthropic, gemini)"
+    )
     # Renamed from model_name to llm_name
     llm_model_name: str = Field(
         ...,
         description="Name of the LLM model (e.g., GPT-4)",
         alias="model_name",  # Maps to database column 'model_name'
-    )
-    # Renamed from model_id to llm_id
-    llm_id: Optional[UUID] = Field(
-        default=None,
-        description="Reference to the specific LLM model in llm_models table",
-        alias="model_id",  # Maps to database column 'model_id'
     )
     deployment_name: Optional[str] = Field(
         default=None, description="Specific deployment of the model, if applicable"
@@ -121,12 +118,15 @@ class TokenAllocation(BaseModel):
     cloud_provider: Optional[str] = Field(
         default=None, description="Cloud provider hosting the LLM (e.g., Azure, AWS)"
     )
-    api_endpoint: Optional[str] = Field(
-        default=None, description="API endpoint for the selected LLM instance"
+    api_endpoint_url: Optional[str] = Field(
+        default=None,
+        description="API endpoint URL for the selected LLM instance",
+        alias="api_endpoint",  # Backward compatibility alias
     )
-    region: Optional[str] = Field(
+    deployment_region: Optional[str] = Field(
         default=None,
         description="Geographic region of the LLM instance (e.g., eastus2, westus2)",
+        alias="region",  # Backward compatibility alias
     )
     token_count: int = Field(
         ..., description="Number of tokens allocated for this request", gt=0
@@ -151,9 +151,56 @@ class TokenAllocation(BaseModel):
     top_p: Optional[float] = Field(
         default=None, description="Top P (nucleus sampling) parameter for this request"
     )
-    seed: Optional[float] = Field(
+    seed: Optional[int] = Field(
         default=None, description="Seed value for reproducible LLM outputs"
     )
+
+    @field_validator("llm_provider")
+    @classmethod
+    def validate_llm_provider(cls, v: str) -> str:
+        """Validate LLM provider matches database CHECK constraint."""
+        valid_providers = [
+            "openai",
+            "gemini",
+            "anthropic",
+            "cohere",
+            "mistral",
+            "deepseek",
+            "meta",
+            "hugging_face",
+            "together_ai",
+            "fireworks_ai",
+            "replicate",
+            "xai",
+            "deepinfra",
+            "novita",
+            "on_premise",
+        ]
+        if v not in valid_providers:
+            raise ValueError(
+                f"Invalid LLM provider '{v}'. Must be one of: {', '.join(valid_providers)}"
+            )
+        return v
+
+    @field_validator("cloud_provider")
+    @classmethod
+    def validate_cloud_provider(cls, v: Optional[str]) -> Optional[str]:
+        """Validate cloud provider matches database CHECK constraint."""
+        if v is None:
+            return v
+        valid_cloud_providers = [
+            "Azure",
+            "Google Cloud Platform",
+            "Amazon Web Services",
+            "IBM Watsonx",
+            "Oracle",
+            "On Premise",
+        ]
+        if v not in valid_cloud_providers:
+            raise ValueError(
+                f"Invalid cloud provider '{v}'. Must be one of: {', '.join(valid_cloud_providers)}"
+            )
+        return v
 
     @field_validator("allocation_status")
     @classmethod
@@ -186,7 +233,12 @@ class TokenAllocation(BaseModel):
             "example": {
                 "token_request_id": "req_abc123",
                 "user_id": "550e8400-e29b-41d4-a716-446655440000",
-                "llm_model_name": "gpt-4",  # Updated field name
+                "llm_provider": "openai",  # Added
+                "llm_model_name": "gpt-4",
+                "deployment_name": "gpt4-eastus-prod",  # Added for completeness
+                "cloud_provider": "Azure",  # Added
+                "api_endpoint_url": "https://my-resource.openai.azure.com/",  # Updated field name
+                "deployment_region": "eastus",  # Updated field name
                 "token_count": 1000,
                 "allocation_status": "ACQUIRED",
                 "allocated_at": "2025-10-13T23:00:00Z",

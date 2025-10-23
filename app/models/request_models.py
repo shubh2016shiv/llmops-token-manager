@@ -18,45 +18,41 @@ from uuid import UUID
 from datetime import datetime
 
 
-class ProviderType(str, Enum):
-    ############################################################################
-    # Cloud-Hosted LLM Providers
-    # These providers host models from various creators on their cloud infrastructure
-    ############################################################################
-    azure_openai = "azure_openai"  # OpenAI models on Azure (e.g., model_name="gpt-4o")
-    google_vertex = "google_vertex"  # Google Vertex AI, supports Google models, Anthropic, etc. (e.g., model_name="claude-3-sonnet@20240229")
-    aws_bedrock = "aws_bedrock"  # AWS Bedrock, supports Anthropic, Cohere, Meta, Mistral, etc. (e.g., model_name="anthropic.claude-3-sonnet-20240229-v1:0")
-    ibm_watsonx = "ibm_watsonx"  # IBM watsonx.ai, supports IBM Granite, Meta, Mistral (e.g., model_name="ibm/granite-13b-chat-v2")
-    oracle = "oracle"  # Oracle Cloud AI, supports various models via partnerships (e.g., model_name varies)
+class LLMProvider(str, Enum):
+    """
+    LLM Provider Types - The actual AI model provider/creator.
+    Matches database CHECK constraint for llm_provider column.
+    """
 
-    ############################################################################
-    # Direct LLM Providers
-    # These providers offer APIs directly from the model creator or specialized inference platforms
-    ############################################################################
-    openai = "openai"  # OpenAI API (e.g., model_name="gpt-4o")
-    anthropic = (
-        "anthropic"  # Anthropic API (e.g., model_name="claude-3-5-sonnet-20240620")
-    )
-    gemini = "gemini"  # Gemini API (e.g., model_name="gemini-2.5-flash")
-    cohere = "cohere"  # Cohere API (e.g., model_name="command-r-plus")
-    mistral = "mistral"  # Mistral API (e.g., model_name="mistral-large-2407")
-    deepseek = "deepseek"  # DeepSeek API (e.g., model_name="deepseek-chat")
-    meta = "meta"  # Meta API (e.g., model_name="llama-3-70b")
-    hugging_face = "hugging_face"  # Hugging Face Inference API, supports thousands of models (e.g., model_name="meta-llama/Llama-3-70b")
-    together_ai = "together_ai"  # Together AI, aggregator for open models (e.g., model_name="meta-llama/Llama-3-70b")
-    fireworks_ai = "fireworks_ai"  # Fireworks AI, fast inference for various models (e.g., model_name="accounts/fireworks/models/llama-v3-70b")
-    replicate = (
-        "replicate"  # Replicate, easy deployment (e.g., model_name="meta/llama-3-70b")
-    )
-    xai = "xai"  # xAI API, e.g., Grok models (e.g., model_name="grok-4")
-    deepinfra = "deepinfra"  # DeepInfra, cost-effective for open models (e.g., model_name="meta-llama/Llama-3-70b")
-    novita = "novita"  # Novita AI, supports multimodal and text (e.g., model_name="novita/llama-3-70b")
+    OPENAI = "openai"
+    GEMINI = "gemini"
+    ANTHROPIC = "anthropic"
+    COHERE = "cohere"
+    MISTRAL = "mistral"
+    DEEPSEEK = "deepseek"
+    META = "meta"
+    HUGGING_FACE = "hugging_face"
+    TOGETHER_AI = "together_ai"
+    FIREWORKS_AI = "fireworks_ai"
+    REPLICATE = "replicate"
+    XAI = "xai"
+    DEEPINFRA = "deepinfra"
+    NOVITA = "novita"
+    ON_PREMISE = "on_premise"
 
-    ############################################################################
-    # On-Premise or Custom
-    ############################################################################
-    # Self-hosted or custom deployments of LLMs (e.g., via Ollama or custom setup)
-    on_premise = "on_premise"  # Self-hosted, e.g., via Ollama or custom setup (e.g., model_name depends on deployment)
+
+class CloudProvider(str, Enum):
+    """
+    Cloud Provider Types - Infrastructure hosting the LLM deployment.
+    Matches database CHECK constraint for cloud_provider column.
+    """
+
+    AZURE = "Azure"
+    GOOGLE_CLOUD_PLATFORM = "Google Cloud Platform"
+    AMAZON_WEB_SERVICES = "Amazon Web Services"
+    IBM_WATSONX = "IBM Watsonx"
+    ORACLE = "Oracle"
+    ON_PREMISE = "On Premise"
 
 
 class UserRole(str, Enum):
@@ -73,6 +69,9 @@ class UserRole(str, Enum):
 
     OWNER = "owner"  # Full system access - can perform all requests
     # Requests: All requests
+
+    VIEWER = "viewer"  # Read-only access - can view system status
+    USER = "user"  # Basic user access
 
 
 class UserStatus(str, Enum):
@@ -162,7 +161,7 @@ class TokenAllocationClientRequest(BaseModel):
     Client provides only essential fields - system derives the rest.
     """
 
-    llm_provider: ProviderType = Field(
+    llm_provider: LLMProvider = Field(
         ..., description="LLM provider type - determines routing"
     )
 
@@ -184,9 +183,14 @@ class TokenAllocationClientRequest(BaseModel):
         max_length=100,
     )
 
-    region: Optional[str] = Field(
+    cloud_provider: Optional[CloudProvider] = Field(
         default=None,
-        description="Preferred region for deployment selection",
+        description="Cloud provider hosting the deployment",
+    )
+
+    deployment_region: Optional[str] = Field(
+        default=None,
+        description="Preferred deployment region for deployment selection",
         max_length=50,
     )
 
@@ -203,7 +207,8 @@ class TokenAllocationClientRequest(BaseModel):
                 "llm_provider": "openai",
                 "llm_model_name": "gpt-4.1",
                 "input_data": "Your prompt text here for token estimation",
-                "region": "eastus2",
+                "cloud_provider": "Azure",
+                "deployment_region": "eastus2",
                 "request_context": {"project": "medical-qa", "team": "research"},
             }
         }
@@ -223,7 +228,7 @@ class TokenAllocationRequest(BaseModel):
         default=UserRole.DEVELOPER,
     )
 
-    llm_provider: ProviderType = Field(
+    llm_provider: LLMProvider = Field(
         ..., description="LLM provider type - determines routing"
     )
     llm_model_name: str = Field(
@@ -258,9 +263,14 @@ class TokenAllocationRequest(BaseModel):
         max_length=100,
     )
 
-    region: Optional[str] = Field(
+    cloud_provider: Optional[CloudProvider] = Field(
         default=None,
-        description="Preferred region - system tries this region first if capacity available",
+        description="Cloud provider hosting the deployment",
+    )
+
+    deployment_region: Optional[str] = Field(
+        default=None,
+        description="Preferred deployment region - system tries this region first if capacity available",
         max_length=50,
     )
 
@@ -285,11 +295,12 @@ class TokenAllocationRequest(BaseModel):
         populate_by_name = True
         json_schema_extra = {
             "example": {
-                "llm_provider": "azure_openai",
+                "llm_provider": "openai",
                 "llm_model_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
                 "token_count": 5000,
                 "deployment_name": None,
-                "region": "eastus2",
+                "cloud_provider": "Azure",
+                "deployment_region": "eastus2",
                 "request_context": {"team": "research", "project": "medical-qa"},
             }
         }
@@ -325,7 +336,7 @@ class PauseDeploymentRequest(BaseModel):
         default=UserRole.OPERATOR,
     )
 
-    llm_provider: ProviderType = Field(..., description="Provider to pause")
+    llm_provider: LLMProvider = Field(..., description="LLM provider to pause")
 
     llm_model_name: str = Field(
         ...,
@@ -333,6 +344,11 @@ class PauseDeploymentRequest(BaseModel):
         min_length=1,
         max_length=100,
         alias="model_name",  # Maps to database column 'model_name'
+    )
+
+    cloud_provider: Optional[CloudProvider] = Field(
+        default=None,
+        description="Cloud provider to pause (if cloud-deployed)",
     )
 
     api_endpoint_url: Optional[str] = Field(
@@ -360,8 +376,9 @@ class PauseDeploymentRequest(BaseModel):
         populate_by_name = True
         json_schema_extra = {
             "example": {
-                "llm_provider": "azure_openai",
+                "llm_provider": "openai",
                 "llm_model_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
+                "cloud_provider": "Azure",
                 "api_endpoint_url": "https://<deployment>-<region>.openai.azure.com/",
                 "pause_reason": "Azure region outage - 503 errors",
                 "pause_duration_minutes": 60,
@@ -383,7 +400,7 @@ class ResumeDeploymentRequest(BaseModel):
         default=UserRole.OPERATOR,
     )
 
-    llm_provider: ProviderType = Field(..., description="Provider to resume")
+    llm_provider: LLMProvider = Field(..., description="LLM provider to resume")
 
     llm_model_name: str = Field(
         ...,
@@ -391,6 +408,11 @@ class ResumeDeploymentRequest(BaseModel):
         min_length=1,
         max_length=100,
         alias="model_name",  # Maps to database column 'model_name'
+    )
+
+    cloud_provider: Optional[CloudProvider] = Field(
+        default=None,
+        description="Cloud provider to resume (if cloud-deployed)",
     )
 
     api_base: str = Field(
@@ -404,8 +426,9 @@ class ResumeDeploymentRequest(BaseModel):
         populate_by_name = True
         json_schema_extra = {
             "example": {
-                "llm_provider": "azure_openai",
+                "llm_provider": "openai",
                 "llm_model_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
+                "cloud_provider": "Azure",
                 "api_base": "https://<deployment>-<region>.openai.azure.com/",
             }
         }
@@ -425,7 +448,7 @@ class DeploymentConfigCreate(BaseModel):
         default=UserRole.ADMIN,
     )
 
-    llm_provider: ProviderType = Field(..., description="LLM provider type")
+    llm_provider: LLMProvider = Field(..., description="LLM provider type")
 
     llm_model_name: str = Field(
         ...,
@@ -433,6 +456,11 @@ class DeploymentConfigCreate(BaseModel):
         min_length=1,
         max_length=100,
         alias="model_name",  # Maps to database column 'model_name'
+    )
+
+    cloud_provider: Optional[CloudProvider] = Field(
+        default=None,
+        description="Cloud provider hosting this deployment",
     )
 
     api_version: str = Field(
@@ -508,8 +536,9 @@ class DeploymentConfigCreate(BaseModel):
         populate_by_name = True
         json_schema_extra = {
             "example": {
-                "llm_provider": "azure_openai",
+                "llm_provider": "openai",
                 "llm_model_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
+                "cloud_provider": "Azure",
                 "api_version": "2023-03-15",
                 "deployment_name": "gpt-4-turbo-2024-04-09-gp",
                 "api_endpoint_url": "https://<deployment>-<region>.openai.azure.com/",
@@ -646,13 +675,9 @@ class LLMModelCreateRequest(BaseModel):
     a new LLM model in the system for token allocation and rate limiting.
     """
 
-    # TODO: Add Cloud Provider also
-
-    llm_provider: str = Field(
+    llm_provider: LLMProvider = Field(
         ...,
-        description="LLM provider name (e.g., 'openai', 'anthropic', 'gemini')",
-        min_length=1,
-        max_length=50,
+        description="LLM provider type (e.g., openai, anthropic, gemini)",
     )
 
     llm_model_name: str = Field(
@@ -662,8 +687,13 @@ class LLMModelCreateRequest(BaseModel):
         max_length=100,
     )
 
-    api_key_variable_name: str = Field(
-        ...,
+    cloud_provider: Optional[CloudProvider] = Field(
+        default=None,
+        description="Cloud provider hosting the LLM",
+    )
+
+    api_key_variable_name: Optional[str] = Field(
+        default=None,
         description="Environment variable name for the API key (e.g., 'OPENAI_API_KEY_GPT4O')",
         min_length=1,
         max_length=200,
@@ -675,22 +705,22 @@ class LLMModelCreateRequest(BaseModel):
         max_length=50,
     )
 
-    max_tokens: int = Field(
-        ...,
+    max_tokens: Optional[int] = Field(
+        default=None,
         description="Maximum tokens per request",
         gt=0,
         le=1000000,
     )
 
-    tokens_per_minute_limit: int = Field(
-        ...,
+    tokens_per_minute_limit: Optional[int] = Field(
+        default=None,
         description="Token rate limit per minute",
         gt=0,
         le=10000000,
     )
 
-    requests_per_minute_limit: int = Field(
-        ...,
+    requests_per_minute_limit: Optional[int] = Field(
+        default=None,
         description="Request rate limit per minute",
         gt=0,
         le=10000,
@@ -731,26 +761,6 @@ class LLMModelCreateRequest(BaseModel):
         description="Optional geographic deployment region",
         max_length=50,
     )
-
-    @field_validator("llm_provider")
-    @classmethod
-    def validate_provider_name(cls, v: str) -> str:
-        """Validate that provider name is one of the supported providers."""
-        valid_providers = [
-            "openai",
-            "gemini",
-            "anthropic",
-            "mistral",
-            "cohere",
-            "xai",
-            "deepseek",
-            "meta",
-        ]
-        if v.lower() not in valid_providers:
-            raise ValueError(
-                f"Invalid provider name '{v}'. Must be one of: {', '.join(valid_providers)}"
-            )
-        return v.lower()
 
     @field_validator("llm_model_name")
     @classmethod
@@ -795,13 +805,9 @@ class LLMModelUpdateRequest(BaseModel):
     Used for modifying rate limits, endpoints, settings, or activation status.
     """
 
-    # TODO: Add Cloud Provider also
-
-    llm_provider: Optional[str] = Field(
+    llm_provider: Optional[LLMProvider] = Field(
         default=None,
-        description="Updated LLM provider name",
-        min_length=1,
-        max_length=50,
+        description="Updated LLM provider type",
     )
 
     llm_model_name: Optional[str] = Field(
@@ -809,6 +815,11 @@ class LLMModelUpdateRequest(BaseModel):
         description="Updated LLM model name",
         min_length=1,
         max_length=100,
+    )
+
+    cloud_provider: Optional[CloudProvider] = Field(
+        default=None,
+        description="Updated cloud provider hosting the LLM",
     )
 
     api_key_variable_name: Optional[str] = Field(
@@ -881,28 +892,6 @@ class LLMModelUpdateRequest(BaseModel):
         max_length=50,
     )
 
-    @field_validator("llm_provider")
-    @classmethod
-    def validate_provider_name(cls, v: Optional[str]) -> Optional[str]:
-        """Validate that provider name is one of the supported providers."""
-        if v is None:
-            return v
-        valid_providers = [
-            "openai",
-            "gemini",
-            "anthropic",
-            "mistral",
-            "cohere",
-            "xai",
-            "deepseek",
-            "meta",
-        ]
-        if v.lower() not in valid_providers:
-            raise ValueError(
-                f"Invalid provider name '{v}'. Must be one of: {', '.join(valid_providers)}"
-            )
-        return v.lower()
-
     class Config:
         json_schema_extra = {
             "example": {
@@ -950,27 +939,29 @@ class UserEntitlementCreateRequest(BaseModel):
     The target user ID is taken from the URL path, not from the request body.
     """
 
-    llm_provider: ProviderType = Field(
-        ..., description="LLM provider type (validated against ProviderType enum)"
-    )
+    llm_provider: LLMProvider = Field(..., description="LLM provider type")
     llm_model_name: str = Field(
         ...,
         description="Logical model name (must exist in llm_models table)",
         min_length=1,
         max_length=100,
     )
-    api_key: str = Field(
+    api_key_variable_name: Optional[str] = Field(
+        None,
+        description="Environment variable name for the API key",
+        max_length=200,
+    )
+    api_key_value: str = Field(
         ...,
-        description="Plain API key (will be encrypted before storage)",
+        description="Plain API key value (will be encrypted before storage)",
         min_length=1,
     )
     api_endpoint_url: Optional[str] = Field(
         None, description="Specific API endpoint URL", max_length=500
     )
-    cloud_provider: Optional[str] = Field(
+    cloud_provider: Optional[CloudProvider] = Field(
         None,
-        description="Cloud provider hosting the LLM (e.g., azure_openai, google_vertex)",
-        max_length=50,
+        description="Cloud provider hosting the LLM",
     )
     deployment_name: Optional[str] = Field(
         None,
@@ -983,19 +974,9 @@ class UserEntitlementCreateRequest(BaseModel):
         max_length=50,
     )
 
-    @field_validator("llm_provider")
+    @field_validator("api_key_value")
     @classmethod
-    def validate_provider(cls, v: ProviderType) -> ProviderType:
-        """Validate provider type is from ProviderType enum."""
-        if not isinstance(v, ProviderType):
-            raise ValueError(
-                f"Provider must be a valid ProviderType enum value, got: {v}"
-            )
-        return v
-
-    @field_validator("api_key")
-    @classmethod
-    def validate_api_key(cls, v: str) -> str:
+    def validate_api_key_value(cls, v: str) -> str:
         """Validate API key format."""
         if not v or not v.strip():
             raise ValueError("API key cannot be empty")
@@ -1008,11 +989,12 @@ class UserEntitlementCreateRequest(BaseModel):
             "example": {
                 "llm_provider": "openai",
                 "llm_model_name": "gpt-4o",
-                "api_key": "sk-1234567890abcdefgh",
+                "api_key_variable_name": "OPENAI_API_KEY",
+                "api_key_value": "sk-1234567890abcdefgh",
                 "api_endpoint_url": "https://api.openai.com/v1",
                 "cloud_provider": None,
                 "deployment_name": None,
-                "region": "us-east-1",
+                "deployment_region": "us-east-1",
             }
         }
 

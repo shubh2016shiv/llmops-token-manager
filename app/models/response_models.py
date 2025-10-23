@@ -11,6 +11,35 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from enum import Enum
 
+# Valid LLM providers from database schema
+VALID_LLM_PROVIDERS = [
+    "openai",
+    "gemini",
+    "anthropic",
+    "cohere",
+    "mistral",
+    "deepseek",
+    "meta",
+    "hugging_face",
+    "together_ai",
+    "fireworks_ai",
+    "replicate",
+    "xai",
+    "deepinfra",
+    "novita",
+    "on_premise",
+]
+
+# Valid cloud providers from database schema
+VALID_CLOUD_PROVIDERS = [
+    "Azure",
+    "Google Cloud Platform",
+    "Amazon Web Services",
+    "IBM Watsonx",
+    "Oracle",
+    "On Premise",
+]
+
 
 class AllocationStatus(str, Enum):
     ACQUIRED = "ACQUIRED"
@@ -61,12 +90,14 @@ class TokenAllocationResponse(BaseModel):
     Response schema for successful token allocation.
     """
 
-    # TODO: Add llm_provider
     # -- Request Identity: Unique identifier for the token allocation request
     token_request_id: str = Field(
         ..., description="Unique identifier for this allocation"
     )
     user_id: UUID = Field(..., description="User who received the allocation")
+    llm_provider: str = Field(
+        ..., description="LLM provider (e.g., openai, anthropic, gemini)"
+    )
     # -- Model & Deployment Configuration: Specifies the target LLM and deployment
     llm_model_name: str = Field(..., description="Name of the LLM model (e.g., GPT-4)")
     deployment_name: Optional[str] = Field(
@@ -78,8 +109,8 @@ class TokenAllocationResponse(BaseModel):
     api_endpoint_url: Optional[str] = Field(
         default=None, description="API endpoint URL to use"
     )
-    region: Optional[str] = Field(
-        default=None, description="Region where model is deployed"
+    deployment_region: Optional[str] = Field(
+        default=None, description="Deployment region where model is deployed"
     )
     # -- Token Allocation Management: Tracks allocated tokens and their status
     token_count: int = Field(..., description="Number of tokens allocated")
@@ -107,6 +138,22 @@ class TokenAllocationResponse(BaseModel):
         default=None, description="Seed value for reproducible LLM outputs"
     )
 
+    @field_validator("llm_provider")
+    @classmethod
+    def validate_llm_provider(cls, v: str) -> str:
+        """Validate LLM provider matches database schema."""
+        if v not in VALID_LLM_PROVIDERS:
+            raise ValueError(f"Invalid LLM provider: {v}")
+        return v
+
+    @field_validator("cloud_provider")
+    @classmethod
+    def validate_cloud_provider(cls, v: Optional[str]) -> Optional[str]:
+        """Validate cloud provider matches database schema."""
+        if v is not None and v not in VALID_CLOUD_PROVIDERS:
+            raise ValueError(f"Invalid cloud provider: {v}")
+        return v
+
     @field_validator("allocation_status")
     @classmethod
     def validate_allocation_status(cls, v: str) -> str:
@@ -130,11 +177,12 @@ class TokenAllocationResponse(BaseModel):
                     "value": {
                         "token_request_id": "req_pqr789stu",
                         "user_id": "a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6",
+                        "llm_provider": "openai",
                         "llm_model_name": "gpt-4o",
                         "deployment_name": None,
-                        "cloud_provider": "openai",
+                        "cloud_provider": None,
                         "api_endpoint_url": "https://api.openai.com/v1",
-                        "region": "us-east-1",
+                        "deployment_region": "us-east-1",
                         "token_count": 1500,
                         "allocation_status": "ACQUIRED",  # Changed from "ACTIVE" to "ACQUIRED"
                         "allocated_at": "2025-10-19T17:19:00Z",  # 10:49 PM IST = 5:19 PM UTC
@@ -156,11 +204,12 @@ class TokenAllocationResponse(BaseModel):
                     "value": {
                         "token_request_id": "req_xyz987qwe",
                         "user_id": "a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c8",
+                        "llm_provider": "openai",
                         "llm_model_name": "gpt-4o",
                         "deployment_name": "gpt4o-eastus-prod",
                         "cloud_provider": "azure_openai",
                         "api_endpoint_url": "https://my-resource.openai.azure.com/openai/deployments/gpt4o-eastus-prod",
-                        "region": "eastus",
+                        "deployment_region": "eastus",
                         "token_count": 2500,
                         "allocation_status": "ACQUIRED",  # Changed from "ACTIVE" to "ACQUIRED"
                         "allocated_at": "2025-10-19T17:19:00Z",  # Same UTC time
@@ -212,6 +261,10 @@ class LLMModelResponse(BaseModel):
 
     llm_provider: str = Field(..., description="LLM provider name")
     llm_model_name: str = Field(..., description="Name of the LLM model")
+    cloud_provider: Optional[str] = Field(
+        default=None,
+        description="Cloud provider hosting the LLM (e.g., Azure, Google Cloud Platform)",
+    )
     deployment_name: Optional[str] = Field(default=None, description="Deployment name")
     api_key_variable_name: Optional[str] = Field(
         default=None, description="Environment variable name for API key"
@@ -242,6 +295,22 @@ class LLMModelResponse(BaseModel):
     created_at: datetime = Field(..., description="When model was registered")
     updated_at: datetime = Field(..., description="When model was last updated")
 
+    @field_validator("llm_provider")
+    @classmethod
+    def validate_llm_provider(cls, v: str) -> str:
+        """Validate LLM provider matches database schema."""
+        if v not in VALID_LLM_PROVIDERS:
+            raise ValueError(f"Invalid LLM provider: {v}")
+        return v
+
+    @field_validator("cloud_provider")
+    @classmethod
+    def validate_cloud_provider(cls, v: Optional[str]) -> Optional[str]:
+        """Validate cloud provider matches database schema."""
+        if v is not None and v not in VALID_CLOUD_PROVIDERS:
+            raise ValueError(f"Invalid cloud provider: {v}")
+        return v
+
     class Config:
         # Enable ORM mode for SQLAlchemy compatibility
         from_attributes = True
@@ -249,6 +318,7 @@ class LLMModelResponse(BaseModel):
             "example": {
                 "llm_provider": "openai",
                 "llm_model_name": "gpt-4o",
+                "cloud_provider": "Azure",
                 "deployment_name": "gpt-4o-eastus",
                 "api_key_variable_name": "OPENAI_API_KEY_GPT4O",
                 "api_endpoint_url": "https://api.openai.com/v1",
@@ -575,6 +645,9 @@ class UserEntitlementResponse(BaseModel):
     user_id: UUID = Field(..., description="User who has the entitlement")
     llm_provider: str = Field(..., description="LLM provider type")
     llm_model_name: str = Field(..., description="Logical model name")
+    api_key_variable_name: Optional[str] = Field(
+        None, description="Environment variable name for the API key"
+    )
     api_endpoint_url: Optional[str] = Field(
         None, description="Specific API endpoint URL"
     )
@@ -584,12 +657,30 @@ class UserEntitlementResponse(BaseModel):
     deployment_name: Optional[str] = Field(
         None, description="Physical deployment identifier"
     )
-    region: Optional[str] = Field(None, description="Geographic region")
+    deployment_region: Optional[str] = Field(
+        None, description="Geographic deployment region"
+    )
     created_at: datetime = Field(..., description="When entitlement was created")
     updated_at: datetime = Field(..., description="When entitlement was last updated")
     created_by_user_id: UUID = Field(
         ..., description="Admin who created this entitlement"
     )
+
+    @field_validator("llm_provider")
+    @classmethod
+    def validate_llm_provider(cls, v: str) -> str:
+        """Validate LLM provider matches database schema."""
+        if v not in VALID_LLM_PROVIDERS:
+            raise ValueError(f"Invalid LLM provider: {v}")
+        return v
+
+    @field_validator("cloud_provider")
+    @classmethod
+    def validate_cloud_provider(cls, v: Optional[str]) -> Optional[str]:
+        """Validate cloud provider matches database schema."""
+        if v is not None and v not in VALID_CLOUD_PROVIDERS:
+            raise ValueError(f"Invalid cloud provider: {v}")
+        return v
 
     class Config:
         from_attributes = True
@@ -599,10 +690,11 @@ class UserEntitlementResponse(BaseModel):
                 "user_id": "550e8400-e29b-41d4-a716-446655440000",
                 "llm_provider": "openai",
                 "llm_model_name": "gpt-4o",
+                "api_key_variable_name": "OPENAI_API_KEY",
                 "api_endpoint_url": "https://api.openai.com/v1",
                 "cloud_provider": None,
                 "deployment_name": None,
-                "region": "us-east-1",
+                "deployment_region": None,
                 "created_at": "2025-10-21T10:00:00Z",
                 "updated_at": "2025-10-21T10:00:00Z",
                 "created_by_user_id": "a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6",

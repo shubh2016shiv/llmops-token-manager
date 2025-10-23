@@ -108,7 +108,7 @@ async def create_user_entitlement(
 
     try:
         # Encrypt API key using bcrypt
-        encrypted_api_key = PasswordHasher.hash_password(request.api_key)
+        encrypted_api_key = PasswordHasher.hash_password(request.api_key_value)
 
         # Create entitlement service
         entitlements_service = UserEntitlementsService()
@@ -123,7 +123,7 @@ async def create_user_entitlement(
             api_endpoint_url=request.api_endpoint_url,
             cloud_provider=request.cloud_provider,
             deployment_name=request.deployment_name,
-            region=request.region,
+            region=request.deployment_region,
         )
 
         logger.info(

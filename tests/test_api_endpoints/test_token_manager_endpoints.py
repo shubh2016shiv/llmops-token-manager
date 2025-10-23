@@ -53,7 +53,7 @@ def sample_client_request():
         "llm_provider": "openai",
         "llm_model_name": "gpt-4",
         "input_data": "Test prompt for token estimation",
-        "region": "eastus2",
+        "deployment_region": "eastus2",
         "request_context": {"project": "test", "team": "research"},
     }
 
@@ -88,8 +88,8 @@ def sample_allocation_response():
         "expires_at": datetime.utcnow(),
         "deployment_name": "gpt-4-eastus",
         "api_endpoint_url": "https://api.openai.com/v1",
-        "cloud_provider": "openai",
-        "region": "eastus2",
+        "cloud_provider": None,
+        "deployment_region": "eastus2",
         "request_context": {"project": "test", "team": "research"},
         "temperature": None,
         "top_p": None,
@@ -218,8 +218,8 @@ class TestAcquireTokens:
             "expires_at": datetime.utcnow(),
             "deployment_name": None,
             "api_endpoint_url": None,
-            "cloud_provider": "openai",
-            "region": "eastus2",
+            "cloud_provider": None,
+            "deployment_region": "eastus2",
             "request_context": {"project": "test", "team": "research"},
             "temperature": None,
             "top_p": None,
@@ -277,7 +277,7 @@ class TestAcquireTokens:
             "llm_model_name": "gpt-4",
             "input_data": "Test prompt",
             "deployment_name": "gpt-4-custom-deployment",
-            "region": "westus2",
+            "deployment_region": "westus2",
             "request_context": {"project": "custom", "team": "dev"},
         }
 

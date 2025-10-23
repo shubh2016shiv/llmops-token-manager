@@ -47,11 +47,11 @@ def sample_entitlement_request():
     return {
         "llm_provider": "openai",
         "llm_model_name": "gpt-4o",
-        "api_key": "sk-1234567890abcdefgh",
+        "api_key_value": "sk-1234567890abcdefgh",
         "api_endpoint_url": "https://api.openai.com/v1",
         "cloud_provider": None,
         "deployment_name": None,
-        "region": "us-east-1",
+        "deployment_region": "us-east-1",
     }
 
 
@@ -61,11 +61,11 @@ def sample_cloud_entitlement_request():
     return {
         "llm_provider": "openai",
         "llm_model_name": "gpt-4o",
-        "api_key": "sk-1234567890abcdefgh",
+        "api_key_value": "sk-1234567890abcdefgh",
         "api_endpoint_url": "https://my-resource.openai.azure.com/",
-        "cloud_provider": "azure_openai",
+        "cloud_provider": "Azure",
         "deployment_name": "gpt4o-eastus-prod",
-        "region": "eastus",
+        "deployment_region": "eastus",
     }
 
 
@@ -118,9 +118,9 @@ def sample_update_request():
     return {
         "api_key": "sk-new1234567890abcdefgh",
         "api_endpoint_url": "https://new-endpoint.com/v1",
-        "cloud_provider": "azure_openai",
+        "cloud_provider": "Azure",
         "deployment_name": "gpt4o-westus-prod",
-        "region": "westus",
+        "deployment_region": "westus",
     }
 
 
@@ -188,7 +188,7 @@ class TestCreateUserEntitlement:
 
         # Verify API key was hashed
         mock_password_hasher.hash_password.assert_called_once_with(
-            sample_entitlement_request["api_key"]
+            sample_entitlement_request["api_key_value"]
         )
 
         # Verify service was called with hashed key
@@ -330,7 +330,7 @@ class TestCreateUserEntitlement:
 
         # Verify API key was hashed
         mock_password_hasher.hash_password.assert_called_once_with(
-            sample_entitlement_request["api_key"]
+            sample_entitlement_request["api_key_value"]
         )
 
         # Verify service was called with hashed key, not plain key
@@ -524,7 +524,7 @@ class TestCreateUserEntitlement:
         # Verify service was called with cloud provider fields
         mock_service_instance.create_entitlement.assert_called_once()
         call_args = mock_service_instance.create_entitlement.call_args
-        assert call_args[1]["cloud_provider"] == "azure_openai"
+        assert call_args[1]["cloud_provider"] == "Azure"
         assert call_args[1]["deployment_name"] == "gpt4o-eastus-prod"
         assert call_args[1]["region"] == "eastus"
 

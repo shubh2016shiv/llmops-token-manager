@@ -613,7 +613,7 @@ class TestCreateEntitlement:
             encrypted_api_key=encrypted_api_key,
             created_by_user_id=sample_admin_id,
             api_endpoint_url="https://api.openai.com/v1",
-            cloud_provider="azure_openai",
+            cloud_provider="Azure",
             deployment_name="gpt4o-eastus-prod",
             region="eastus",
         )
@@ -752,7 +752,7 @@ class TestCreateEntitlement:
             encrypted_api_key=encrypted_api_key,
             created_by_user_id=sample_admin_id,
             api_endpoint_url="https://my-resource.openai.azure.com/",
-            cloud_provider="azure_openai",
+            cloud_provider="Azure",
             deployment_name="gpt4o-eastus-prod",
             region="eastus",
         )

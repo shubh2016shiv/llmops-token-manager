@@ -968,7 +968,7 @@ class UserEntitlementCreateRequest(BaseModel):
         description="Physical deployment identifier for cloud providers",
         max_length=100,
     )
-    region: Optional[str] = Field(
+    deployment_region: Optional[str] = Field(
         None,
         description="Geographic region where model is deployed",
         max_length=50,

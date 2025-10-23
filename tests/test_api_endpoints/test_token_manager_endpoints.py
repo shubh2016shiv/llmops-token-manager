@@ -174,7 +174,7 @@ class TestAcquireTokens:
         mock_service.acquire_tokens.assert_called_once_with(
             user_id=mock_developer_user.user_id,
             llm_provider="openai",
-            model_name="gpt-4",
+            llm_model_name="gpt-4",
             token_count=150,
             request_context={"project": "test", "team": "research"},
         )
@@ -293,7 +293,7 @@ class TestAcquireTokens:
         mock_service.acquire_tokens.assert_called_once_with(
             user_id=mock_developer_user.user_id,
             llm_provider="openai",
-            model_name="gpt-4",
+            llm_model_name="gpt-4",
             token_count=150,
             request_context={"project": "custom", "team": "dev"},
         )

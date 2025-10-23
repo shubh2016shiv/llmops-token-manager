@@ -110,7 +110,7 @@ async def acquire_tokens(
         allocation = await allocation_service.acquire_tokens(
             user_id=user_id_uuid,
             llm_provider=request.llm_provider,
-            model_name=request.llm_model_name,
+            llm_model_name=request.llm_model_name,
             token_count=estimated_token_count,
             request_context=request.request_context,
         )
@@ -129,17 +129,16 @@ async def acquire_tokens(
         return TokenAllocationResponse(**allocation)
 
     except ValueError as e:
-        # Handle validation errors
-        error_msg = str(e)
-        logger.warning(f"Validation error acquiring tokens: {error_msg}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg)
+        # Handle validation errors from service layer
+        logger.warning(f"Validation error acquiring tokens: {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     except HTTPException:
         raise
 
-    except Exception as e:
+    except Exception:
         # Handle unexpected errors
-        logger.error(f"Error acquiring tokens: {e}", exc_info=True)
+        logger.exception("Error acquiring tokens:")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to acquire tokens. Please try again later.",
@@ -402,7 +401,7 @@ async def pause_deployment(
         result = await allocation_service.pause_deployment(
             user_id=user_id_uuid,
             llm_provider=request.llm_provider,
-            model_name=request.llm_model_name,
+            llm_model_name=request.llm_model_name,
             api_endpoint=request.api_endpoint_url,
             pause_reason=request.pause_reason,
             pause_duration_minutes=request.pause_duration_minutes or 30,

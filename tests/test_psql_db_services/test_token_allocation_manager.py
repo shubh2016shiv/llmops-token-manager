@@ -63,7 +63,7 @@ class TestTokenAllocationServiceCreate:
         return {
             "token_request_id": "req_123",
             "user_id": uuid4(),
-            "model_name": "gpt-4",
+            "llm_model_name": "gpt-4",
             "token_count": 1000,
             "allocation_status": "ACQUIRED",
             "allocated_at": datetime.now(),
@@ -120,7 +120,8 @@ class TestTokenAllocationServiceCreate:
         result = await service.create_token_allocation(
             token_request_identifier="req_123",
             user_id=sample_allocation_data["user_id"],
-            model_name="gpt-4",
+            llm_provider="openai",
+            llm_model_name="gpt-4",
             token_count=1000,
         )
 
@@ -146,7 +147,8 @@ class TestTokenAllocationServiceCreate:
         result = await service.create_token_allocation(
             token_request_identifier="req_123",
             user_id=sample_allocation_data["user_id"],
-            model_name="gpt-4",
+            llm_provider="openai",
+            llm_model_name="gpt-4",
             token_count=1000,
             allocation_status="ACQUIRED",
             allocation_timestamp=datetime.now(),
@@ -175,7 +177,8 @@ class TestTokenAllocationServiceCreate:
             await service.create_token_allocation(
                 token_request_identifier="",
                 user_id=uuid4(),
-                model_name="gpt-4",
+                llm_provider="openai",
+                llm_model_name="gpt-4",
                 token_count=1000,
             )
 
@@ -184,7 +187,8 @@ class TestTokenAllocationServiceCreate:
             await service.create_token_allocation(
                 token_request_identifier="req_123",
                 user_id=uuid4(),
-                model_name="gpt-4",
+                llm_provider="openai",
+                llm_model_name="gpt-4",
                 token_count=-100,
             )
 
@@ -193,7 +197,8 @@ class TestTokenAllocationServiceCreate:
             await service.create_token_allocation(
                 token_request_identifier="req_123",
                 user_id=uuid4(),
-                model_name="gpt-4",
+                llm_provider="openai",
+                llm_model_name="gpt-4",
                 token_count=1000,
                 allocation_status="INVALID",
             )
@@ -214,7 +219,8 @@ class TestTokenAllocationServiceCreate:
             await service.create_token_allocation(
                 token_request_identifier="req_123",
                 user_id=uuid4(),
-                model_name="gpt-4",
+                llm_provider="openai",
+                llm_model_name="gpt-4",
                 token_count=1000,
             )
 
@@ -241,7 +247,8 @@ class TestTokenAllocationServiceCreate:
             await service.create_token_allocation(
                 token_request_identifier="req_123",
                 user_id=uuid4(),
-                model_name="gpt-4",
+                llm_provider="openai",
+                llm_model_name="gpt-4",
                 token_count=1000,
             )
 
@@ -261,7 +268,8 @@ class TestTokenAllocationServiceCreate:
         result = await service.create_token_allocation(
             token_request_identifier="req_123",
             user_id=sample_allocation_data["user_id"],
-            model_name="gpt-4",
+            llm_provider="openai",
+            llm_model_name="gpt-4",
             token_count=1000,
             request_metadata=metadata,
         )
@@ -609,7 +617,7 @@ class TestTokenAllocationServiceUpdate:
             "req_123",
             "RELEASED",
             api_endpoint="https://api.openai.com",
-            region="us-east-1",
+            deployment_region="us-east-1",
             expires_at=datetime.now() + timedelta(hours=1),
             completed_at=datetime.now(),
             latency_ms=150,
@@ -999,7 +1007,7 @@ class TestTokenAllocationServiceBusinessLogic:
         allocation_data = {
             "token_request_id": "req_123",
             "allocation_status": "WAITING",
-            "model_name": "gpt-4",
+            "llm_model_name": "gpt-4",
             "token_count": 1000,
         }
 
@@ -1071,7 +1079,7 @@ class TestTokenAllocationServiceBusinessLogic:
         allocation_data = {
             "token_request_id": "req_123",
             "allocation_status": "ACQUIRED",  # Not WAITING
-            "model_name": "gpt-4",
+            "llm_model_name": "gpt-4",
             "token_count": 1000,
         }
 
@@ -1097,7 +1105,7 @@ class TestTokenAllocationServiceBusinessLogic:
         allocation_data = {
             "token_request_id": "req_123",
             "allocation_status": "WAITING",
-            "model_name": "gpt-4",
+            "llm_model_name": "gpt-4",
             "token_count": 1000,
         }
 
@@ -1586,7 +1594,7 @@ class TestTokenAllocationServiceAnalytics:
         result = await service.get_allocation_summary_by_model("gpt-4")
 
         # Assertions
-        assert result["model_name"] == "gpt-4"
+        assert result["llm_model_name"] == "gpt-4"
         assert len(result["by_status"]) == 2
         assert result["by_status"][0]["allocation_status"] == "ACQUIRED"
 
@@ -1605,7 +1613,7 @@ class TestTokenAllocationServiceAnalytics:
         result = await service.get_allocation_summary_by_model("gpt-4")
 
         # Assertions
-        assert result["model_name"] == "gpt-4"
+        assert result["llm_model_name"] == "gpt-4"
         assert result["by_status"] == []
 
     @pytest.mark.asyncio

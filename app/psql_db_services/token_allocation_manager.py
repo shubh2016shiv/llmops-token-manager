@@ -81,7 +81,8 @@ class TokenAllocationService(BaseDatabaseService):
         self,
         token_request_identifier: str,
         user_id: UUID,
-        model_name: str,
+        llm_provider: str,
+        llm_model_name: str,
         token_count: int,
         allocation_status: str = DEFAULT_ALLOCATION_STATUS,
         allocation_timestamp: Optional[datetime] = None,
@@ -104,7 +105,8 @@ class TokenAllocationService(BaseDatabaseService):
         Args:
             token_request_identifier: Unique identifier for this allocation request
             user_id: UUID of the user requesting tokens
-            model_name: Name of the LLM model
+            llm_provider: LLM provider name (e.g., openai, anthropic, gemini)
+            llm_model_name: Name of the LLM model
             token_count: Number of tokens to allocate (must be positive)
             allocation_status: Status (ACQUIRED, WAITING, PAUSED, etc.). Defaults to 'ACQUIRED'
             allocation_timestamp: When allocation was made (defaults to current time)
@@ -130,7 +132,7 @@ class TokenAllocationService(BaseDatabaseService):
             token_request_identifier, "token_request_identifier"
         )
         self.validate_uuid(user_id, "user_id")
-        self.validate_string_not_empty(model_name, "model_name")
+        self.validate_string_not_empty(llm_model_name, "llm_model_name")
         self.validate_positive_integer(token_count, "token_count")
         self.validate_allocation_status(allocation_status)
 
@@ -138,13 +140,13 @@ class TokenAllocationService(BaseDatabaseService):
             async with self.get_session() as session:
                 sql_query = """
                     INSERT INTO token_manager (
-                        token_request_id, user_id, llm_model_name,
-                        deployment_name, cloud_provider, api_endpoint_url, region,
+                        token_request_id, user_id, llm_provider, llm_model_name,
+                        deployment_name, cloud_provider, api_endpoint_url, deployment_region,
                         token_count, allocation_status, allocated_at, expires_at,
                         request_context, temperature, top_p, seed
                     ) VALUES (
-                        :token_request_id, :user_id, :model_name,
-                        :deployment_name, :cloud_provider, :api_endpoint_url, :region,
+                        :token_request_id, :user_id, :llm_provider, :llm_model_name,
+                        :deployment_name, :cloud_provider, :api_endpoint_url, :deployment_region,
                         :token_count, :allocation_status, :allocated_at, :expires_at,
                         :request_context, :temperature, :top_p, :seed
                     )
@@ -159,11 +161,12 @@ class TokenAllocationService(BaseDatabaseService):
                 params = {
                     "token_request_id": token_request_identifier,
                     "user_id": user_id,
-                    "model_name": model_name,
+                    "llm_provider": llm_provider,
+                    "llm_model_name": llm_model_name,
                     "deployment_name": deployment_name,
                     "cloud_provider": cloud_provider_name,
                     "api_endpoint_url": api_endpoint_url,
-                    "region": deployment_region,
+                    "deployment_region": deployment_region,
                     "token_count": token_count,
                     "allocation_status": allocation_status,
                     "allocated_at": allocation_timestamp or datetime.now(),
@@ -184,7 +187,7 @@ class TokenAllocationService(BaseDatabaseService):
                     "CREATE",
                     token_request_identifier,
                     success=True,
-                    additional_context=f"{token_count} tokens for {model_name}",
+                    additional_context=f"{token_count} tokens for {llm_model_name}",
                 )
                 return dict(created_allocation)
         except Exception as e:
@@ -231,7 +234,7 @@ class TokenAllocationService(BaseDatabaseService):
             raise
 
     async def get_total_allocated_tokens_by_model(
-        self, model_name: str, included_statuses: Optional[List[str]] = None
+        self, llm_model_name: str, included_statuses: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
         Get total allocated tokens grouped by model and API endpoint.
@@ -242,7 +245,7 @@ class TokenAllocationService(BaseDatabaseService):
         Optimized for high-concurrency scenarios with proper indexing.
 
         Args:
-            model_name: LLM model name to query
+            llm_model_name: LLM model name to query
             included_statuses: List of statuses to include (default: ACQUIRED, PAUSED)
 
         Returns:
@@ -251,9 +254,9 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
-            ValueError: If model_name is invalid
+            ValueError: If llm_model_name is invalid
         """
-        self.validate_string_not_empty(model_name, "model_name")
+        self.validate_string_not_empty(llm_model_name, "llm_model_name")
 
         if included_statuses is None:
             included_statuses = ["ACQUIRED", "PAUSED"]
@@ -266,37 +269,40 @@ class TokenAllocationService(BaseDatabaseService):
             async with self.get_session() as session:
                 sql_query = """
                     SELECT
-                        model_name,
+                        llm_model_name,
                         api_endpoint_url,
-                        region,
+                        deployment_region,
                         cloud_provider,
                         SUM(token_count) as total_tokens,
                         COUNT(*) as allocation_count
                     FROM token_manager
                     WHERE
-                        model_name = :model_name
+                        llm_model_name = :llm_model_name
                         AND allocation_status = ANY(:included_statuses)
                         AND (expires_at IS NULL OR expires_at > NOW())
-                    GROUP BY model_name, api_endpoint_url, region, cloud_provider
+                    GROUP BY llm_model_name, api_endpoint_url, deployment_region, cloud_provider
                     ORDER BY total_tokens ASC
                 """
 
                 result = await session.execute(
                     text(sql_query),
-                    {"model_name": model_name, "included_statuses": included_statuses},
+                    {
+                        "llm_model_name": llm_model_name,
+                        "included_statuses": included_statuses,
+                    },
                 )
                 endpoint_statistics = result.mappings().all()
 
                 logger.debug(
-                    f"Found {len(endpoint_statistics)} endpoints for model {model_name}"
+                    f"Found {len(endpoint_statistics)} endpoints for model {llm_model_name}"
                 )
                 return [dict(row) for row in endpoint_statistics]
         except Exception as e:
-            logger.error(f"Error fetching allocations for model {model_name}: {e}")
+            logger.error(f"Error fetching allocations for model {llm_model_name}: {e}")
             raise
 
     async def get_total_allocated_tokens_for_endpoint(
-        self, model_name: str, api_endpoint_url: str
+        self, llm_model_name: str, api_endpoint_url: str
     ) -> int:
         """
         Get total allocated tokens for a specific model and endpoint.
@@ -304,7 +310,7 @@ class TokenAllocationService(BaseDatabaseService):
         This method is used for real-time load checking before allocation.
 
         Args:
-            model_name: LLM model name
+            llm_model_name: LLM model name
             api_endpoint_url: API endpoint URL
 
         Returns:
@@ -314,7 +320,7 @@ class TokenAllocationService(BaseDatabaseService):
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If parameters are invalid
         """
-        self.validate_string_not_empty(model_name, "model_name")
+        self.validate_string_not_empty(llm_model_name, "llm_model_name")
         self.validate_string_not_empty(api_endpoint_url, "api_endpoint_url")
 
         try:
@@ -332,7 +338,7 @@ class TokenAllocationService(BaseDatabaseService):
                 result = await session.execute(
                     text(sql_query),
                     {
-                        "llm_model_name": model_name,
+                        "llm_model_name": llm_model_name,
                         "api_endpoint_url": api_endpoint_url,
                     },
                 )
@@ -394,12 +400,12 @@ class TokenAllocationService(BaseDatabaseService):
             logger.error(f"Error fetching user allocations for {user_id}: {e}")
             raise
 
-    async def get_active_allocations_count_by_model(self, model_name: str) -> int:
+    async def get_active_allocations_count_by_model(self, llm_model_name: str) -> int:
         """
         Get count of active allocations for a model
 
         Args:
-            model_name: LLM model name
+            llm_model_name: LLM model name
 
         Returns:
             Count of active allocations (0 if none found)
@@ -418,11 +424,11 @@ class TokenAllocationService(BaseDatabaseService):
                         AND (expires_at IS NULL OR expires_at > NOW())
                 """
                 result = await session.execute(
-                    text(query), {"llm_model_name": model_name}
+                    text(query), {"llm_model_name": llm_model_name}
                 )
                 return result.scalar_one_or_none() or 0
         except Exception as e:
-            logger.error(f"Error counting active allocations for {model_name}: {e}")
+            logger.error(f"Error counting active allocations for {llm_model_name}: {e}")
             raise
 
     # ========================================================================
@@ -434,7 +440,7 @@ class TokenAllocationService(BaseDatabaseService):
         token_request_id: str,
         new_status: str,
         api_endpoint: Optional[str] = None,
-        region: Optional[str] = None,
+        deployment_region: Optional[str] = None,
         expires_at: Optional[datetime] = None,
         completed_at: Optional[datetime] = None,
         latency_ms: Optional[int] = None,
@@ -446,7 +452,7 @@ class TokenAllocationService(BaseDatabaseService):
             token_request_id: Unique token request identifier
             new_status: New status to set (ACQUIRED, WAITING, PAUSED, RELEASED, FAILED)
             api_endpoint: Optional endpoint to update
-            region: Optional region to update
+            deployment_region: Optional deployment region to update
             expires_at: Optional new expiration time
             completed_at: Optional completion timestamp
             latency_ms: Optional latency in milliseconds
@@ -470,9 +476,9 @@ class TokenAllocationService(BaseDatabaseService):
                     update_fields.append("api_endpoint_url = :api_endpoint_url")
                     params["api_endpoint_url"] = api_endpoint
 
-                if region is not None:
-                    update_fields.append("region = :region")
-                    params["region"] = region
+                if deployment_region is not None:
+                    update_fields.append("deployment_region = :deployment_region")
+                    params["deployment_region"] = deployment_region
 
                 if expires_at is not None:
                     update_fields.append("expires_at = :expires_at")
@@ -512,7 +518,7 @@ class TokenAllocationService(BaseDatabaseService):
         self,
         token_request_id: str,
         api_endpoint: str,
-        region: str,
+        deployment_region: str,
         expires_at: datetime,
     ) -> Optional[Dict[str, Any]]:
         """
@@ -522,7 +528,7 @@ class TokenAllocationService(BaseDatabaseService):
         Args:
             token_request_id: Unique token request identifier
             api_endpoint: API endpoint to assign
-            region: Region to assign
+            deployment_region: Deployment region to assign
             expires_at: New expiration time
 
         Returns:
@@ -538,7 +544,7 @@ class TokenAllocationService(BaseDatabaseService):
                     SET
                         allocation_status = 'ACQUIRED',
                         api_endpoint_url = :api_endpoint_url,
-                        region = :region,
+                        deployment_region = :deployment_region,
                         expires_at = :expires_at
                     WHERE
                         token_request_id = :token_request_id
@@ -550,7 +556,7 @@ class TokenAllocationService(BaseDatabaseService):
                     text(query),
                     {
                         "api_endpoint_url": api_endpoint,
-                        "region": region,
+                        "deployment_region": deployment_region,
                         "expires_at": expires_at,
                         "token_request_id": token_request_id,
                     },
@@ -749,7 +755,7 @@ class TokenAllocationService(BaseDatabaseService):
         self,
         user_id: UUID,
         llm_provider: str,
-        model_name: str,
+        llm_model_name: str,
         api_endpoint: str,
         pause_reason: str = "",
         pause_duration_minutes: int = 30,
@@ -761,7 +767,7 @@ class TokenAllocationService(BaseDatabaseService):
         Args:
             user_id: User requesting the pause
             llm_provider: LLM provider name
-            model_name: Model name
+            llm_model_name: Model name
             api_endpoint: API endpoint URL to pause
             pause_reason: Reason for pausing
             pause_duration_minutes: Duration to pause for
@@ -785,15 +791,18 @@ class TokenAllocationService(BaseDatabaseService):
                 """
                 existing_pause = await session.execute(
                     text(pause_check_query),
-                    {"llm_model_name": model_name, "api_endpoint_url": api_endpoint},
+                    {
+                        "llm_model_name": llm_model_name,
+                        "api_endpoint_url": api_endpoint,
+                    },
                 )
                 if existing_pause.scalar_one_or_none():
                     logger.warning(
-                        f"Deployment {model_name} at {api_endpoint} is already paused."
+                        f"Deployment {llm_model_name} at {api_endpoint} is already paused."
                     )
                     return {
                         "alloc_status": "ALREADY_PAUSED",
-                        "llm_model_name": model_name,
+                        "llm_model_name": llm_model_name,
                         "api_endpoint_url": api_endpoint,
                         "reason": "Deployment is already in a paused state.",
                     }
@@ -806,17 +815,20 @@ class TokenAllocationService(BaseDatabaseService):
                 """
                 result = await session.execute(
                     text(query),
-                    {"llm_model_name": model_name, "api_endpoint_url": api_endpoint},
+                    {
+                        "llm_model_name": llm_model_name,
+                        "api_endpoint_url": api_endpoint,
+                    },
                 )
                 chosen_model_config = result.mappings().one_or_none()
 
                 if not chosen_model_config:
                     logger.warning(
-                        f"Deployment not found: {model_name} at {api_endpoint}"
+                        f"Deployment not found: {llm_model_name} at {api_endpoint}"
                     )
                     return {
                         "alloc_status": "NOT_FOUND",
-                        "llm_model_name": model_name,
+                        "llm_model_name": llm_model_name,
                         "api_endpoint_url": api_endpoint,
                         "reason": "Deployment not found",
                     }
@@ -824,7 +836,7 @@ class TokenAllocationService(BaseDatabaseService):
             # Get required properties from model config
             max_token_limit = chosen_model_config.get("max_tokens", 100000)
             provider_name = chosen_model_config.get("provider_name")
-            region = chosen_model_config.get("deployment_region", "unknown")
+            deployment_region = chosen_model_config.get("deployment_region", "unknown")
             deployment_name = chosen_model_config.get("deployment_name", "")
 
             # Create a token request ID for the pause allocation
@@ -834,9 +846,9 @@ class TokenAllocationService(BaseDatabaseService):
             return await self.create_pause_allocation(
                 token_request_id=token_request_id,
                 user_id=user_id,
-                model_name=model_name,
+                llm_model_name=llm_model_name,
                 api_endpoint=api_endpoint,
-                region=region,
+                deployment_region=deployment_region,
                 max_token_limit=max_token_limit,
                 pause_duration_minutes=pause_duration_minutes,
                 cloud_provider=provider_name,
@@ -855,9 +867,9 @@ class TokenAllocationService(BaseDatabaseService):
         self,
         token_request_id: str,
         user_id: UUID,
-        model_name: str,
+        llm_model_name: str,
         api_endpoint: str,
-        region: str,
+        deployment_region: str,
         max_token_limit: int,
         pause_duration_minutes: int,
         cloud_provider: Optional[str] = None,
@@ -870,9 +882,9 @@ class TokenAllocationService(BaseDatabaseService):
 
         Args:
             token_request_id: Unique identifier for pause allocation
-            model_name: Model to pause
+            llm_model_name: Model to pause
             api_endpoint: Endpoint to pause
-            region: Region to pause
+            deployment_region: Deployment region to pause
             max_token_limit: Full token limit to block
             pause_duration_minutes: How long to pause (in minutes)
             cloud_provider: Optional cloud provider name
@@ -904,13 +916,14 @@ class TokenAllocationService(BaseDatabaseService):
         )
 
         logger.info(
-            f"Creating pause allocation for {model_name} at {api_endpoint} for {pause_duration_minutes}m"
+            f"Creating pause allocation for {llm_model_name} at {api_endpoint} for {pause_duration_minutes}m"
         )
 
         return await self.create_token_allocation(
             token_request_identifier=token_request_id,
             user_id=user_id,
-            model_name=model_name,
+            llm_provider="openai",  # Default provider for pause allocations
+            llm_model_name=llm_model_name,
             token_count=max_token_limit,
             allocation_status="PAUSED",
             expiration_timestamp=expiration_timestamp,
@@ -918,15 +931,17 @@ class TokenAllocationService(BaseDatabaseService):
             cloud_provider_name=cloud_provider,
             deployment_name=deployment_name,
             request_metadata=context,
-            deployment_region=region,
+            deployment_region=deployment_region,
         )
 
-    async def get_allocation_summary_by_model(self, model_name: str) -> Dict[str, Any]:
+    async def get_allocation_summary_by_model(
+        self, llm_model_name: str
+    ) -> Dict[str, Any]:
         """
         Get comprehensive summary of allocations for a model
 
         Args:
-            model_name: Model name to summarize
+            llm_model_name: Model name to summarize
 
         Returns:
             Dictionary with counts and totals by status
@@ -944,24 +959,26 @@ class TokenAllocationService(BaseDatabaseService):
                         AVG(token_count) as avg_tokens
                     FROM token_manager
                     WHERE
-                        model_name = :model_name
+                        llm_model_name = :llm_model_name
                         AND (expires_at IS NULL OR expires_at > NOW())
                     GROUP BY allocation_status
                 """
-                result = await session.execute(text(query), {"model_name": model_name})
+                result = await session.execute(
+                    text(query), {"llm_model_name": llm_model_name}
+                )
                 results = result.mappings().all()
 
                 summary = {
-                    "model_name": model_name,
+                    "llm_model_name": llm_model_name,
                     "by_status": [dict(row) for row in results],
                 }
 
                 logger.debug(
-                    f"Generated summary for model {model_name}: {len(results)} statuses"
+                    f"Generated summary for model {llm_model_name}: {len(results)} statuses"
                 )
                 return summary
         except Exception as e:
-            logger.error(f"Error generating summary for model {model_name}: {e}")
+            logger.error(f"Error generating summary for model {llm_model_name}: {e}")
             raise
 
     async def get_user_token_usage_stats(self, user_id: UUID) -> Dict[str, Any]:
@@ -1038,14 +1055,14 @@ class TokenAllocationService(BaseDatabaseService):
                 }
 
             # Get model name and token count
-            model_name = allocation["model_name"]
+            llm_model_name = allocation["llm_model_name"]
             token_count = allocation["token_count"]
 
             # Get least loaded deployment
             (
                 total_allocated_tokens,
                 chosen_model_config,
-            ) = await self.get_least_loaded_deployment(model_name)
+            ) = await self.get_least_loaded_deployment(llm_model_name)
             max_token_limit = chosen_model_config.get("max_tokens", 100000)
             max_token_lock_time_secs = chosen_model_config.get(
                 "max_token_lock_time_secs", 70
@@ -1054,24 +1071,24 @@ class TokenAllocationService(BaseDatabaseService):
             # Check if we can allocate now
             if total_allocated_tokens + token_count > max_token_limit:
                 logger.debug(
-                    f"Total allocated tokens: {total_allocated_tokens} still exceeds limit for model {model_name}"
+                    f"Total allocated tokens: {total_allocated_tokens} still exceeds limit for model {llm_model_name}"
                 )
                 return {
                     "alloc_status": "WAITING",
                     "token_request_id": token_request_id,
-                    "model_name": model_name,
+                    "llm_model_name": llm_model_name,
                     "token_count": token_count,
                 }
 
             # Update the allocation to ACQUIRED
             expires_at = datetime.now() + timedelta(seconds=max_token_lock_time_secs)
             api_endpoint = chosen_model_config.get("api_endpoint_url", "")
-            region = chosen_model_config.get("region", "")
+            deployment_region = chosen_model_config.get("deployment_region", "")
 
             updated_allocation = await self.transition_waiting_to_acquired(
                 token_request_id=token_request_id,
                 api_endpoint=api_endpoint,
-                region=region,
+                deployment_region=deployment_region,
                 expires_at=expires_at,
             )
 
@@ -1104,7 +1121,7 @@ class TokenAllocationService(BaseDatabaseService):
         self,
         user_id: UUID,
         llm_provider: str,
-        model_name: str,
+        llm_model_name: str,
         token_count: int,
         request_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
@@ -1114,7 +1131,7 @@ class TokenAllocationService(BaseDatabaseService):
         Args:
             user_id: User requesting tokens
             llm_provider: LLM provider name
-            model_name: Model name
+            llm_model_name: Model name
             token_count: Number of tokens to allocate
             request_context: Optional request context
 
@@ -1133,7 +1150,7 @@ class TokenAllocationService(BaseDatabaseService):
             (
                 total_allocated_tokens,
                 chosen_model_config,
-            ) = await self.get_least_loaded_deployment(model_name)
+            ) = await self.get_least_loaded_deployment(llm_model_name)
 
             # Extract max token limit and lock time
             max_token_limit = chosen_model_config.get("max_tokens")
@@ -1147,14 +1164,14 @@ class TokenAllocationService(BaseDatabaseService):
             # Check if token count exceeds limit
             if token_count > max_token_limit:
                 logger.warning(
-                    f"Token count {token_count} exceeds limit {max_token_limit} for model {model_name}"
+                    f"Token count {token_count} exceeds limit {max_token_limit} for model {llm_model_name}"
                 )
                 return {
-                    "error": f"Invalid token count, max limit exceeded for model {model_name} is {max_token_limit} for region {chosen_model_config.get('region', 'unknown')}"
+                    "error": f"Invalid token count, max limit exceeded for model {llm_model_name} is {max_token_limit} for region {{chosen_model_config.get('deployment_region', 'unknown')}}"
                 }
 
             logger.info(
-                f"Total allocated tokens for {model_name}: {total_allocated_tokens}"
+                f"Total allocated tokens for {llm_model_name}: {total_allocated_tokens}"
             )
 
             # Create token request ID
@@ -1167,7 +1184,7 @@ class TokenAllocationService(BaseDatabaseService):
             # api_version = ""
             deployment_name = ""
             api_endpoint = ""
-            region = ""
+            deployment_region = ""
             # api_keyv_id = ""
             temperature = 0.0
             seed = 0
@@ -1181,7 +1198,7 @@ class TokenAllocationService(BaseDatabaseService):
                 # api_version = chosen_model_config.get("api_version", "")
                 deployment_name = chosen_model_config.get("deployment_name", "")
                 api_endpoint = chosen_model_config.get("api_endpoint_url", "")
-                region = chosen_model_config.get("region", "")
+                deployment_region = chosen_model_config.get("deployment_region", "")
                 # api_keyv_id = chosen_model_config.get("api_keyv_id", "")
                 temperature = chosen_model_config.get("temperature", 0.0)
                 seed = chosen_model_config.get("seed", 42)
@@ -1190,16 +1207,15 @@ class TokenAllocationService(BaseDatabaseService):
             allocation = await self.create_token_allocation(
                 token_request_identifier=token_request_id,
                 user_id=user_id,
-                model_name=model_name,
+                llm_provider=llm_provider,
+                llm_model_name=llm_model_name,
                 token_count=token_count,
                 allocation_status=allocation_status,
                 expiration_timestamp=expires_at,
                 deployment_name=deployment_name,
-                cloud_provider_name="azure"
-                if "azure" in api_endpoint.lower()
-                else "openai",
+                cloud_provider_name=chosen_model_config.get("cloud_provider"),
                 api_endpoint_url=api_endpoint,
-                deployment_region=region,
+                deployment_region=deployment_region,
                 request_metadata=request_context,
             )
 
@@ -1217,14 +1233,14 @@ class TokenAllocationService(BaseDatabaseService):
             raise
 
     async def get_least_loaded_deployment(
-        self, model_name: str
+        self, llm_model_name: str
     ) -> Tuple[int, Dict[str, Any]]:
         """
         Get the least loaded deployment for a model
         Similar to MongoDB's _get_total_allocated_tokens
 
         Args:
-            model_name: Name of the model to get deployments for
+            llm_model_name: Name of the model to get deployments for
 
         Returns:
             Tuple of (total_allocated_tokens, chosen_model_config)
@@ -1242,13 +1258,13 @@ class TokenAllocationService(BaseDatabaseService):
                     WHERE llm_model_name = :llm_model_name AND is_active_status = TRUE
                 """
                 result = await session.execute(
-                    text(deployments_query), {"llm_model_name": model_name}
+                    text(deployments_query), {"llm_model_name": llm_model_name}
                 )
                 model_deployments = result.mappings().all()
 
                 if not model_deployments:
                     raise ValueError(
-                        f"No model deployments found for llm_model_name = {model_name}"
+                        f"No model deployments found for llm_model_name = {llm_model_name}"
                     )
 
                 # Get current allocations grouped by llm_model_name and api_endpoint_url
@@ -1266,7 +1282,7 @@ class TokenAllocationService(BaseDatabaseService):
                     ORDER BY total_tokens ASC
                 """
                 result = await session.execute(
-                    text(allocations_query), {"llm_model_name": model_name}
+                    text(allocations_query), {"llm_model_name": llm_model_name}
                 )
                 allocation_results = result.mappings().all()
 
@@ -1316,7 +1332,9 @@ class TokenAllocationService(BaseDatabaseService):
                 return total_allocated_tokens, chosen_model_config
 
         except Exception as e:
-            logger.error(f"Error finding least loaded deployment for {model_name}: {e}")
+            logger.error(
+                f"Error finding least loaded deployment for {llm_model_name}: {e}"
+            )
             raise
 
 
@@ -1343,7 +1361,8 @@ def get_token_allocation_repository(
         >>> allocation = repo.create_token_allocation(
         ...     token_request_id="req_123",
         ...     user_id=UUID('12345678-1234-1234-1234-123456789012'),
-        ...     model_name="gpt-4",
+        ...     llm_provider="openai",
+        ...     llm_model_name="gpt-4",
         ...     token_count=1000
         ... )
     """

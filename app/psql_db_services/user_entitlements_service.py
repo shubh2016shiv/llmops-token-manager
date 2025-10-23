@@ -229,17 +229,17 @@ class UserEntitlementsService(BaseDatabaseService):
             async with self.get_session() as session:
                 sql_query = """
                     INSERT INTO user_llm_entitlements (
-                        user_id, llm_provider, llm_model_name, api_key,
-                        api_endpoint_url, cloud_provider, deployment_name, region,
+                        user_id, llm_provider, llm_model_name, api_key_value,
+                        api_endpoint_url, cloud_provider, deployment_name, deployment_region,
                         created_at, updated_at, created_by_user_id
                     )
                     VALUES (
-                        :user_id, :llm_provider, :llm_model_name, :api_key,
-                        :api_endpoint_url, :cloud_provider, :deployment_name, :region,
+                        :user_id, :llm_provider, :llm_model_name, :api_key_value,
+                        :api_endpoint_url, :cloud_provider, :deployment_name, :deployment_region,
                         :created_at, :updated_at, :created_by_user_id
                     )
                     RETURNING entitlement_id, user_id, llm_provider, llm_model_name,
-                              api_endpoint_url, cloud_provider, deployment_name, region,
+                              api_endpoint_url, cloud_provider, deployment_name, deployment_region,
                               created_at, updated_at, created_by_user_id
                 """
 
@@ -247,11 +247,11 @@ class UserEntitlementsService(BaseDatabaseService):
                     "user_id": user_id,
                     "llm_provider": llm_provider,
                     "llm_model_name": llm_model_name,
-                    "api_key": encrypted_api_key,
+                    "api_key_value": encrypted_api_key,
                     "api_endpoint_url": api_endpoint_url,
                     "cloud_provider": cloud_provider,
                     "deployment_name": deployment_name,
-                    "region": region,
+                    "deployment_region": region,
                     "created_at": now,
                     "updated_at": now,
                     "created_by_user_id": created_by_user_id,
@@ -304,7 +304,7 @@ class UserEntitlementsService(BaseDatabaseService):
             async with self.get_session() as session:
                 sql_query = """
                     SELECT entitlement_id, user_id, llm_provider, llm_model_name,
-                           api_endpoint_url, cloud_provider, deployment_name, region,
+                           api_endpoint_url, cloud_provider, deployment_name, deployment_region,
                            created_at, updated_at, created_by_user_id
                     FROM user_llm_entitlements
                     WHERE entitlement_id = :entitlement_id
@@ -345,7 +345,7 @@ class UserEntitlementsService(BaseDatabaseService):
             async with self.get_session() as session:
                 sql_query = """
                     SELECT entitlement_id, user_id, llm_provider, llm_model_name,
-                           api_endpoint_url, cloud_provider, deployment_name, region,
+                           api_endpoint_url, cloud_provider, deployment_name, deployment_region,
                            created_at, updated_at, created_by_user_id
                     FROM user_llm_entitlements
                     WHERE user_id = :user_id
@@ -429,7 +429,7 @@ class UserEntitlementsService(BaseDatabaseService):
         # Build update fields dictionary
         update_fields_dict = {}
         if encrypted_api_key is not None:
-            update_fields_dict["api_key"] = encrypted_api_key
+            update_fields_dict["api_key_value"] = encrypted_api_key
         if api_endpoint_url is not None:
             update_fields_dict["api_endpoint_url"] = api_endpoint_url
         if cloud_provider is not None:
@@ -437,7 +437,7 @@ class UserEntitlementsService(BaseDatabaseService):
         if deployment_name is not None:
             update_fields_dict["deployment_name"] = deployment_name
         if region is not None:
-            update_fields_dict["region"] = region
+            update_fields_dict["deployment_region"] = region
 
         if not update_fields_dict:
             logger.warning(f"No fields to update for entitlement {entitlement_id}")
@@ -453,7 +453,7 @@ class UserEntitlementsService(BaseDatabaseService):
                 SET {", ".join(set_clauses)}
                 WHERE entitlement_id = :entitlement_id
                 RETURNING entitlement_id, user_id, llm_provider, llm_model_name,
-                          api_endpoint_url, cloud_provider, deployment_name, region,
+                          api_endpoint_url, cloud_provider, deployment_name, deployment_region,
                           created_at, updated_at, created_by_user_id
             """
 

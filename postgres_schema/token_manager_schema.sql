@@ -11,9 +11,33 @@ CREATE TABLE IF NOT EXISTS token_manager (
     user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     -- Model & Deployment Configuration: Specifies the target LLM and deployment
     llm_model_name TEXT NOT NULL,
-    llm_provider TEXT NOT NULL,
+    llm_provider TEXT NOT NULL
+    CHECK (llm_provider IN (
+        'openai',
+        'gemini',
+        'anthropic',
+        'cohere',
+        'mistral',
+        'deepseek',
+        'meta',
+        'hugging_face',
+        'together_ai',
+        'fireworks_ai',
+        'replicate',
+        'xai',
+        'deepinfra',
+        'novita',
+        'on_premise'
+    )),
     deployment_name TEXT,
-    cloud_provider TEXT,
+    cloud_provider TEXT
+    CHECK (cloud_provider IN (
+        'Azure',
+        'Google Cloud Platform',
+        'Amazon Web Services',
+        'IBM Watsonx',
+        'Oracle',
+        'On Premise')),
     api_endpoint_url TEXT,
     deployment_region TEXT,
     -- Token Allocation Management: Tracks allocated tokens and their status

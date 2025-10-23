@@ -5,15 +5,34 @@ DROP TABLE IF EXISTS llm_models CASCADE;
 -- Represents available LLM models with their configurations and usage metrics.
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS llm_models (
-    llm_provider TEXT NOT NULL DEFAULT 'openai'
+    llm_provider TEXT NOT NULL
         CHECK (llm_provider IN (
-        'azure_openai', 'google_vertex', 'aws_bedrock', 'ibm_watsonx', 'oracle',
-        'openai', 'gemini', 'anthropic', 'cohere', 'mistral', 'deepseek', 'meta', 'hugging_face', 'together_ai',
-        'fireworks_ai', 'replicate', 'xai', 'deepinfra', 'novita', 'on_premise'
+        'openai',
+        'gemini',
+        'anthropic',
+        'cohere',
+        'mistral',
+        'deepseek',
+        'meta',
+        'hugging_face',
+        'together_ai',
+        'fireworks_ai',
+        'replicate',
+        'xai',
+        'deepinfra',
+        'novita',
+        'on_premise',
     )),
     llm_model_name TEXT NOT NULL,
     deployment_name TEXT,
-    cloud_provider TEXT,
+    cloud_provider TEXT CHECK (
+        cloud_provider IN (
+            'Azure',
+            'Google Cloud Platform',
+            'Amazon Web Services',
+            'IBM Watsonx',
+            'Oracle',
+            'On Premise')),
     api_key_variable_name TEXT,
     api_endpoint_url TEXT,
     llm_model_version TEXT,

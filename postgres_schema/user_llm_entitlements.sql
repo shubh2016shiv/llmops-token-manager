@@ -14,17 +14,36 @@ CREATE TABLE IF NOT EXISTS user_llm_entitlements (
 
     -- Core References: Specifies the entitled provider and model
     llm_provider TEXT NOT NULL CHECK (llm_provider IN (
-        'azure_openai', 'google_vertex', 'aws_bedrock', 'ibm_watsonx', 'oracle',
-        'openai', 'gemini', 'anthropic', 'cohere', 'mistral', 'deepseek', 'meta', 'hugging_face', 'together_ai',
-        'fireworks_ai', 'replicate', 'xai', 'deepinfra', 'novita', 'on_premise'
-    )),  -- All ProviderType enum values (application validates)
+       'openai',
+        'gemini',
+        'anthropic',
+        'cohere',
+        'mistral',
+        'deepseek',
+        'meta',
+        'hugging_face',
+        'together_ai',
+        'fireworks_ai',
+        'replicate',
+        'xai',
+        'deepinfra',
+        'novita',
+        'on_premise'
+    )),
     llm_model_name TEXT NOT NULL,
 
     -- Configurations: API and deployment details for client init
     api_key_variable_name TEXT,  -- Environment variable name for API key
     api_key_value TEXT NOT NULL,  -- Encrypted API key value (use pgcrypto for encryption)
     api_endpoint_url TEXT,  -- Specific endpoint URL (nullable for some providers)
-    cloud_provider TEXT,    -- e.g., 'azure_openai', 'google_vertex', 'aws_bedrock' (nullable for direct)
+    cloud_provider TEXT CHECK (
+        cloud_provider IN (
+            'Azure',
+            'Google Cloud Platform',
+            'Amazon Web Services',
+            'IBM Watsonx',
+            'Oracle',
+            'On Premise')),
     deployment_name TEXT,   -- Physical deployment identifier (e.g., 'gpt4o-eastus-prod')
     deployment_region TEXT,            -- Geographic deployment_region (e.g., 'eastus', 'us-west-2')
 

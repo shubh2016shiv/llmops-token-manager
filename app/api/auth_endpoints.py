@@ -10,14 +10,14 @@ The /login endpoint is for production use, while /token/generate is for developm
 from fastapi import APIRouter, HTTPException, status, Depends
 from loguru import logger
 
-from app.auth.models import (
+from app.models.auth_models import (
     AuthTokenGenerateRequest,
     AuthTokenResponse,
     AuthTokenRefreshRequest,
     AuthTokenPayload,
     AuthLoginRequest,
 )
-from app.auth.jwt_utils import (
+from app.auth.jwt_auth_token_service import (
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -26,7 +26,7 @@ from app.auth.jwt_utils import (
     is_refresh_enabled,
     authenticate_user,
 )
-from app.auth.dependencies import get_current_user
+from app.auth.auth_dependencies import get_current_user
 
 # ============================================================================
 # ROUTER INITIALIZATION

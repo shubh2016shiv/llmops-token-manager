@@ -31,7 +31,7 @@ Usage:
 """
 
 # Core dependencies for endpoint protection
-from app.auth.dependencies import (
+from app.auth.auth_dependencies import (
     get_current_user,
     get_active_user,
     require_developer,
@@ -46,7 +46,7 @@ from app.auth.dependencies import (
 )
 
 # JWT utilities for token operations
-from app.auth.jwt_utils import (
+from app.auth.jwt_auth_token_service import (
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -57,7 +57,7 @@ from app.auth.jwt_utils import (
 )
 
 # Pydantic models for JWT operations
-from app.auth.models import (
+from app.models.auth_models import (
     AuthTokenPayload,
     AuthTokenResponse,
     AuthTokenRefreshRequest,
@@ -66,7 +66,7 @@ from app.auth.models import (
 )
 
 # Router for auth endpoints
-from app.auth.endpoints import router as auth_router
+from app.api.auth_endpoints import router as auth_router
 
 __all__ = [
     # Dependencies

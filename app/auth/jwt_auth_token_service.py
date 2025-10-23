@@ -19,7 +19,7 @@ from jose import JWTError, jwt
 from loguru import logger
 
 from app.core.config_manager import settings
-from app.auth.models import AuthTokenPayload
+from app.models.auth_models import AuthTokenPayload
 from app.psql_db_services.users_service import UsersService
 from app.utils.passwrd_hashing import PasswordHasher
 

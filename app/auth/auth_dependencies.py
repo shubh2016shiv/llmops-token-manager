@@ -20,8 +20,8 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 from loguru import logger
 
-from app.auth.jwt_utils import decode_token, verify_token_type
-from app.auth.models import AuthTokenPayload
+from app.auth.jwt_auth_token_service import decode_token, verify_token_type
+from app.models.auth_models import AuthTokenPayload
 from app.psql_db_services.users_service import UsersService
 from app.models.response_models import UserResponse
 

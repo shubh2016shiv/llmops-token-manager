@@ -9,7 +9,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from app.app import app
-from app.auth.jwt_utils import create_access_token
+from app.auth.jwt_auth_token_service import create_access_token
 from app.models.response_models import UserResponse
 
 

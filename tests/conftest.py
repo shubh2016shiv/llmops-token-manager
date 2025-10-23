@@ -38,7 +38,7 @@ def mock_developer_user():
     Best Practice: Testing secured endpoints should mock the dependency,
     not generate real tokens, for speed and isolation.
     """
-    from app.auth.models import AuthTokenPayload
+    from app.models.auth_models import AuthTokenPayload
 
     return AuthTokenPayload(
         user_id=uuid4(),
@@ -52,7 +52,7 @@ def mock_developer_user():
 @pytest.fixture
 def mock_operator_user():
     """Mock operator user token payload for testing."""
-    from app.auth.models import AuthTokenPayload
+    from app.models.auth_models import AuthTokenPayload
 
     return AuthTokenPayload(
         user_id=uuid4(),
@@ -66,7 +66,7 @@ def mock_operator_user():
 @pytest.fixture
 def mock_admin_user():
     """Mock admin user token payload for testing."""
-    from app.auth.models import AuthTokenPayload
+    from app.models.auth_models import AuthTokenPayload
 
     return AuthTokenPayload(
         user_id=uuid4(),
@@ -80,7 +80,7 @@ def mock_admin_user():
 @pytest.fixture
 def mock_owner_user():
     """Mock owner user token payload for testing."""
-    from app.auth.models import AuthTokenPayload
+    from app.models.auth_models import AuthTokenPayload
 
     return AuthTokenPayload(
         user_id=uuid4(),
@@ -104,7 +104,7 @@ def override_get_current_user(app):
     mocking internal functions. This tests the actual dependency injection
     flow while controlling the authentication result.
     """
-    from app.auth.dependencies import get_current_user
+    from app.auth.auth_dependencies import get_current_user
 
     def _override(app, user_payload):
         app.dependency_overrides[get_current_user] = lambda: user_payload

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from uuid import uuid4
 
-from app.auth.dependencies import (
+from app.auth.auth_dependencies import (
     get_current_user,
     get_active_user,
     RoleChecker,
@@ -18,7 +18,7 @@ from app.auth.dependencies import (
     require_admin,
     require_owner,
 )
-from app.auth.models import AuthTokenPayload
+from app.models.auth_models import AuthTokenPayload
 from app.models.response_models import UserResponse
 
 
@@ -39,7 +39,7 @@ class TestAuthDependencies:
     @pytest.mark.asyncio
     async def test_get_current_user_success(self):
         """Test successful user extraction from valid token."""
-        with patch("app.auth.dependencies.decode_token") as mock_decode:
+        with patch("app.auth.auth_dependencies.decode_token") as mock_decode:
             mock_decode.return_value = self.test_payload
 
             result = await get_current_user("valid_token")
@@ -59,7 +59,7 @@ class TestAuthDependencies:
     @pytest.mark.asyncio
     async def test_get_current_user_invalid_token(self):
         """Test user extraction with invalid token."""
-        with patch("app.auth.dependencies.decode_token") as mock_decode:
+        with patch("app.auth.auth_dependencies.decode_token") as mock_decode:
             from jose import JWTError
 
             mock_decode.side_effect = JWTError("Invalid token")
@@ -81,7 +81,7 @@ class TestAuthDependencies:
             type="refresh",
         )
 
-        with patch("app.auth.dependencies.decode_token") as mock_decode:
+        with patch("app.auth.auth_dependencies.decode_token") as mock_decode:
             mock_decode.return_value = refresh_payload
 
             with pytest.raises(HTTPException) as exc_info:
@@ -104,7 +104,7 @@ class TestAuthDependencies:
             updated_at=None,
         )
 
-        with patch("app.auth.dependencies.UsersService") as mock_service_class:
+        with patch("app.auth.auth_dependencies.UsersService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_user_by_id.return_value = active_user
             mock_service_class.return_value = mock_service
@@ -117,7 +117,7 @@ class TestAuthDependencies:
     @pytest.mark.asyncio
     async def test_get_active_user_not_found(self):
         """Test active user validation with user not found."""
-        with patch("app.auth.dependencies.UsersService") as mock_service_class:
+        with patch("app.auth.auth_dependencies.UsersService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_user_by_id.return_value = None
             mock_service_class.return_value = mock_service
@@ -143,7 +143,7 @@ class TestAuthDependencies:
             updated_at=None,
         )
 
-        with patch("app.auth.dependencies.UsersService") as mock_service_class:
+        with patch("app.auth.auth_dependencies.UsersService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_user_by_id.return_value = inactive_user
             mock_service_class.return_value = mock_service

@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 from jose import JWTError
 
-from app.auth.jwt_utils import (
+from app.auth.jwt_auth_token_service import (
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -17,7 +17,7 @@ from app.auth.jwt_utils import (
     get_token_expiration_seconds,
     is_refresh_enabled,
 )
-from app.auth.models import AuthTokenPayload
+from app.models.auth_models import AuthTokenPayload
 from app.core.config_manager import settings
 
 

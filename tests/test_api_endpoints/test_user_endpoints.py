@@ -265,7 +265,7 @@ class TestGetUserById:
         # Override auth dependency
         # NOTE: Using dependency_overrides is FastAPI's recommended approach
         # for testing. It bypasses JWT validation while testing business logic.
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -301,7 +301,7 @@ class TestGetUserById:
     ):
         """Test user not found by ID returns 404 error."""
         # Override auth dependency
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -325,7 +325,7 @@ class TestGetUserById:
     def test_get_user_by_id_invalid_uuid(self, app, client, mock_developer_user):
         """Test invalid UUID format returns 400 validation error."""
         # Override auth dependency
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -349,7 +349,7 @@ class TestGetUserById:
     ):
         """Test ValueError from service returns 400 error."""
         # Override auth dependency
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -378,7 +378,7 @@ class TestGetUserById:
     ):
         """Test database error returns 500 error."""
         # Override auth dependency
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -407,7 +407,7 @@ class TestGetUserById:
     ):
         """Test response structure matches UserResponse schema."""
         # Override auth dependency
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -462,7 +462,7 @@ class TestGetUserByEmail:
     ):
         """Test successful user retrieval by email returns correct response."""
         # Override auth dependency
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -494,7 +494,7 @@ class TestGetUserByEmail:
     ):
         """Test user not found by email returns 404 error."""
         # Override auth dependency
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -521,7 +521,7 @@ class TestGetUserByEmail:
     ):
         """Test ValueError from service returns 400 error."""
         # Override auth dependency
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -550,7 +550,7 @@ class TestGetUserByEmail:
     ):
         """Test database error returns 500 error."""
         # Override auth dependency
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -579,7 +579,7 @@ class TestGetUserByEmail:
     ):
         """Test response structure matches UserResponse schema."""
         # Override auth dependency
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -625,7 +625,7 @@ class TestUpdateUser:
     ):
         """Test successful user update returns correct response."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -664,7 +664,7 @@ class TestUpdateUser:
     ):
         """Test user not found for update returns 404 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -691,7 +691,7 @@ class TestUpdateUser:
     ):
         """Test update with duplicate email returns 400 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -717,7 +717,7 @@ class TestUpdateUser:
     def test_update_user_invalid_role(self, app, client, mock_admin_user):
         """Test update with invalid role returns 422 validation error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -742,7 +742,7 @@ class TestUpdateUser:
     ):
         """Test invalid UUID format returns 400 validation error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -768,7 +768,7 @@ class TestUpdateUser:
     ):
         """Test database error returns appropriate error status."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -797,7 +797,7 @@ class TestUpdateUser:
     ):
         """Test general database error returns 500 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -835,7 +835,7 @@ class TestSuspendUser:
     ):
         """Test successful user suspension returns correct response."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -868,7 +868,7 @@ class TestSuspendUser:
     ):
         """Test user not found for suspension returns 404 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -895,7 +895,7 @@ class TestSuspendUser:
     ):
         """Test database error during suspension returns 500 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -933,7 +933,7 @@ class TestActivateUser:
     ):
         """Test successful user activation returns correct response."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -966,7 +966,7 @@ class TestActivateUser:
     ):
         """Test user not found for activation returns 404 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -993,7 +993,7 @@ class TestActivateUser:
     ):
         """Test database error during activation returns 500 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 

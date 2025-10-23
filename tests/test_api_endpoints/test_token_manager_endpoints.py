@@ -141,7 +141,7 @@ class TestAcquireTokens:
     ):
         """Test successful immediate token allocation."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -199,7 +199,7 @@ class TestAcquireTokens:
     ):
         """Test successful token allocation with ACQUIRED status."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -259,7 +259,7 @@ class TestAcquireTokens:
     ):
         """Test successful token allocation with optional fields."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -314,7 +314,7 @@ class TestAcquireTokens:
     ):
         """Test token allocation when user is not found."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -342,7 +342,7 @@ class TestAcquireTokens:
     ):
         """Test token allocation when user is inactive."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -381,7 +381,7 @@ class TestAcquireTokens:
     ):
         """Test token allocation when user is suspended."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -449,7 +449,7 @@ class TestAcquireTokens:
     ):
         """Test token allocation with invalid provider enum value."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -490,7 +490,7 @@ class TestAcquireTokens:
     ):
         """Test token allocation when allocation service returns error."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -531,7 +531,7 @@ class TestAcquireTokens:
     ):
         """Test token allocation when token limit is exceeded."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -572,7 +572,7 @@ class TestAcquireTokens:
     ):
         """Test token allocation when allocation service raises ValueError."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -613,7 +613,7 @@ class TestAcquireTokens:
     ):
         """Test token allocation when allocation service raises generic exception."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -644,7 +644,7 @@ class TestAcquireTokens:
     ):
         """Test token allocation with missing required fields."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -664,7 +664,7 @@ class TestAcquireTokens:
     def test_acquire_tokens_invalid_provider(self, app, client, mock_developer_user):
         """Test token allocation with invalid provider."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -688,7 +688,7 @@ class TestAcquireTokens:
     def test_acquire_tokens_empty_model_name(self, app, client, mock_developer_user):
         """Test token allocation with empty model name."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -751,7 +751,7 @@ class TestReleaseTokens:
     ):
         """Test successful token release when allocation exists."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -791,7 +791,7 @@ class TestReleaseTokens:
     ):
         """Test idempotent behavior when allocation already released."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -829,7 +829,7 @@ class TestReleaseTokens:
     ):
         """Test edge case where allocation exists but delete returns False."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -866,7 +866,7 @@ class TestReleaseTokens:
     ):
         """Test handling of service exceptions during release."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -895,7 +895,7 @@ class TestReleaseTokens:
     ):
         """Test request validation for missing token_request_id."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -917,7 +917,7 @@ class TestReleaseTokens:
     ):
         """Test handling of empty token_request_id."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 

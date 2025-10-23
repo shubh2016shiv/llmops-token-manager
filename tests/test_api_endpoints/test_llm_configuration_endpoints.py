@@ -118,7 +118,7 @@ class TestCreateLLMModel:
     ):
         """Test successful LLM model creation returns correct response."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -196,7 +196,7 @@ class TestCreateLLMModel:
     ):
         """Test LLM model creation with duplicate model returns 400 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -224,7 +224,7 @@ class TestCreateLLMModel:
     ):
         """Test LLM model creation with invalid provider returns 400 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -249,7 +249,7 @@ class TestCreateLLMModel:
     def test_create_llm_model_invalid_request_body(self, app, client, mock_admin_user):
         """Test LLM model creation with invalid request body returns 422 validation error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -279,7 +279,7 @@ class TestCreateLLMModel:
     ):
         """Test LLM model creation with database error returns 500 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -316,7 +316,7 @@ class TestCreateLLMModel:
     ):
         """Test response structure matches LLMModelResponse schema."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -378,7 +378,7 @@ class TestListLLMModelsByProvider:
     ):
         """Test successful listing of LLM models by provider returns correct response."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -423,7 +423,7 @@ class TestListLLMModelsByProvider:
     ):
         """Test listing with active_only filter returns correct response."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -456,7 +456,7 @@ class TestListLLMModelsByProvider:
     ):
         """Test listing with pagination parameters returns correct response."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -490,7 +490,7 @@ class TestListLLMModelsByProvider:
     ):
         """Test ValueError from service returns 400 error."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -518,7 +518,7 @@ class TestListLLMModelsByProvider:
     ):
         """Test database error returns 500 error."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -546,7 +546,7 @@ class TestListLLMModelsByProvider:
     ):
         """Test response structure matches LLMModelListResponse schema."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -599,7 +599,7 @@ class TestGetLLMModel:
     ):
         """Test successful LLM model retrieval returns correct response."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -634,7 +634,7 @@ class TestGetLLMModel:
     ):
         """Test successful LLM model retrieval with version parameter."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -667,7 +667,7 @@ class TestGetLLMModel:
     ):
         """Test LLM model not found returns 404 error."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -696,7 +696,7 @@ class TestGetLLMModel:
     ):
         """Test ValueError from service returns 400 error."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -724,7 +724,7 @@ class TestGetLLMModel:
     ):
         """Test database error returns 500 error."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -752,7 +752,7 @@ class TestGetLLMModel:
     ):
         """Test response structure matches LLMModelResponse schema."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -786,7 +786,7 @@ class TestGetLLMModel:
     ):
         """Test that HTTPException is re-raised and not caught by general handler."""
         # Override auth dependency with developer user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
@@ -831,7 +831,7 @@ class TestUpdateLLMModel:
     ):
         """Test successful LLM model update returns correct response."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -889,7 +889,7 @@ class TestUpdateLLMModel:
     ):
         """Test partial update with only some fields returns correct response."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -919,7 +919,7 @@ class TestUpdateLLMModel:
     ):
         """Test LLM model not found for update returns 404 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -950,7 +950,7 @@ class TestUpdateLLMModel:
     ):
         """Test ValueError from service returns 400 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -980,7 +980,7 @@ class TestUpdateLLMModel:
     ):
         """Test constraint violation (duplicate key) returns 400 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -1012,7 +1012,7 @@ class TestUpdateLLMModel:
     ):
         """Test database error returns 500 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -1048,7 +1048,7 @@ class TestUpdateLLMModel:
     ):
         """Test that all parameters are correctly mapped to service call."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -1104,7 +1104,7 @@ class TestUpdateLLMModel:
     ):
         """Test that HTTPException is re-raised and not caught by general handler."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -1145,7 +1145,7 @@ class TestActivateLLMModel:
     ):
         """Test successful LLM model activation returns correct response."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -1180,7 +1180,7 @@ class TestActivateLLMModel:
     ):
         """Test successful LLM model activation with version parameter."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -1215,7 +1215,7 @@ class TestActivateLLMModel:
     ):
         """Test LLM model not found for activation returns 404 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -1244,7 +1244,7 @@ class TestActivateLLMModel:
     ):
         """Test database error during activation returns 500 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -1272,7 +1272,7 @@ class TestActivateLLMModel:
     ):
         """Test that HTTPException is re-raised and not caught by general handler."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -1311,7 +1311,7 @@ class TestDeactivateLLMModel:
     ):
         """Test successful LLM model deactivation returns correct response."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -1346,7 +1346,7 @@ class TestDeactivateLLMModel:
     ):
         """Test successful LLM model deactivation with version parameter."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -1381,7 +1381,7 @@ class TestDeactivateLLMModel:
     ):
         """Test LLM model not found for deactivation returns 404 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -1412,7 +1412,7 @@ class TestDeactivateLLMModel:
     ):
         """Test database error during deactivation returns 500 error."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
@@ -1440,7 +1440,7 @@ class TestDeactivateLLMModel:
     ):
         """Test that HTTPException is re-raised and not caught by general handler."""
         # Override auth dependency with admin user
-        from app.auth.dependencies import get_current_user
+        from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 

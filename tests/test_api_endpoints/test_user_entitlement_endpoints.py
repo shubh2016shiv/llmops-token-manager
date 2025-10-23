@@ -126,7 +126,11 @@ def sample_update_request():
 
 def override_auth_dependency(app, user_payload):
     """Override authentication dependency for testing."""
-    from app.auth.dependencies import require_admin, require_owner, require_developer
+    from app.auth.auth_dependencies import (
+        require_admin,
+        require_owner,
+        require_developer,
+    )
 
     def mock_require_admin():
         return user_payload

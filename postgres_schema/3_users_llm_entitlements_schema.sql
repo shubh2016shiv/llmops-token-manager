@@ -101,7 +101,7 @@ CREATE INDEX idx_entitlements_composite ON user_llm_entitlements(user_id, llm_pr
 CREATE INDEX idx_entitlements_cloud_provider ON user_llm_entitlements(cloud_provider) WHERE cloud_provider IS NOT NULL;
 
 -- Index for region-based queries (useful for geographic load balancing)
-CREATE INDEX idx_entitlements_region ON user_llm_entitlements(region) WHERE region IS NOT NULL;
+CREATE INDEX idx_entitlements_region ON user_llm_entitlements(deployment_region) WHERE deployment_region IS NOT NULL;
 
 -- ============================================================================
 -- TRIGGER - AUTO-UPDATE updated_at TIMESTAMP

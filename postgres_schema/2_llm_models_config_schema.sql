@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS llm_models (
         'xai',
         'deepinfra',
         'novita',
-        'on_premise',
+        'on_premise'
     )),
     llm_model_name TEXT NOT NULL,
     deployment_name TEXT,

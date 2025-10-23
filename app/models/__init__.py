@@ -14,13 +14,14 @@ All models include field validation matching database CHECK constraints.
 """
 
 # Core database models
-from app.models.users_model import User
+from app.models.users_models import User
 from app.models.token_manager_models import TokenAllocation, TokenEstimation, InputType
 
 # Request models
 from app.models.request_models import (
     # Enums
-    ProviderType,
+    LLMProvider,
+    CloudProvider,
     UserRole,
     UserStatus,
     # User management requests
@@ -64,7 +65,8 @@ __all__ = [
     "InputType",
     # Enums
     "AllocationStatus",
-    "ProviderType",
+    "LLMProvider",
+    "CloudProvider",
     "UserRole",
     "UserStatus",
     "Health",

@@ -21,11 +21,12 @@ CREATE TABLE IF NOT EXISTS user_llm_entitlements (
     llm_model_name TEXT NOT NULL,
 
     -- Configurations: API and deployment details for client init
-    api_key TEXT NOT NULL,  -- Encrypted API key value (use pgcrypto for encryption)
+    api_key_variable_name TEXT,  -- Environment variable name for API key
+    api_key_value TEXT NOT NULL,  -- Encrypted API key value (use pgcrypto for encryption)
     api_endpoint_url TEXT,  -- Specific endpoint URL (nullable for some providers)
     cloud_provider TEXT,    -- e.g., 'azure_openai', 'google_vertex', 'aws_bedrock' (nullable for direct)
     deployment_name TEXT,   -- Physical deployment identifier (e.g., 'gpt4o-eastus-prod')
-    region TEXT,            -- Geographic region (e.g., 'eastus', 'us-west-2')
+    deployment_region TEXT,            -- Geographic deployment_region (e.g., 'eastus', 'us-west-2')
 
     -- Audit Trail: Tracks creation, updates, and admin actions
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -38,8 +39,8 @@ CREATE TABLE IF NOT EXISTS user_llm_entitlements (
         REFERENCES llm_models(llm_provider, llm_model_name)
         ON DELETE CASCADE,
 
-    -- Unique Constraint: Ensures unique entitlements per user/provider/model/endpoint
-    UNIQUE (user_id, llm_provider, llm_model_name, api_endpoint_url)
+    -- Unique Constraint: Ensures unique entitlements per user/cloud_provider/provider/llm_model/endpoint
+    UNIQUE (user_id, cloud_provider, llm_provider, llm_model_name, api_endpoint_url, api_key_variable_name)
 );
 
 -- ============================================================================
@@ -50,11 +51,12 @@ COMMENT ON COLUMN user_llm_entitlements.entitlement_id IS 'Unique identifier for
 COMMENT ON COLUMN user_llm_entitlements.user_id IS 'User who has the entitlement (references users.user_id)';
 COMMENT ON COLUMN user_llm_entitlements.llm_provider IS 'LLM provider type (e.g., openai, anthropic, azure_openai) - all ProviderType enum values supported';
 COMMENT ON COLUMN user_llm_entitlements.llm_model_name IS 'Logical model name (e.g., gpt-4o, claude-3-5-sonnet)';
-COMMENT ON COLUMN user_llm_entitlements.api_key IS 'Encrypted API key for the LLM provider (use pgcrypto for at-rest encryption)';
+COMMENT ON COLUMN user_llm_entitlements.api_key_variable_name IS 'Environment variable name for API key';
+COMMENT ON COLUMN user_llm_entitlements.api_key_value IS 'Encrypted API key for the LLM provider (use pgcrypto for at-rest encryption)';
 COMMENT ON COLUMN user_llm_entitlements.api_endpoint_url IS 'Specific API endpoint URL (nullable for some providers)';
 COMMENT ON COLUMN user_llm_entitlements.cloud_provider IS 'Cloud provider hosting the LLM (e.g., azure_openai, google_vertex, aws_bedrock)';
 COMMENT ON COLUMN user_llm_entitlements.deployment_name IS 'Physical deployment identifier for cloud providers';
-COMMENT ON COLUMN user_llm_entitlements.region IS 'Geographic region where the model is deployed';
+COMMENT ON COLUMN user_llm_entitlements.deployment_region IS 'Region where the model is deployed on the cloud provider';
 COMMENT ON COLUMN user_llm_entitlements.created_at IS 'When the entitlement was created';
 COMMENT ON COLUMN user_llm_entitlements.updated_at IS 'When the entitlement was last updated';
 COMMENT ON COLUMN user_llm_entitlements.created_by_user_id IS 'Admin user who created this entitlement';
@@ -103,43 +105,140 @@ COMMENT ON FUNCTION update_entitlements_updated_at_column() IS 'Automatically up
 -- ============================================================================
 
 /*
--- Example 1: Direct provider entitlement (OpenAI)
-INSERT INTO user_llm_entitlements
-(user_id, llm_provider, llm_model_name, api_key, api_endpoint_url, created_by_user_id)
-VALUES
-('550e8400-e29b-41d4-a716-446655440000', 'openai', 'gpt-4o', 'encrypted_sk-...', 'https://api.openai.com/v1', 'admin-uuid-here');
+===============================================================================
+USAGE EXAMPLES FOR USER LLM ENTITLEMENTS TABLE
+===============================================================================
 
--- Example 2: Cloud provider entitlement (Azure OpenAI)
-INSERT INTO user_llm_entitlements
-(user_id, llm_provider, llm_model_name, api_key, cloud_provider, deployment_name, api_endpoint_url, region, created_by_user_id)
-VALUES
-('550e8400-e29b-41d4-a716-446655440000', 'openai', 'gpt-4o', 'encrypted_azure_key', 'azure_openai', 'gpt4o-eastus-prod', 'https://my-resource.openai.azure.com/', 'eastus', 'admin-uuid-here');
+-- Example 1: Direct LLM provider entitlement (OpenAI, no cloud)
+INSERT INTO user_llm_entitlements (
+    user_id, llm_provider, llm_model_name,
+    api_key_variable_name, api_key_value,
+    api_endpoint_url, created_by_user_id
+) VALUES (
+    '550e8400-e29b-41d4-a716-446655440000',
+    'openai',
+    'gpt-4o',
+    'OPENAI_API_KEY',
+    'encrypted_sk-...',
+    'https://api.openai.com/v1',
+    'admin-uuid-here'
+);
 
--- Example 3: AWS Bedrock entitlement
-INSERT INTO user_llm_entitlements
-(user_id, llm_provider, llm_model_name, api_key, cloud_provider, region, created_by_user_id)
-VALUES
-('550e8400-e29b-41d4-a716-446655440000', 'anthropic', 'claude-3-5-sonnet-20240620', 'encrypted_aws_key', 'aws_bedrock', 'us-west-2', 'admin-uuid-here');
+-- Example 2: Cloud provider entitlement (Azure OpenAI deployment)
+INSERT INTO user_llm_entitlements (
+    user_id, llm_provider, llm_model_name,
+    api_key_variable_name, api_key_value,
+    api_endpoint_url, cloud_provider, deployment_name,
+    deployment_region, created_by_user_id
+) VALUES (
+    '550e8400-e29b-41d4-a716-446655440000',
+    'openai',
+    'gpt-4o',
+    'AZURE_OPENAI_API_KEY',
+    'encrypted_azure_key',
+    'https://my-resource.openai.azure.com/',
+    'azure_openai',
+    'gpt4o-eastus-prod',
+    'eastus',
+    'admin-uuid-here'
+);
 
--- Example 4: Query user entitlements
+-- Example 3: AWS Bedrock entitlement (Anthropic Claude model)
+INSERT INTO user_llm_entitlements (
+    user_id, llm_provider, llm_model_name,
+    api_key_variable_name, api_key_value,
+    cloud_provider, deployment_region, created_by_user_id
+) VALUES (
+    '550e8400-e29b-41d4-a716-446655440000',
+    'anthropic',
+    'claude-3-5-sonnet-20240620',
+    'AWS_ACCESS_KEY_ID',
+    'encrypted_aws_key',
+    'aws_bedrock',
+    'us-west-2',
+    'admin-uuid-here'
+);
+
+-- Example 4: Query all entitlements for a specific user
 SELECT
     u.username,
     ule.llm_provider,
     ule.llm_model_name,
     ule.cloud_provider,
     ule.deployment_name,
-    ule.region
-FROM user_llm_entitlements ule
-JOIN users u ON ule.user_id = u.user_id
+    ule.deployment_region
+FROM user_llm_entitlements AS ule
+JOIN users AS u ON ule.user_id = u.user_id
 WHERE ule.user_id = '550e8400-e29b-41d4-a716-446655440000';
 
--- Example 5: Query entitlements by provider (all supported providers)
+-- Example 5: Query direct provider entitlements (no cloud) for OpenAI
 SELECT
     u.username,
+    ule.llm_provider,
     ule.llm_model_name,
+    ule.api_key_variable_name,
     ule.api_endpoint_url
-FROM user_llm_entitlements ule
-JOIN users u ON ule.user_id = u.user_id
+FROM user_llm_entitlements AS ule
+JOIN users AS u ON ule.user_id = u.user_id
 WHERE ule.llm_provider = 'openai'
-  AND ule.cloud_provider IS NULL;  -- Direct provider only
+  AND ule.cloud_provider IS NULL;
+
+-- Example 6: Google Vertex AI entitlement (Gemini Pro model)
+INSERT INTO user_llm_entitlements (
+    user_id, llm_provider, llm_model_name,
+    api_key_variable_name, api_key_value,
+    cloud_provider, deployment_region, created_by_user_id
+) VALUES (
+    '550e8400-e29b-41d4-a716-446655440000',
+    'gemini',
+    'gemini-pro',
+    'GOOGLE_CLOUD_API_KEY',
+    'encrypted_gcp_key',
+    'google_vertex',
+    'us-central1',
+    'admin-uuid-here'
+);
+
+-- Example 7: Query all entitlements for a specific cloud provider
+SELECT
+    u.username,
+    ule.llm_provider,
+    ule.llm_model_name,
+    ule.deployment_name,
+    ule.deployment_region,
+    ule.api_endpoint_url
+FROM user_llm_entitlements AS ule
+JOIN users AS u ON ule.user_id = u.user_id
+WHERE ule.cloud_provider = 'azure_openai'
+ORDER BY ule.deployment_region, ule.llm_model_name;
+
+-- Example 8: Query entitlements by deployment region for geographic load balancing
+SELECT
+    u.username,
+    ule.cloud_provider,
+    ule.llm_provider,
+    ule.llm_model_name,
+    ule.deployment_name
+FROM user_llm_entitlements AS ule
+JOIN users AS u ON ule.user_id = u.user_id
+WHERE ule.deployment_region = 'eastus'
+  AND ule.cloud_provider IS NOT NULL
+ORDER BY ule.cloud_provider, ule.llm_model_name;
+
+-- Example 9: Query all active entitlements with their API configuration
+SELECT
+    u.username,
+    ule.llm_provider,
+    ule.llm_model_name,
+    ule.api_key_variable_name,
+    ule.api_endpoint_url,
+    ule.cloud_provider,
+    ule.deployment_name,
+    ule.deployment_region,
+    ule.created_at
+FROM user_llm_entitlements AS ule
+JOIN users AS u ON ule.user_id = u.user_id
+ORDER BY ule.created_at DESC;
+
+===============================================================================
 */

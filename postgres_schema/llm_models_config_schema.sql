@@ -1,3 +1,6 @@
+----      LLM Model catalog with Configurations      ----
+
+
 -- Drop table if it exists (for clean slate)
 DROP TABLE IF EXISTS llm_models CASCADE;
 -- ============================================================================
@@ -52,6 +55,25 @@ CREATE TABLE IF NOT EXISTS llm_models (
     PRIMARY KEY (llm_provider, llm_model_name)
 );
 COMMENT ON TABLE llm_models IS 'Catalog of LLM models, tracking configurations and usage metrics';
+
+-- ============================================================================
+-- TRIGGER - AUTO-UPDATE updated_at TIMESTAMP
+-- Automatically updates the updated_at column on any row modification
+-- ============================================================================
+CREATE OR REPLACE FUNCTION update_llm_models_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_llm_models_updated_at
+BEFORE UPDATE ON llm_models
+FOR EACH ROW
+EXECUTE FUNCTION update_llm_models_updated_at_column();
+
+COMMENT ON FUNCTION update_llm_models_updated_at_column() IS 'Automatically updates updated_at timestamp on LLM model modifications';
 COMMENT ON COLUMN llm_models.llm_provider IS 'LLM provider name (e.g., openai, gemini, anthropic)';
 COMMENT ON COLUMN llm_models.llm_model_name IS 'Name of the LLM model (e.g., GPT-4)';
 COMMENT ON COLUMN llm_models.deployment_name IS 'Name of the LLM deployment (e.g., gpt-4o)';
@@ -120,7 +142,7 @@ INSERT INTO llm_models (
     'openai',
     'gpt-4o',
     'gpt4o-eastus-prod',
-    'azure_openai',
+    'Azure',
     'AZURE_OPENAI_API_KEY_GPT4O',
     'https://my-resource.openai.azure.com/',
     'eastus',
@@ -140,7 +162,7 @@ INSERT INTO llm_models (
 ) VALUES (
     'anthropic',
     'claude-3-5-sonnet-20240620',
-    'aws_bedrock',
+    'Amazon Web Services',
     'us-west-2',
     4096,
     40000,
@@ -158,7 +180,7 @@ INSERT INTO llm_models (
 ) VALUES (
     'gemini',
     'gemini-pro',
-    'google_vertex',
+    'Google Cloud Platform',
     'us-central1',
     'GOOGLE_CLOUD_API_KEY',
     30720,
@@ -193,7 +215,7 @@ INSERT INTO llm_models (
     'openai',
     'gpt-4',
     'gpt4-global-high-capacity',
-    'azure_openai',
+    'Azure',
     'AZURE_OPENAI_API_KEY_GPT4',
     'https://high-capacity-resource.openai.azure.com/',
     'eastus2',
@@ -247,7 +269,7 @@ INSERT INTO llm_models (
     'gpt-4o',
     '2024-08-06',
     'gpt4o-versioned-eastus',
-    'azure_openai',
+    'Azure',
     'AZURE_OPENAI_API_KEY_GPT4O_V1',
     'https://versioned-resource.openai.azure.com/',
     'eastus',
@@ -295,7 +317,7 @@ SELECT
     tokens_per_minute_limit,
     requests_per_minute_limit
 FROM llm_models
-WHERE cloud_provider = 'azure_openai'
+WHERE cloud_provider = 'Azure'
   AND deployment_region = 'eastus'
   AND is_active_status = true
 ORDER BY max_tokens DESC;
@@ -380,7 +402,7 @@ UPDATE llm_models
 SET
     is_active_status = true,
     updated_at = CURRENT_TIMESTAMP
-WHERE cloud_provider = 'azure_openai'
+WHERE cloud_provider = 'Azure'
   AND deployment_region = 'eastus'
   AND is_active_status = false;
 

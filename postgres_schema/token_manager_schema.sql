@@ -1,3 +1,6 @@
+----      Token Manager for LLM Token Allocation and Release     ----
+
+
 -- Drop table if it exists (for clean slate)
 DROP TABLE IF EXISTS token_manager CASCADE;
 -- ============================================================================
@@ -53,12 +56,16 @@ CREATE TABLE IF NOT EXISTS token_manager (
     seed INTEGER,
 
     -- PAUSED allocations must have an expiration to prevent permanent blocking
-    CONSTRAINT chk_pause_must_expire CHECK (allocation_status != 'PAUSED' OR expires_at IS NOT NULL)
+    CONSTRAINT chk_pause_must_expire CHECK (allocation_status != 'PAUSED' OR expires_at IS NOT NULL),
+    CONSTRAINT fk_token_manager_llm_models
+    FOREIGN KEY (llm_provider, llm_model_name)
+    REFERENCES llm_models(llm_provider, llm_model_name)
+    ON DELETE CASCADE
 );
 COMMENT ON TABLE token_manager IS 'Central gateway for token allocations, ensuring fair usage, cost control, and regional resilience';
 COMMENT ON COLUMN token_manager.token_request_id IS 'Unique identifier for the token allocation request';
 COMMENT ON COLUMN token_manager.llm_model_name IS 'Name of the LLM model (e.g., GPT-4)';
-COMMENT ON COLUMN token_manager.llm_provider IS 'Provider of the LLM model (e.g., openai, anthropic, azure_openai)';
+COMMENT ON COLUMN token_manager.llm_provider IS 'Provider of the LLM model (e.g., openai, anthropic, gemini)';
 COMMENT ON COLUMN token_manager.deployment_name IS 'Specific deployment of the model, if applicable';
 COMMENT ON COLUMN token_manager.cloud_provider IS 'Cloud provider hosting the LLM (e.g., Azure, AWS), if applicable';
 COMMENT ON COLUMN token_manager.api_endpoint_url IS 'API endpoint for the selected LLM instance, if applicable';
@@ -130,7 +137,7 @@ INSERT INTO token_manager (
     '550e8400-e29b-41d4-a716-446655440000',
     'gpt-4o',
     'openai',
-    'azure_openai',
+    'Azure',
     'gpt4o-eastus-prod',
     'https://my-resource.openai.azure.com/',
     'eastus',
@@ -150,7 +157,7 @@ INSERT INTO token_manager (
     '550e8400-e29b-41d4-a716-446655440000',
     'claude-3-5-sonnet-20240620',
     'anthropic',
-    'aws_bedrock',
+    'Amazon Web Services',
     'us-west-2',
     1800,
     'ACQUIRED',
@@ -167,7 +174,7 @@ INSERT INTO token_manager (
     '550e8400-e29b-41d4-a716-446655440000',
     'gemini-pro',
     'gemini',
-    'google_vertex',
+    'Google Cloud Platform',
     'us-central1',
     1200,
     'ACQUIRED',
@@ -202,7 +209,7 @@ INSERT INTO token_manager (
     '550e8400-e29b-41d4-a716-446655440000',
     'gpt-4o',
     'openai',
-    'azure_openai',
+    'Azure',
     'gpt4o-eastus-prod',
     'eastus',
     3000,
@@ -291,7 +298,7 @@ SELECT
     tm.allocation_status
 FROM token_manager tm
 JOIN users u ON tm.user_id = u.user_id
-WHERE tm.cloud_provider = 'azure_openai'
+WHERE tm.cloud_provider = 'Azure'
   AND tm.deployment_region = 'eastus'
 ORDER BY tm.allocated_at DESC;
 

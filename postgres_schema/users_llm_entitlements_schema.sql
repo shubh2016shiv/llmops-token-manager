@@ -1,3 +1,6 @@
+----      User LLM Entitlements for LLM Token Allocation and Release     ----
+
+
 -- Drop table if it exists (for clean slate)
 DROP TABLE IF EXISTS user_llm_entitlements CASCADE;
 
@@ -14,7 +17,7 @@ CREATE TABLE IF NOT EXISTS user_llm_entitlements (
 
     -- Core References: Specifies the entitled provider and model
     llm_provider TEXT NOT NULL CHECK (llm_provider IN (
-       'openai',
+        'openai',
         'gemini',
         'anthropic',
         'cohere',
@@ -50,7 +53,7 @@ CREATE TABLE IF NOT EXISTS user_llm_entitlements (
     -- Audit Trail: Tracks creation, updates, and admin actions
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    created_by_user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE RESTRICT,
+    created_by_user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
 
     -- Foreign Key: Ensures the LLM model exists in the catalog (optional - remove if not needed)
     -- Note: This FK can be removed since we're using application-level validation
@@ -68,12 +71,12 @@ CREATE TABLE IF NOT EXISTS user_llm_entitlements (
 COMMENT ON TABLE user_llm_entitlements IS 'Maps users to their entitled LLM configurations with API key storage, supporting both direct and cloud providers';
 COMMENT ON COLUMN user_llm_entitlements.entitlement_id IS 'Unique identifier for the entitlement record';
 COMMENT ON COLUMN user_llm_entitlements.user_id IS 'User who has the entitlement (references users.user_id)';
-COMMENT ON COLUMN user_llm_entitlements.llm_provider IS 'LLM provider type (e.g., openai, anthropic, azure_openai) - all ProviderType enum values supported';
+COMMENT ON COLUMN user_llm_entitlements.llm_provider IS 'LLM provider type (e.g., openai, anthropic, gemini) - all ProviderType enum values supported';
 COMMENT ON COLUMN user_llm_entitlements.llm_model_name IS 'Logical model name (e.g., gpt-4o, claude-3-5-sonnet)';
 COMMENT ON COLUMN user_llm_entitlements.api_key_variable_name IS 'Environment variable name for API key';
 COMMENT ON COLUMN user_llm_entitlements.api_key_value IS 'Encrypted API key for the LLM provider (use pgcrypto for at-rest encryption)';
 COMMENT ON COLUMN user_llm_entitlements.api_endpoint_url IS 'Specific API endpoint URL (nullable for some providers)';
-COMMENT ON COLUMN user_llm_entitlements.cloud_provider IS 'Cloud provider hosting the LLM (e.g., azure_openai, google_vertex, aws_bedrock)';
+COMMENT ON COLUMN user_llm_entitlements.cloud_provider IS 'Cloud provider hosting the LLM (e.g., Azure, Google Cloud Platform, Amazon Web Services)';
 COMMENT ON COLUMN user_llm_entitlements.deployment_name IS 'Physical deployment identifier for cloud providers';
 COMMENT ON COLUMN user_llm_entitlements.deployment_region IS 'Region where the model is deployed on the cloud provider';
 COMMENT ON COLUMN user_llm_entitlements.created_at IS 'When the entitlement was created';
@@ -156,7 +159,7 @@ INSERT INTO user_llm_entitlements (
     'AZURE_OPENAI_API_KEY',
     'encrypted_azure_key',
     'https://my-resource.openai.azure.com/',
-    'azure_openai',
+    'Azure',
     'gpt4o-eastus-prod',
     'eastus',
     'admin-uuid-here'
@@ -173,7 +176,7 @@ INSERT INTO user_llm_entitlements (
     'claude-3-5-sonnet-20240620',
     'AWS_ACCESS_KEY_ID',
     'encrypted_aws_key',
-    'aws_bedrock',
+    'Amazon Web Services',
     'us-west-2',
     'admin-uuid-here'
 );
@@ -213,7 +216,7 @@ INSERT INTO user_llm_entitlements (
     'gemini-pro',
     'GOOGLE_CLOUD_API_KEY',
     'encrypted_gcp_key',
-    'google_vertex',
+    'Google Cloud Platform',
     'us-central1',
     'admin-uuid-here'
 );
@@ -228,7 +231,7 @@ SELECT
     ule.api_endpoint_url
 FROM user_llm_entitlements AS ule
 JOIN users AS u ON ule.user_id = u.user_id
-WHERE ule.cloud_provider = 'azure_openai'
+WHERE ule.cloud_provider = 'Azure'
 ORDER BY ule.deployment_region, ule.llm_model_name;
 
 -- Example 8: Query entitlements by deployment region for geographic load balancing

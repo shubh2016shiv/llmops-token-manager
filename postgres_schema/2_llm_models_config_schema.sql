@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS llm_models (
     requests_per_minute_limit INTEGER,
     -- Configuration: Indicates if the model is available for use
     is_active_status BOOLEAN NOT NULL DEFAULT true,
-    temperature FLOAT,
+    temperature FLOAT NOT NULL DEFAULT 0.7,
+    top_p FLOAT NOT NULL DEFAULT 1.0,
     random_seed INTEGER,
     deployment_region TEXT,
     -- Audit Trail: Tracks model creation, updates, and last usage
@@ -86,6 +87,7 @@ COMMENT ON COLUMN llm_models.tokens_per_minute_limit IS 'Token rate limit per mi
 COMMENT ON COLUMN llm_models.requests_per_minute_limit IS 'Request rate limit per minute';
 COMMENT ON COLUMN llm_models.is_active_status IS 'Indicates if the model is available for use';
 COMMENT ON COLUMN llm_models.temperature IS 'Temperature for the LLM model';
+COMMENT ON COLUMN llm_models.top_p IS 'Top P (nucleus sampling) parameter for the LLM model';
 COMMENT ON COLUMN llm_models.random_seed IS 'Random seed for the LLM model';
 COMMENT ON COLUMN llm_models.deployment_region IS 'Deployment region of the LLM instance (e.g., eastus2, westus2)';
 

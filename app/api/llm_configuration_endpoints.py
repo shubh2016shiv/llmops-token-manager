@@ -97,6 +97,7 @@ async def create_llm_model(
             api_endpoint_url=request.api_endpoint_url,
             is_active_status=request.is_active_status,
             temperature=request.temperature,
+            top_p=request.top_p,
             random_seed=request.random_seed,
             deployment_region=request.deployment_region,
         )
@@ -336,6 +337,7 @@ async def update_llm_model(
             requests_per_minute_limit=request.requests_per_minute_limit,
             is_active_status=request.is_active_status,
             temperature=request.temperature,
+            top_p=request.top_p,
             random_seed=request.random_seed,
             deployment_region=request.deployment_region,
         )

@@ -59,6 +59,7 @@ def sample_llm_model_data():
         "requests_per_minute_limit": 1000,
         "is_active_status": True,
         "temperature": 0.7,
+        "top_p": 1.0,
         "random_seed": 42,
         "deployment_region": "eastus2",
         "created_at": datetime.now(timezone.utc),
@@ -81,6 +82,7 @@ def sample_create_request():
         "api_endpoint_url": "https://api.openai.com/v1",
         "is_active_status": True,
         "temperature": 0.7,
+        "top_p": 1.0,
         "random_seed": 42,
         "deployment_region": "eastus2",
     }
@@ -94,6 +96,7 @@ def sample_update_request():
         "tokens_per_minute_limit": 200000,
         "is_active_status": True,
         "temperature": 0.5,
+        "top_p": 0.9,
         "deployment_region": "westus2",
     }
 
@@ -184,6 +187,7 @@ class TestCreateLLMModel:
             == sample_create_request["is_active_status"]
         )
         assert call_args[1]["temperature"] == sample_create_request["temperature"]
+        assert call_args[1]["top_p"] == sample_create_request["top_p"]
         assert call_args[1]["random_seed"] == sample_create_request["random_seed"]
         assert (
             call_args[1]["deployment_region"]

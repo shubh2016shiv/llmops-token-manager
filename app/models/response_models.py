@@ -283,9 +283,8 @@ class LLMModelResponse(BaseModel):
         default=None, description="Request rate limit per minute"
     )
     is_active_status: bool = Field(..., description="Whether model is currently active")
-    temperature: Optional[float] = Field(
-        default=None, description="Default temperature setting"
-    )
+    temperature: float = Field(..., description="Default temperature setting")
+    top_p: float = Field(..., description="Default top_p (nucleus sampling) setting")
     random_seed: Optional[int] = Field(
         default=None, description="Random seed for reproducible results"
     )
@@ -328,6 +327,7 @@ class LLMModelResponse(BaseModel):
                 "requests_per_minute_limit": 1000,
                 "is_active_status": True,
                 "temperature": 0.7,
+                "top_p": 1.0,
                 "random_seed": 42,
                 "deployment_region": "eastus2",
                 "created_at": "2025-09-01T08:00:00Z",
@@ -378,6 +378,7 @@ class LLMModelListResponse(BaseModel):
                         "requests_per_minute_limit": 1000,
                         "is_active_status": True,
                         "temperature": 0.7,
+                        "top_p": 1.0,
                         "random_seed": 42,
                         "deployment_region": "eastus2",
                         "created_at": "2025-09-01T08:00:00Z",

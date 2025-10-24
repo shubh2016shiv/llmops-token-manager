@@ -70,6 +70,7 @@ class LLMModelsService(BaseDatabaseService):
         tokens_per_minute_limit: Optional[int] = None,
         requests_per_minute_limit: Optional[int] = None,
         temperature_value: Optional[float] = None,
+        top_p_value: Optional[float] = None,
         random_seed: Optional[int] = None,
     ) -> None:
         """
@@ -80,6 +81,7 @@ class LLMModelsService(BaseDatabaseService):
             tokens_per_minute_limit: Optional token rate limit per minute
             requests_per_minute_limit: Optional request rate limit per minute
             temperature_value: Optional temperature setting (0.0 to 2.0)
+            top_p_value: Optional top_p setting (0.0 to 1.0)
             random_seed: Optional random seed for reproducibility
 
         Raises:
@@ -107,6 +109,14 @@ class LLMModelsService(BaseDatabaseService):
                     f"got {temperature_value}"
                 )
 
+        if top_p_value is not None:
+            if not isinstance(top_p_value, (int, float)):
+                raise ValueError("top_p_value must be a number")
+            if not (0.0 <= top_p_value <= 1.0):
+                raise ValueError(
+                    f"top_p_value must be between 0.0 and 1.0, got {top_p_value}"
+                )
+
         if random_seed is not None and not isinstance(random_seed, int):
             raise ValueError("random_seed must be an integer")
 
@@ -125,7 +135,8 @@ class LLMModelsService(BaseDatabaseService):
         deployment_name: Optional[str] = None,
         api_endpoint_url: Optional[str] = None,
         is_active_status: bool = True,
-        temperature: Optional[float] = None,
+        temperature: float = 0.7,
+        top_p: float = 1.0,
         random_seed: Optional[int] = None,
         deployment_region: Optional[str] = None,
         llm_model_version: Optional[str] = None,
@@ -144,7 +155,8 @@ class LLMModelsService(BaseDatabaseService):
             tokens_per_minute_limit: Optional token rate limit per minute
             requests_per_minute_limit: Optional request rate limit per minute
             is_active_status: Whether model is active (default: True)
-            temperature: Optional temperature setting (0.0 to 2.0)
+            temperature: Temperature setting (0.0 to 2.0), default 0.7
+            top_p: Top_p (nucleus sampling) setting (0.0 to 1.0), default 1.0
             random_seed: Optional seed for reproducibility
             deployment_region: Optional geographic region identifier
 
@@ -163,6 +175,7 @@ class LLMModelsService(BaseDatabaseService):
             tokens_per_minute_limit=tokens_per_minute_limit,
             requests_per_minute_limit=requests_per_minute_limit,
             temperature_value=temperature,
+            top_p_value=top_p,
             random_seed=random_seed,
         )
 
@@ -172,11 +185,11 @@ class LLMModelsService(BaseDatabaseService):
                     INSERT INTO llm_models (
                         llm_provider, llm_model_name, deployment_name, api_key_variable_name,
                         api_endpoint_url, llm_model_version, max_tokens, tokens_per_minute_limit,
-                        requests_per_minute_limit, is_active_status, temperature, random_seed, deployment_region
+                        requests_per_minute_limit, is_active_status, temperature, top_p, random_seed, deployment_region
                     ) VALUES (
                         :llm_provider, :llm_model_name, :deployment_name, :api_key_variable_name,
                         :api_endpoint_url, :llm_model_version, :max_tokens, :tokens_per_minute_limit,
-                        :requests_per_minute_limit, :is_active_status, :temperature, :random_seed, :deployment_region
+                        :requests_per_minute_limit, :is_active_status, :temperature, :top_p, :random_seed, :deployment_region
                     )
                     RETURNING *
                 """
@@ -193,6 +206,7 @@ class LLMModelsService(BaseDatabaseService):
                     "requests_per_minute_limit": requests_per_minute_limit,
                     "is_active_status": is_active_status,
                     "temperature": temperature,
+                    "top_p": top_p,
                     "random_seed": random_seed,
                     "deployment_region": deployment_region,
                 }
@@ -405,6 +419,7 @@ class LLMModelsService(BaseDatabaseService):
         requests_per_minute_limit: Optional[int] = None,
         is_active_status: Optional[bool] = None,
         temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
         random_seed: Optional[int] = None,
         deployment_region: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
@@ -431,6 +446,7 @@ class LLMModelsService(BaseDatabaseService):
             requests_per_minute_limit: Optional new request rate limit per minute.
             is_active_status: Optional new active status (True/False).
             temperature: Optional new temperature value (0.0 to 2.0).
+            top_p: Optional new top_p value (0.0 to 1.0).
             random_seed: Optional new random seed for reproducibility.
             deployment_region: Optional new deployment region (e.g., 'eastus2').
 
@@ -476,6 +492,8 @@ class LLMModelsService(BaseDatabaseService):
             update_fields_dict["is_active_status"] = is_active_status
         if temperature is not None:
             update_fields_dict["temperature"] = temperature
+        if top_p is not None:
+            update_fields_dict["top_p"] = top_p
         if random_seed is not None:
             update_fields_dict["random_seed"] = random_seed
         if deployment_region is not None:

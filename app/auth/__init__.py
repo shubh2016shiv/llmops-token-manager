@@ -65,8 +65,8 @@ from app.models.auth_models import (
     AuthLoginRequest,
 )
 
-# Router for auth endpoints
-from app.api.auth_endpoints import router as auth_router
+# Router for auth endpoints (imported separately to avoid circular imports)
+# from app.api.auth_endpoints import router as auth_router
 
 __all__ = [
     # Dependencies
@@ -95,6 +95,6 @@ __all__ = [
     "AuthTokenRefreshRequest",
     "AuthTokenGenerateRequest",
     "AuthLoginRequest",
-    # Router
-    "auth_router",
+    # Router (commented out to avoid circular imports)
+    # "auth_router",
 ]

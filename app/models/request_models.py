@@ -748,11 +748,18 @@ class LLMModelCreateRequest(BaseModel):
         description="Whether the model is active for token allocation",
     )
 
-    temperature: Optional[float] = Field(
-        default=None,
+    temperature: float = Field(
+        default=0.7,
         description="Default temperature setting (0.0 to 2.0)",
         ge=0.0,
         le=2.0,
+    )
+
+    top_p: float = Field(
+        default=1.0,
+        description="Default top_p (nucleus sampling) setting (0.0 to 1.0)",
+        ge=0.0,
+        le=1.0,
     )
 
     random_seed: Optional[int] = Field(
@@ -796,6 +803,7 @@ class LLMModelCreateRequest(BaseModel):
                 "api_endpoint_url": "https://api.openai.com/v1",
                 "is_active_status": True,
                 "temperature": 0.7,
+                "top_p": 1.0,
                 "random_seed": 42,
                 "deployment_region": "eastus2",
             }
@@ -885,6 +893,13 @@ class LLMModelUpdateRequest(BaseModel):
         le=2.0,
     )
 
+    top_p: Optional[float] = Field(
+        default=None,
+        description="Updated top_p (nucleus sampling) setting (0.0 to 1.0)",
+        ge=0.0,
+        le=1.0,
+    )
+
     random_seed: Optional[int] = Field(
         default=None,
         description="Updated random seed for reproducible results",
@@ -904,6 +919,7 @@ class LLMModelUpdateRequest(BaseModel):
                 "tokens_per_minute_limit": 200000,
                 "is_active_status": True,
                 "temperature": 0.5,
+                "top_p": 0.9,
                 "deployment_region": "westus2",
             }
         }

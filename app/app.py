@@ -28,7 +28,7 @@ from app.api import (
     token_manager_endpoints,
     user_entitlement_endpoints,
 )
-from app.auth import auth_router
+from app.api.auth_endpoints import router as auth_router
 
 
 @asynccontextmanager

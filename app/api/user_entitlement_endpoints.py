@@ -324,6 +324,9 @@ async def delete_entitlement(
                 detail=f"User with ID '{user_id}' not found",
             )
 
+        # Get current user details for admin username
+        current_user_details = await users_service.get_user_by_id(current_user.user_id)
+
         # Delete entitlement
         was_deleted = await entitlements_service.delete_entitlement(entitlement_id)
 
@@ -350,8 +353,8 @@ async def delete_entitlement(
             },
             "deleted_by": {
                 "admin_user_id": str(current_user.user_id),
-                "admin_username": current_user.username
-                if hasattr(current_user, "username")
+                "admin_username": current_user_details.username
+                if current_user_details
                 else "N/A",
             },
             "message": f"Entitlement for {user_details.username if user_details else 'user'} ({user_details.email if user_details else 'N/A'}) has been successfully deleted",

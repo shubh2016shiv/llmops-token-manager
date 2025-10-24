@@ -925,17 +925,36 @@ class TestDeleteEntitlement:
         from uuid import UUID
         from app.models.response_models import UserResponse
 
-        mock_users_service_instance.get_user_by_id.return_value = UserResponse(
-            user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
-            username="testuser",
-            email="test@example.com",
-            first_name="Test",
-            last_name="User",
-            role="developer",
-            status="active",
-            created_at=None,
-            updated_at=None,
-        )
+        # Mock get_user_by_id to return different users based on UUID
+        def mock_get_user_by_id(user_id):
+            if str(user_id) == "550e8400-e29b-41d4-a716-446655440000":
+                # Target user
+                return UserResponse(
+                    user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
+                    username="testuser",
+                    email="test@example.com",
+                    first_name="Test",
+                    last_name="User",
+                    role="developer",
+                    status="active",
+                    created_at=None,
+                    updated_at=None,
+                )
+            else:
+                # Admin user (current_user.user_id)
+                return UserResponse(
+                    user_id=user_id,
+                    username="adminuser",
+                    email="admin@example.com",
+                    first_name="Admin",
+                    last_name="User",
+                    role="admin",
+                    status="active",
+                    created_at=None,
+                    updated_at=None,
+                )
+
+        mock_users_service_instance.get_user_by_id.side_effect = mock_get_user_by_id
 
         # Override auth dependency
         override_auth_dependency(app, mock_admin_user)
@@ -952,6 +971,8 @@ class TestDeleteEntitlement:
         assert data["user_details"]["email"] == "test@example.com"
         assert data["entitlement_details"]["llm_provider"] == "openai"
         assert data["entitlement_details"]["llm_model_name"] == "gpt-4o"
+        assert data["deleted_by"]["admin_username"] == "adminuser"
+        assert data["deleted_by"]["admin_username"] != "N/A"
         mock_entitlements_service_instance.delete_entitlement.assert_called_once_with(1)
 
     @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
@@ -985,17 +1006,36 @@ class TestDeleteEntitlement:
         from uuid import UUID
         from app.models.response_models import UserResponse
 
-        mock_users_service_instance.get_user_by_id.return_value = UserResponse(
-            user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
-            username="testuser",
-            email="test@example.com",
-            first_name="Test",
-            last_name="User",
-            role="developer",
-            status="active",
-            created_at=None,
-            updated_at=None,
-        )
+        # Mock get_user_by_id to return different users based on UUID
+        def mock_get_user_by_id(user_id):
+            if str(user_id) == "550e8400-e29b-41d4-a716-446655440000":
+                # Target user
+                return UserResponse(
+                    user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
+                    username="testuser",
+                    email="test@example.com",
+                    first_name="Test",
+                    last_name="User",
+                    role="developer",
+                    status="active",
+                    created_at=None,
+                    updated_at=None,
+                )
+            else:
+                # Owner user (current_user.user_id)
+                return UserResponse(
+                    user_id=user_id,
+                    username="owneruser",
+                    email="owner@example.com",
+                    first_name="Owner",
+                    last_name="User",
+                    role="owner",
+                    status="active",
+                    created_at=None,
+                    updated_at=None,
+                )
+
+        mock_users_service_instance.get_user_by_id.side_effect = mock_get_user_by_id
 
         # Override auth dependency
         override_auth_dependency(app, mock_owner_user)
@@ -1007,6 +1047,8 @@ class TestDeleteEntitlement:
         assert response.status_code == 200
         data = response.json()
         assert data["deletion_status"] == "success"
+        assert data["deleted_by"]["admin_username"] == "owneruser"
+        assert data["deleted_by"]["admin_username"] != "N/A"
         mock_entitlements_service_instance.delete_entitlement.assert_called_once_with(1)
 
     def test_delete_entitlement_forbidden_as_developer(
@@ -1144,17 +1186,36 @@ class TestDeleteEntitlement:
         from uuid import UUID
         from app.models.response_models import UserResponse
 
-        mock_users_service_instance.get_user_by_id.return_value = UserResponse(
-            user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
-            username="testuser",
-            email="test@example.com",
-            first_name="Test",
-            last_name="User",
-            role="developer",
-            status="active",
-            created_at=None,
-            updated_at=None,
-        )
+        # Mock get_user_by_id to return different users based on UUID
+        def mock_get_user_by_id(user_id):
+            if str(user_id) == "550e8400-e29b-41d4-a716-446655440000":
+                # Target user
+                return UserResponse(
+                    user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
+                    username="testuser",
+                    email="test@example.com",
+                    first_name="Test",
+                    last_name="User",
+                    role="developer",
+                    status="active",
+                    created_at=None,
+                    updated_at=None,
+                )
+            else:
+                # Admin user (current_user.user_id)
+                return UserResponse(
+                    user_id=user_id,
+                    username="adminuser",
+                    email="admin@example.com",
+                    first_name="Admin",
+                    last_name="User",
+                    role="admin",
+                    status="active",
+                    created_at=None,
+                    updated_at=None,
+                )
+
+        mock_users_service_instance.get_user_by_id.side_effect = mock_get_user_by_id
 
         # Override auth dependency
         override_auth_dependency(app, mock_admin_user)
@@ -1168,6 +1229,8 @@ class TestDeleteEntitlement:
         assert "deletion_status" in data
         assert "user_details" in data
         assert "entitlement_details" in data
+        assert data["deleted_by"]["admin_username"] == "adminuser"
+        assert data["deleted_by"]["admin_username"] != "N/A"
 
     @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
     @patch("app.api.user_entitlement_endpoints.UsersService")

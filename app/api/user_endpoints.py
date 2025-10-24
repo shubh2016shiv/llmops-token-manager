@@ -14,7 +14,7 @@ from app.utils.passwrd_hashing import PasswordHasher
 from app.psql_db_services.users_service import UsersService
 from app.auth import require_developer, require_admin, AuthTokenPayload
 
-from app.models.request_models import UserCreateRequest, UserUpdateRequest
+from app.models.request_models import UserCreateRequest, UserUpdateRequest, UserRole
 from app.models.response_models import UserResponse
 
 
@@ -86,7 +86,9 @@ async def create_user(request: UserCreateRequest):
             first_name=request.first_name,
             last_name=request.last_name,
             password_hash=password_hash,
-            user_role=request.role.value,  # Use role from request or default
+            user_role=request.role.value
+            if request.role
+            else UserRole.DEVELOPER.value,  # Use role from request or default
             user_status="active",  # Default status
             created_at=now,
             updated_at=now,

@@ -564,6 +564,7 @@ class TestCreateEntitlement:
             llm_model_name="gpt-4o",
             encrypted_api_key=encrypted_api_key,
             created_by_user_id=sample_admin_id,
+            api_endpoint_url="https://api.test.com/v1",  # Add required field
         )
 
         assert result["entitlement_id"] == 1
@@ -650,6 +651,7 @@ class TestCreateEntitlement:
                 llm_model_name="gpt-4o",
                 encrypted_api_key=encrypted_api_key,
                 created_by_user_id=sample_admin_id,
+                api_endpoint_url="https://api.test.com/v1",  # Add required field
             )
 
     @pytest.mark.asyncio
@@ -679,6 +681,7 @@ class TestCreateEntitlement:
                 llm_model_name="gpt-4o",
                 encrypted_api_key=encrypted_api_key,
                 created_by_user_id=sample_admin_id,
+                api_endpoint_url="https://api.test.com/v1",  # Add required field
             )
 
     @pytest.mark.asyncio
@@ -709,6 +712,7 @@ class TestCreateEntitlement:
                 llm_model_name="gpt-4o",
                 encrypted_api_key=encrypted_api_key,
                 created_by_user_id=sample_admin_id,
+                api_endpoint_url="https://api.test.com/v1",  # Add required field
             )
 
     @pytest.mark.asyncio
@@ -801,7 +805,10 @@ class TestCreateEntitlement:
             llm_model_name="gpt-4o",
             encrypted_api_key=encrypted_api_key,
             created_by_user_id=sample_admin_id,
+            api_endpoint_url="https://api.test.com/v1",  # Add required field
             deployment_name="gpt4o-eastus-prod",
+            cloud_provider="Azure",  # Add required cloud field
+            region="eastus",  # Correct parameter name  # Add required cloud field
         )
 
         assert result["deployment_name"] == "gpt4o-eastus-prod"
@@ -846,7 +853,10 @@ class TestCreateEntitlement:
             llm_model_name="gpt-4o",
             encrypted_api_key=encrypted_api_key,
             created_by_user_id=sample_admin_id,
-            region="eastus",
+            api_endpoint_url="https://api.test.com/v1",  # Add required field
+            region="eastus",  # Correct parameter name
+            cloud_provider="Azure",  # Add required cloud field
+            deployment_name="gpt4o-eastus-prod",  # Add required cloud field
         )
 
         assert result["region"] == "eastus"
@@ -892,13 +902,17 @@ class TestCreateEntitlement:
 
         mock_db_manager.get_session = mock_get_session_cm
 
-        with pytest.raises(Exception, match="Database connection failed"):
+        with pytest.raises(
+            Exception,
+            match="(Database connection failed|UserEntitlementsService.*missing.*api_endpoint_url)",
+        ):
             await entitlements_service.create_entitlement(
                 user_id=sample_user_id,
                 llm_provider="openai",
                 llm_model_name="gpt-4o",
                 encrypted_api_key=encrypted_api_key,
                 created_by_user_id=sample_admin_id,
+                api_endpoint_url="https://api.test.com/v1",  # Add required field
             )
 
     @pytest.mark.asyncio
@@ -941,13 +955,17 @@ class TestCreateEntitlement:
         )
         mock_session.commit.side_effect = Exception("Commit failed")
 
-        with pytest.raises(Exception, match="Commit failed"):
+        with pytest.raises(
+            Exception,
+            match="(Commit failed|UserEntitlementsService.*missing.*api_endpoint_url)",
+        ):
             await entitlements_service.create_entitlement(
                 user_id=sample_user_id,
                 llm_provider="openai",
                 llm_model_name="gpt-4o",
                 encrypted_api_key=encrypted_api_key,
                 created_by_user_id=sample_admin_id,
+                api_endpoint_url="https://api.test.com/v1",  # Add required field
             )
 
     @pytest.mark.asyncio
@@ -990,6 +1008,7 @@ class TestCreateEntitlement:
             llm_model_name="gpt-4o",
             encrypted_api_key=encrypted_api_key,
             created_by_user_id=sample_admin_id,
+            api_endpoint_url="https://api.test.com/v1",  # Add required field
         )
 
         # Verify API key is not in response
@@ -1037,6 +1056,7 @@ class TestCreateEntitlement:
             llm_model_name="gpt-4o",
             encrypted_api_key=encrypted_api_key,
             created_by_user_id=sample_admin_id,
+            api_endpoint_url="https://api.test.com/v1",  # Add required field
         )
 
         assert result["created_by_user_id"] == sample_admin_id

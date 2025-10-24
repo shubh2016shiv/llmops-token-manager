@@ -305,6 +305,7 @@ class TestLLMModelsServiceCreate:
             llm_provider="openai",
             llm_model_name="gpt-4",
             api_key_variable_name="test-key",
+            api_endpoint_url="https://api.test.com/v1",  # Add required field
             llm_model_version=None,
             max_tokens=4096,
             tokens_per_minute_limit=10000,
@@ -330,6 +331,7 @@ class TestLLMModelsServiceCreate:
                 llm_provider="openai",
                 llm_model_name="gpt-4",
                 api_key_variable_name="test-key",
+                api_endpoint_url="https://api.test.com/v1",  # Add required field
                 llm_model_version=None,
                 max_tokens=4096,
                 tokens_per_minute_limit=10000,
@@ -352,6 +354,7 @@ class TestLLMModelsServiceCreate:
                 llm_provider="invalid",
                 llm_model_name="gpt-4",
                 api_key_variable_name="test-key",
+                api_endpoint_url="https://api.test.com/v1",  # Add required field
                 llm_model_version=None,
                 max_tokens=4096,
                 tokens_per_minute_limit=10000,
@@ -369,6 +372,7 @@ class TestLLMModelsServiceCreate:
                 llm_provider="openai",
                 llm_model_name="gpt-4",
                 api_key_variable_name="test-key",
+                api_endpoint_url="https://api.test.com/v1",  # Add required field
                 llm_model_version=None,
                 max_tokens=4096,
                 tokens_per_minute_limit=10000,
@@ -391,6 +395,7 @@ class TestLLMModelsServiceCreate:
                 llm_provider="openai",
                 llm_model_name="gpt-4",
                 api_key_variable_name="test-key",
+                api_endpoint_url="https://api.test.com/v1",  # Add required field
                 llm_model_version=None,
                 max_tokens=4096,
                 tokens_per_minute_limit=10000,

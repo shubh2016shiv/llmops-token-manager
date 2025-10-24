@@ -43,8 +43,8 @@ def mock_developer_user():
     return AuthTokenPayload(
         user_id=uuid4(),
         role="developer",
-        exp=datetime.utcnow() + timedelta(hours=24),
-        iat=datetime.utcnow(),
+        expire_at_time=datetime.utcnow() + timedelta(hours=24),
+        issued_at_time=datetime.utcnow(),
         type="access",
     )
 
@@ -57,8 +57,8 @@ def mock_operator_user():
     return AuthTokenPayload(
         user_id=uuid4(),
         role="operator",
-        exp=datetime.utcnow() + timedelta(hours=24),
-        iat=datetime.utcnow(),
+        expire_at_time=datetime.utcnow() + timedelta(hours=24),
+        issued_at_time=datetime.utcnow(),
         type="access",
     )
 
@@ -71,8 +71,8 @@ def mock_admin_user():
     return AuthTokenPayload(
         user_id=uuid4(),
         role="admin",
-        exp=datetime.utcnow() + timedelta(hours=24),
-        iat=datetime.utcnow(),
+        expire_at_time=datetime.utcnow() + timedelta(hours=24),
+        issued_at_time=datetime.utcnow(),
         type="access",
     )
 
@@ -85,8 +85,8 @@ def mock_owner_user():
     return AuthTokenPayload(
         user_id=uuid4(),
         role="owner",
-        exp=datetime.utcnow() + timedelta(hours=24),
-        iat=datetime.utcnow(),
+        expire_at_time=datetime.utcnow() + timedelta(hours=24),
+        issued_at_time=datetime.utcnow(),
         type="access",
     )
 

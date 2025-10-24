@@ -168,8 +168,8 @@ def decode_token(token: str) -> AuthTokenPayload:
         token_payload = AuthTokenPayload(
             user_id=UUID(payload["user_id"]),
             role=payload["role"],
-            exp=exp_datetime,
-            iat=iat_datetime,
+            expire_at_time=exp_datetime,
+            issued_at_time=iat_datetime,
             type=payload["type"],
         )
 

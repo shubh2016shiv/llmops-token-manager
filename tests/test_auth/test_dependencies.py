@@ -31,8 +31,8 @@ class TestAuthDependencies:
         self.test_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="developer",
-            exp="2025-12-31T23:59:59Z",
-            iat="2025-01-01T00:00:00Z",
+            expire_at_time="2025-12-31T23:59:59Z",
+            issued_at_time="2025-01-01T00:00:00Z",
             type="access",
         )
 
@@ -76,8 +76,8 @@ class TestAuthDependencies:
         refresh_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="developer",
-            exp="2025-12-31T23:59:59Z",
-            iat="2025-01-01T00:00:00Z",
+            expire_at_time="2025-12-31T23:59:59Z",
+            issued_at_time="2025-01-01T00:00:00Z",
             type="refresh",
         )
 
@@ -187,8 +187,8 @@ class TestAuthDependencies:
         admin_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="admin",
-            exp="2025-12-31T23:59:59Z",
-            iat="2025-01-01T00:00:00Z",
+            expire_at_time="2025-12-31T23:59:59Z",
+            issued_at_time="2025-01-01T00:00:00Z",
             type="access",
         )
 
@@ -200,8 +200,8 @@ class TestAuthDependencies:
         operator_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="operator",
-            exp="2025-12-31T23:59:59Z",
-            iat="2025-01-01T00:00:00Z",
+            expire_at_time="2025-12-31T23:59:59Z",
+            issued_at_time="2025-01-01T00:00:00Z",
             type="access",
         )
 
@@ -220,8 +220,8 @@ class TestAuthDependencies:
         admin_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="admin",
-            exp="2025-12-31T23:59:59Z",
-            iat="2025-01-01T00:00:00Z",
+            expire_at_time="2025-12-31T23:59:59Z",
+            issued_at_time="2025-01-01T00:00:00Z",
             type="access",
         )
 
@@ -240,8 +240,8 @@ class TestAuthDependencies:
         owner_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="owner",
-            exp="2025-12-31T23:59:59Z",
-            iat="2025-01-01T00:00:00Z",
+            expire_at_time="2025-12-31T23:59:59Z",
+            issued_at_time="2025-01-01T00:00:00Z",
             type="access",
         )
 
@@ -253,8 +253,8 @@ class TestAuthDependencies:
         admin_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="admin",
-            exp="2025-12-31T23:59:59Z",
-            iat="2025-01-01T00:00:00Z",
+            expire_at_time="2025-12-31T23:59:59Z",
+            issued_at_time="2025-01-01T00:00:00Z",
             type="access",
         )
 
@@ -269,8 +269,8 @@ class TestAuthDependencies:
         owner_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="owner",
-            exp="2025-12-31T23:59:59Z",
-            iat="2025-01-01T00:00:00Z",
+            expire_at_time="2025-12-31T23:59:59Z",
+            issued_at_time="2025-01-01T00:00:00Z",
             type="access",
         )
 
@@ -283,8 +283,8 @@ class TestAuthDependencies:
         admin_payload = AuthTokenPayload(
             user_id=self.test_user_id,
             role="admin",
-            exp="2025-12-31T23:59:59Z",
-            iat="2025-01-01T00:00:00Z",
+            expire_at_time="2025-12-31T23:59:59Z",
+            issued_at_time="2025-01-01T00:00:00Z",
             type="access",
         )
 

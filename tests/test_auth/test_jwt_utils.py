@@ -79,8 +79,8 @@ class TestJWTUtils:
         assert payload.user_id == self.test_user_id
         assert payload.role == self.test_role
         assert payload.type == "access"
-        assert isinstance(payload.exp, datetime)
-        assert isinstance(payload.iat, datetime)
+        assert isinstance(payload.expire_at_time, datetime)
+        assert isinstance(payload.issued_at_time, datetime)
 
     def test_decode_token_invalid_format(self):
         """Test token decoding with invalid format."""
@@ -173,15 +173,15 @@ class TestJWTUtils:
         # Check all required fields are present
         assert hasattr(payload, "user_id")
         assert hasattr(payload, "role")
-        assert hasattr(payload, "exp")
-        assert hasattr(payload, "iat")
+        assert hasattr(payload, "expire_at_time")
+        assert hasattr(payload, "issued_at_time")
         assert hasattr(payload, "type")
 
         # Check field types
         assert isinstance(payload.user_id, type(self.test_user_id))
         assert isinstance(payload.role, str)
-        assert isinstance(payload.exp, datetime)
-        assert isinstance(payload.iat, datetime)
+        assert isinstance(payload.expire_at_time, datetime)
+        assert isinstance(payload.issued_at_time, datetime)
         assert isinstance(payload.type, str)
 
     def test_token_expiration_time(self):
@@ -190,13 +190,13 @@ class TestJWTUtils:
         payload = decode_token(token)
 
         # Expiration should be in the future
-        assert payload.exp > datetime.utcnow()
+        assert payload.expire_at_time > datetime.utcnow()
 
         # Should be approximately the configured hours from now
         expected_exp = datetime.utcnow() + timedelta(
             hours=settings.jwt_access_token_expire_hours
         )
-        time_diff = abs((payload.exp - expected_exp).total_seconds())
+        time_diff = abs((payload.expire_at_time - expected_exp).total_seconds())
         assert time_diff < 60  # Within 1 minute tolerance
 
     def test_token_issued_at_time(self):
@@ -211,5 +211,7 @@ class TestJWTUtils:
         # Allow for slight timing differences due to precision
         tolerance = timedelta(seconds=5)  # 5 second tolerance
         assert (
-            (before_creation - tolerance) <= payload.iat <= (after_creation + tolerance)
+            (before_creation - tolerance)
+            <= payload.issued_at_time
+            <= (after_creation + tolerance)
         )

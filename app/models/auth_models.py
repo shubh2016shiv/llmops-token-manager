@@ -26,8 +26,8 @@ class AuthTokenPayload(BaseModel):
     role: str = Field(
         ..., description="User role: developer, operator, admin, or owner"
     )
-    exp: datetime = Field(..., description="Token expiration timestamp")
-    iat: datetime = Field(..., description="Token issued at timestamp")
+    expire_at_time: datetime = Field(..., description="Token expiration timestamp")
+    issued_at_time: datetime = Field(..., description="Token issued at timestamp")
     type: str = Field(..., description="Token type: 'access' or 'refresh'")
 
     class Config:
@@ -35,8 +35,8 @@ class AuthTokenPayload(BaseModel):
             "example": {
                 "user_id": "550e8400-e29b-41d4-a716-446655440000",
                 "role": "developer",
-                "exp": "2025-10-21T10:30:00Z",
-                "iat": "2025-10-20T10:30:00Z",
+                "expire_at_time": "2025-10-21T10:30:00Z",
+                "issued_at_time": "2025-10-20T10:30:00Z",
                 "type": "access",
             }
         }

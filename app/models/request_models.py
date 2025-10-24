@@ -12,7 +12,7 @@ Key Capabilities:
 """
 
 from typing import Optional, Dict, Any, Union, List
-from pydantic import BaseModel, Field, field_validator, EmailStr
+from pydantic import BaseModel, Field, field_validator, model_validator, EmailStr
 from enum import Enum
 from uuid import UUID
 from datetime import datetime
@@ -676,8 +676,14 @@ class LLMModelCreateRequest(BaseModel):
     """
     Request model for creating a new LLM model configuration.
 
-    This model defines all required and optional parameters for registering
+    This model defines all required parameters for registering
     a new LLM model in the system for token allocation and rate limiting.
+
+    Validation Rules:
+    1. Core credentials (llm_provider, llm_model_name, api_endpoint_url, api_key_variable_name)
+       must all be provided together.
+    2. If any cloud-specific field is provided (cloud_provider, deployment_name, deployment_region),
+       then ALL cloud-specific fields must be provided.
     """
 
     llm_provider: LLMProvider = Field(
@@ -697,8 +703,8 @@ class LLMModelCreateRequest(BaseModel):
         description="Cloud provider hosting the LLM",
     )
 
-    api_key_variable_name: Optional[str] = Field(
-        default=None,
+    api_key_variable_name: str = Field(
+        ...,  # Changed from default=None to required
         description="Environment variable name for the API key (e.g., 'OPENAI_API_KEY_GPT4O')",
         min_length=1,
         max_length=200,
@@ -737,9 +743,9 @@ class LLMModelCreateRequest(BaseModel):
         max_length=100,
     )
 
-    api_endpoint_url: Optional[str] = Field(
-        default=None,
-        description="Optional API endpoint URL",
+    api_endpoint_url: str = Field(
+        ...,  # Changed from default=None to required
+        description="API endpoint URL for direct access",
         max_length=500,
     )
 
@@ -789,6 +795,64 @@ class LLMModelCreateRequest(BaseModel):
             )
         return v.strip()
 
+    @model_validator(mode="after")
+    def validate_credential_completeness(self) -> "LLMModelCreateRequest":
+        """
+        Validate credential completeness for both direct and cloud LLM access.
+
+        Rules:
+        1. Core credentials (llm_provider, llm_model_name, api_endpoint_url, api_key_variable_name)
+           must all be provided together.
+        2. If any cloud-specific field is provided (cloud_provider, deployment_name, deployment_region),
+           then ALL cloud-specific fields must be provided.
+        """
+        # Rule 1: Core credentials must all be present
+        core_fields = [
+            self.llm_provider is not None,
+            self.llm_model_name is not None,
+            self.api_endpoint_url is not None,
+            self.api_key_variable_name is not None,
+        ]
+
+        if not all(core_fields):
+            missing_fields = []
+            if self.llm_provider is None:
+                missing_fields.append("llm_provider")
+            if self.llm_model_name is None:
+                missing_fields.append("llm_model_name")
+            if self.api_endpoint_url is None:
+                missing_fields.append("api_endpoint_url")
+            if self.api_key_variable_name is None:
+                missing_fields.append("api_key_variable_name")
+
+            raise ValueError(
+                f"Missing required core credential fields: {', '.join(missing_fields)}. "
+                "All core credentials must be provided for LLM access."
+            )
+
+        # Rule 2: If any cloud field is provided, all cloud fields must be provided
+        cloud_fields = [
+            self.cloud_provider is not None,
+            self.deployment_name is not None,
+            self.deployment_region is not None,
+        ]
+
+        if any(cloud_fields) and not all(cloud_fields):
+            missing_fields = []
+            if self.cloud_provider is None:
+                missing_fields.append("cloud_provider")
+            if self.deployment_name is None:
+                missing_fields.append("deployment_name")
+            if self.deployment_region is None:
+                missing_fields.append("deployment_region")
+
+            raise ValueError(
+                f"Incomplete cloud credentials: {', '.join(missing_fields)}. "
+                "When using cloud-based LLM, all cloud-specific fields must be provided."
+            )
+
+        return self
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -816,6 +880,12 @@ class LLMModelUpdateRequest(BaseModel):
 
     All fields are optional - only provided fields will be updated.
     Used for modifying rate limits, endpoints, settings, or activation status.
+
+    Validation Rules:
+    1. If updating credentials (api_endpoint_url or api_key_variable_name),
+       both fields must be provided together.
+    2. If updating cloud configuration (cloud_provider, deployment_name, deployment_region),
+       all cloud fields must be provided together.
     """
 
     llm_provider: Optional[LLMProvider] = Field(
@@ -912,6 +982,55 @@ class LLMModelUpdateRequest(BaseModel):
         max_length=50,
     )
 
+    @model_validator(mode="after")
+    def validate_credential_updates(self) -> "LLMModelUpdateRequest":
+        """
+        Validate that credential fields are updated as a complete set.
+
+        If any credential field is provided, all required credential fields must be provided.
+        This prevents partial credential updates that could break functionality.
+        """
+        # Check if any credential fields are being updated
+        updating_api_endpoint = self.api_endpoint_url is not None
+        updating_api_key = self.api_key_variable_name is not None
+
+        # If updating one credential field, must update both
+        if updating_api_endpoint != updating_api_key:
+            missing_field = (
+                "api_key_variable_name" if updating_api_endpoint else "api_endpoint_url"
+            )
+            provided_field = (
+                "api_endpoint_url" if updating_api_endpoint else "api_key_variable_name"
+            )
+
+            raise ValueError(
+                f"Incomplete credential update: {provided_field} was provided but {missing_field} is missing. "
+                "When updating credentials, both api_key_variable_name and api_endpoint_url must be provided together."
+            )
+
+        # If updating cloud fields, ensure they're complete
+        cloud_fields_updated = [
+            self.cloud_provider is not None,
+            self.deployment_name is not None,
+            self.deployment_region is not None,
+        ]
+
+        if any(cloud_fields_updated) and not all(cloud_fields_updated):
+            missing_fields = []
+            if self.cloud_provider is None:
+                missing_fields.append("cloud_provider")
+            if self.deployment_name is None:
+                missing_fields.append("deployment_name")
+            if self.deployment_region is None:
+                missing_fields.append("deployment_region")
+
+            raise ValueError(
+                f"Incomplete cloud configuration: {', '.join(missing_fields)} missing. "
+                "When updating cloud configuration, all cloud-specific fields must be provided."
+            )
+
+        return self
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -958,6 +1077,12 @@ class UserEntitlementCreateRequest(BaseModel):
     Only users with admin or owner role can create entitlements.
     API keys are encrypted before storage using bcrypt hashing.
     The target user ID is taken from the URL path, not from the request body.
+
+    Validation Rules:
+    1. Core credentials (llm_provider, llm_model_name, api_endpoint_url, api_key_value)
+       must all be provided together.
+    2. If any cloud-specific field is provided (cloud_provider, deployment_name, deployment_region),
+       then ALL cloud-specific fields must be provided.
     """
 
     llm_provider: LLMProvider = Field(..., description="LLM provider type")
@@ -977,8 +1102,8 @@ class UserEntitlementCreateRequest(BaseModel):
         description="Plain API key value (will be encrypted before storage)",
         min_length=1,
     )
-    api_endpoint_url: Optional[str] = Field(
-        None, description="Specific API endpoint URL", max_length=500
+    api_endpoint_url: str = Field(
+        ..., description="Specific API endpoint URL", max_length=500
     )
     cloud_provider: Optional[CloudProvider] = Field(
         None,
@@ -1004,6 +1129,64 @@ class UserEntitlementCreateRequest(BaseModel):
         if len(v) < 10:
             raise ValueError("API key must be at least 10 characters")
         return v.strip()
+
+    @model_validator(mode="after")
+    def validate_credential_completeness(self) -> "UserEntitlementCreateRequest":
+        """
+        Validate credential completeness for both direct and cloud LLM access.
+
+        Rules:
+        1. Core credentials (llm_provider, llm_model_name, api_endpoint_url, api_key_value)
+           must all be provided together.
+        2. If any cloud-specific field is provided (cloud_provider, deployment_name, deployment_region),
+           then ALL cloud-specific fields must be provided.
+        """
+        # Rule 1: Core credentials must all be present
+        core_fields = [
+            self.llm_provider is not None,
+            self.llm_model_name is not None,
+            self.api_endpoint_url is not None,
+            self.api_key_value is not None,
+        ]
+
+        if not all(core_fields):
+            missing_fields = []
+            if self.llm_provider is None:
+                missing_fields.append("llm_provider")
+            if self.llm_model_name is None:
+                missing_fields.append("llm_model_name")
+            if self.api_endpoint_url is None:
+                missing_fields.append("api_endpoint_url")
+            if self.api_key_value is None:
+                missing_fields.append("api_key_value")
+
+            raise ValueError(
+                f"Missing required core credential fields: {', '.join(missing_fields)}. "
+                "All core credentials must be provided for LLM access."
+            )
+
+        # Rule 2: If any cloud field is provided, all cloud fields must be provided
+        cloud_fields = [
+            self.cloud_provider is not None,
+            self.deployment_name is not None,
+            self.deployment_region is not None,
+        ]
+
+        if any(cloud_fields) and not all(cloud_fields):
+            missing_fields = []
+            if self.cloud_provider is None:
+                missing_fields.append("cloud_provider")
+            if self.deployment_name is None:
+                missing_fields.append("deployment_name")
+            if self.deployment_region is None:
+                missing_fields.append("deployment_region")
+
+            raise ValueError(
+                f"Incomplete cloud credentials: {', '.join(missing_fields)}. "
+                "When using cloud-based LLM, all cloud-specific fields must be provided."
+            )
+
+        return self
 
     class Config:
         json_schema_extra = {

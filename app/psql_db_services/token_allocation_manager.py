@@ -84,12 +84,12 @@ class TokenAllocationService(BaseDatabaseService):
         llm_provider: str,
         llm_model_name: str,
         token_count: int,
+        api_endpoint_url: str,
         allocation_status: str = DEFAULT_ALLOCATION_STATUS,
         allocation_timestamp: Optional[datetime] = None,
         expiration_timestamp: Optional[datetime] = None,
         deployment_name: Optional[str] = None,
         cloud_provider_name: Optional[str] = None,
-        api_endpoint_url: Optional[str] = None,
         deployment_region: Optional[str] = None,
         request_metadata: Optional[Dict[str, Any]] = None,
         temperature: Optional[float] = None,
@@ -106,14 +106,14 @@ class TokenAllocationService(BaseDatabaseService):
             token_request_identifier: Unique identifier for this allocation request
             user_id: UUID of the user requesting tokens
             llm_provider: LLM provider name (e.g., openai, anthropic, gemini)
-            llm_model_name: Name of the LLM model
+            llm_model_name: Name of the LLM model (e.g., 'gpt-4o')
             token_count: Number of tokens to allocate (must be positive)
+            api_endpoint_url: Required API endpoint URL
             allocation_status: Status (ACQUIRED, WAITING, PAUSED, etc.). Defaults to 'ACQUIRED'
             allocation_timestamp: When allocation was made (defaults to current time)
             expiration_timestamp: When allocation expires (optional)
             deployment_name: Optional deployment identifier
             cloud_provider_name: Optional cloud provider name
-            api_endpoint_url: Optional API endpoint URL
             deployment_region: Optional geographic region identifier
             request_metadata: Optional JSON metadata for additional context
             temperature: Optional temperature setting for this request

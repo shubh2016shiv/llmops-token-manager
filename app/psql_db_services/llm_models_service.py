@@ -128,12 +128,12 @@ class LLMModelsService(BaseDatabaseService):
         self,
         llm_provider: str,
         llm_model_name: str,
-        api_key_variable_name: Optional[str] = None,
+        api_key_variable_name: str,
+        api_endpoint_url: str,
         max_tokens: Optional[int] = None,
         tokens_per_minute_limit: Optional[int] = None,
         requests_per_minute_limit: Optional[int] = None,
         deployment_name: Optional[str] = None,
-        api_endpoint_url: Optional[str] = None,
         is_active_status: bool = True,
         temperature: float = 0.7,
         top_p: float = 1.0,
@@ -148,8 +148,8 @@ class LLMModelsService(BaseDatabaseService):
             provider_name: LLM provider (openai, gemini, anthropic)
             llm_model_name: Name of the model (required)
             deployment_name: Optional deployment identifier
-            api_key_variable_name: Optional API key vault reference
-            api_endpoint_url: Optional API endpoint URL
+            api_key_variable_name: Required API key variable name (e.g., 'OPENAI_API_KEY_GPT4O')
+            api_endpoint_url: Required API endpoint URL (e.g., 'https://api.openai.com/v1')
             llm_model_version: Optional model version string
             max_tokens: Optional maximum tokens per request
             tokens_per_minute_limit: Optional token rate limit per minute

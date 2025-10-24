@@ -114,7 +114,7 @@ class UserEntitlementsService(BaseDatabaseService):
         user_id: UUID,
         llm_provider: str,
         llm_model_name: str,
-        api_endpoint_url: Optional[str] = None,
+        api_endpoint_url: str,
     ) -> bool:
         """
         Check if an entitlement already exists for user/provider/model/endpoint combination.
@@ -123,7 +123,7 @@ class UserEntitlementsService(BaseDatabaseService):
             user_id: User's unique UUID identifier
             llm_provider: LLM provider name
             llm_model_name: Logical model name
-            api_endpoint_url: Optional API endpoint URL
+            api_endpoint_url: Required API endpoint URL
 
         Returns:
             True if entitlement exists, False otherwise
@@ -138,8 +138,7 @@ class UserEntitlementsService(BaseDatabaseService):
                     WHERE user_id = :user_id
                       AND llm_provider = :llm_provider
                       AND llm_model_name = :llm_model_name
-                      AND (api_endpoint_url = :api_endpoint_url
-                           OR (api_endpoint_url IS NULL AND :api_endpoint_url IS NULL))
+                      AND api_endpoint_url = :api_endpoint_url
                     LIMIT 1
                 """
                 params = {
@@ -167,7 +166,7 @@ class UserEntitlementsService(BaseDatabaseService):
         llm_model_name: str,
         encrypted_api_key: str,
         created_by_user_id: UUID,
-        api_endpoint_url: Optional[str] = None,
+        api_endpoint_url: str,
         cloud_provider: Optional[str] = None,
         deployment_name: Optional[str] = None,
         region: Optional[str] = None,
@@ -188,7 +187,7 @@ class UserEntitlementsService(BaseDatabaseService):
             llm_model_name: Logical model name
             encrypted_api_key: Bcrypt-encrypted API key
             created_by_user_id: Admin user creating the entitlement
-            api_endpoint_url: Optional API endpoint URL
+            api_endpoint_url: Required API endpoint URL
             cloud_provider: Optional cloud provider
             deployment_name: Optional deployment identifier
             region: Optional geographic region

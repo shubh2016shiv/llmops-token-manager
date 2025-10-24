@@ -90,6 +90,10 @@ class UserCreateRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr = Field(...)
     password: str = Field(..., min_length=8)
+    role: Optional[UserRole] = Field(
+        default=UserRole.DEVELOPER,
+        description="User role: owner, admin, developer, operator, viewer, or user",
+    )
 
     @field_validator("email")
     @classmethod
@@ -116,6 +120,7 @@ class UserCreateRequest(BaseModel):
                 "username": "johndoe",
                 "email": "john.doe@example.com",
                 "password": "SecurePass123",
+                "role": "admin",
             }
         }
 

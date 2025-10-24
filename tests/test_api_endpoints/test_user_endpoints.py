@@ -74,6 +74,19 @@ def sample_create_request():
 
 
 @pytest.fixture
+def sample_create_request_with_role():
+    """Sample user creation request with explicit role."""
+    return {
+        "first_name": "Admin",
+        "last_name": "User",
+        "username": "adminuser",
+        "email": "admin@example.com",
+        "password": "SecurePass123",
+        "role": "admin",
+    }
+
+
+@pytest.fixture
 def sample_update_request():
     """Sample user update request data."""
     return {
@@ -134,7 +147,9 @@ class TestCreateUser:
         assert call_args[1]["first_name"] == sample_create_request["first_name"]
         assert call_args[1]["last_name"] == sample_create_request["last_name"]
         assert call_args[1]["password_hash"] == "hashed_password"
-        assert call_args[1]["user_role"] == "developer"
+        assert (
+            call_args[1]["user_role"] == "developer"
+        )  # Default role when not provided
         assert call_args[1]["user_status"] == "active"
 
     @patch("app.api.user_endpoints.UsersService")
@@ -247,6 +262,99 @@ class TestCreateUser:
         assert response.status_code == 500
         data = response.json()
         assert "Failed to create user. Please try again later." in data["detail"]
+
+    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.PasswordHasher")
+    def test_create_user_with_explicit_role(
+        self,
+        mock_password_hasher,
+        mock_users_service,
+        client,
+        sample_create_request_with_role,
+    ):
+        """Test creating user with explicit admin role returns correct response."""
+        # Arrange
+        mock_password_hasher.hash_password.return_value = "hashed_password"
+        mock_service_instance = AsyncMock()
+        admin_user_data = {
+            "user_id": "e5ef9354-c2be-4822-a6b9-6d5556d47bd1",
+            "username": sample_create_request_with_role["username"],
+            "email": sample_create_request_with_role["email"],
+            "first_name": sample_create_request_with_role["first_name"],
+            "last_name": sample_create_request_with_role["last_name"],
+            "role": "admin",
+            "status": "active",
+            "created_at": "2025-10-24T15:20:56.999Z",
+            "updated_at": "2025-10-24T15:20:56.999Z",
+        }
+        mock_service_instance.create_user.return_value = admin_user_data
+        mock_users_service.return_value = mock_service_instance
+
+        # Act
+        response = client.post("/api/v1/users/", json=sample_create_request_with_role)
+
+        # Assert
+        assert response.status_code == 201
+        data = response.json()
+        assert data["role"] == "admin"
+        assert data["username"] == sample_create_request_with_role["username"]
+        assert data["email"] == sample_create_request_with_role["email"]
+
+        # Verify service was called with admin role
+        mock_service_instance.create_user.assert_called_once()
+        call_args = mock_service_instance.create_user.call_args
+        assert call_args[1]["user_role"] == "admin"
+
+    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.PasswordHasher")
+    def test_create_user_with_default_role(
+        self,
+        mock_password_hasher,
+        mock_users_service,
+        client,
+        sample_create_request,
+        sample_user_data,
+    ):
+        """Test creating user without role field defaults to developer role."""
+        # Arrange
+        mock_password_hasher.hash_password.return_value = "hashed_password"
+        mock_service_instance = AsyncMock()
+        mock_service_instance.create_user.return_value = sample_user_data
+        mock_users_service.return_value = mock_service_instance
+
+        # Act
+        response = client.post("/api/v1/users/", json=sample_create_request)
+
+        # Assert
+        assert response.status_code == 201
+        data = response.json()
+        assert data["role"] == "developer"
+
+        # Verify service was called with default developer role
+        mock_service_instance.create_user.assert_called_once()
+        call_args = mock_service_instance.create_user.call_args
+        assert call_args[1]["user_role"] == "developer"
+
+    def test_create_user_with_invalid_role(self, client):
+        """Test creating user with invalid role returns 422 validation error."""
+        # Arrange
+        invalid_request = {
+            "first_name": "Test",
+            "last_name": "User",
+            "username": "testuser",
+            "email": "test@example.com",
+            "password": "SecurePass123",
+            "role": "superuser",  # Invalid role
+        }
+
+        # Act
+        response = client.post("/api/v1/users/", json=invalid_request)
+
+        # Assert
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+        # Should have validation error for invalid role enum value
 
 
 # ============================================================================

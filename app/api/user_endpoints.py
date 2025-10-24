@@ -63,7 +63,9 @@ async def create_user(request: UserCreateRequest):
         HTTPException 400: If email/username exists or validation fails
         HTTPException 500: On internal server error
     """
-    logger.info(f"Creating user: username={request.username}, email={request.email}")
+    logger.info(
+        f"Creating user: username={request.username}, email={request.email}, role={request.role}"
+    )
 
     try:
         # Generate unique user ID
@@ -84,7 +86,7 @@ async def create_user(request: UserCreateRequest):
             first_name=request.first_name,
             last_name=request.last_name,
             password_hash=password_hash,
-            user_role="developer",  # Default role
+            user_role=request.role.value,  # Use role from request or default
             user_status="active",  # Default status
             created_at=now,
             updated_at=now,

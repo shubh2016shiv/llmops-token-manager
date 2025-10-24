@@ -115,8 +115,8 @@ CREATE TABLE IF NOT EXISTS llm_models (
             'IBM Watsonx',
             'Oracle',
             'On Premise')),
-    api_key_variable_name TEXT,
-    api_endpoint_url TEXT,
+    api_key_variable_name TEXT NOT NULL,
+    api_endpoint_url TEXT NOT NULL,
     llm_model_version TEXT,
     -- Model Specifications: Defines model capabilities and limits
     max_tokens INTEGER,
@@ -157,8 +157,8 @@ COMMENT ON COLUMN llm_models.llm_provider IS 'LLM provider name (e.g., openai, g
 COMMENT ON COLUMN llm_models.llm_model_name IS 'Name of the LLM model (e.g., GPT-4)';
 COMMENT ON COLUMN llm_models.deployment_name IS 'Name of the LLM deployment (e.g., gpt-4o)';
 COMMENT ON COLUMN llm_models.cloud_provider IS 'Cloud provider hosting the LLM (e.g., Azure, AWS)';
-COMMENT ON COLUMN llm_models.api_key_variable_name IS 'Variable Name of LLM API Key (e.g., OPENAI_API_KEY_GPT4O)';
-COMMENT ON COLUMN llm_models.api_endpoint_url IS 'API endpoint for the selected LLM instance, if applicable';
+COMMENT ON COLUMN llm_models.api_key_variable_name IS 'Variable Name of LLM API Key (e.g., OPENAI_API_KEY_GPT4O) - Required for all model configurations';
+COMMENT ON COLUMN llm_models.api_endpoint_url IS 'API endpoint for the selected LLM instance - Required for all model configurations';
 COMMENT ON COLUMN llm_models.llm_model_version IS 'Specific version of the model';
 COMMENT ON COLUMN llm_models.max_tokens IS 'Maximum tokens the model can process in a single request';
 COMMENT ON COLUMN llm_models.tokens_per_minute_limit IS 'Token rate limit per minute';
@@ -209,7 +209,7 @@ CREATE TABLE IF NOT EXISTS user_llm_entitlements (
     -- Configurations: API and deployment details for client init
     api_key_variable_name TEXT,  -- Environment variable name for API key
     api_key_value TEXT NOT NULL,  -- Encrypted API key value (use pgcrypto for encryption)
-    api_endpoint_url TEXT,  -- Specific endpoint URL (nullable for some providers)
+    api_endpoint_url TEXT NOT NULL,  -- Specific endpoint URL (required for all configurations)
     cloud_provider TEXT CHECK (
         cloud_provider IN (
             'Azure',
@@ -246,7 +246,7 @@ COMMENT ON COLUMN user_llm_entitlements.llm_provider IS 'LLM provider type (e.g.
 COMMENT ON COLUMN user_llm_entitlements.llm_model_name IS 'Logical model name (e.g., gpt-4o, claude-3-5-sonnet)';
 COMMENT ON COLUMN user_llm_entitlements.api_key_variable_name IS 'Environment variable name for API key';
 COMMENT ON COLUMN user_llm_entitlements.api_key_value IS 'Encrypted API key for the LLM provider (use pgcrypto for at-rest encryption)';
-COMMENT ON COLUMN user_llm_entitlements.api_endpoint_url IS 'Specific API endpoint URL (nullable for some providers)';
+COMMENT ON COLUMN user_llm_entitlements.api_endpoint_url IS 'Specific API endpoint URL (required for all configurations)';
 COMMENT ON COLUMN user_llm_entitlements.cloud_provider IS 'Cloud provider hosting the LLM (e.g., Azure, Google Cloud Platform, Amazon Web Services)';
 COMMENT ON COLUMN user_llm_entitlements.deployment_name IS 'Physical deployment identifier for cloud providers';
 COMMENT ON COLUMN user_llm_entitlements.deployment_region IS 'Region where the model is deployed on the cloud provider';
@@ -337,7 +337,7 @@ CREATE TABLE IF NOT EXISTS token_manager (
         'IBM Watsonx',
         'Oracle',
         'On Premise')),
-    api_endpoint_url TEXT,
+        api_endpoint_url TEXT NOT NULL,
     deployment_region TEXT,
     -- Token Allocation Management: Tracks allocated tokens and their status
     token_count INTEGER NOT NULL CHECK (token_count > 0),
@@ -364,7 +364,7 @@ COMMENT ON COLUMN token_manager.llm_model_name IS 'Name of the LLM model (e.g., 
 COMMENT ON COLUMN token_manager.llm_provider IS 'Provider of the LLM model (e.g., openai, anthropic, gemini)';
 COMMENT ON COLUMN token_manager.deployment_name IS 'Specific deployment of the model, if applicable';
 COMMENT ON COLUMN token_manager.cloud_provider IS 'Cloud provider hosting the LLM (e.g., Azure, AWS), if applicable';
-COMMENT ON COLUMN token_manager.api_endpoint_url IS 'API endpoint for the selected LLM instance, if applicable';
+COMMENT ON COLUMN token_manager.api_endpoint_url IS 'API endpoint for the selected LLM instance - Required for all token allocations';
 COMMENT ON COLUMN token_manager.deployment_region IS 'Region where the model is deployed on the cloud provider, if applicable';
 COMMENT ON COLUMN token_manager.token_count IS 'Number of tokens allocated for this request';
 COMMENT ON COLUMN token_manager.allocation_status IS 'Current status: ACQUIRED, RELEASED, EXPIRED, PAUSED, or FAILED';

@@ -815,7 +815,7 @@ class LLMModelCreateRequest(BaseModel):
         ]
 
         if not all(core_fields):
-            missing_fields = []
+            missing_fields: list[str] = []
             if self.llm_provider is None:
                 missing_fields.append("llm_provider")
             if self.llm_model_name is None:
@@ -1150,7 +1150,7 @@ class UserEntitlementCreateRequest(BaseModel):
         ]
 
         if not all(core_fields):
-            missing_fields = []
+            missing_fields: list[str] = []
             if self.llm_provider is None:
                 missing_fields.append("llm_provider")
             if self.llm_model_name is None:

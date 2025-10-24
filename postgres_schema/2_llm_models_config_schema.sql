@@ -36,8 +36,8 @@ CREATE TABLE IF NOT EXISTS llm_models (
             'IBM Watsonx',
             'Oracle',
             'On Premise')),
-    api_key_variable_name TEXT,
-    api_endpoint_url TEXT,
+    api_key_variable_name TEXT NOT NULL,
+    api_endpoint_url TEXT NOT NULL,
     llm_model_version TEXT,
     -- Model Specifications: Defines model capabilities and limits
     max_tokens INTEGER,
@@ -79,8 +79,8 @@ COMMENT ON COLUMN llm_models.llm_provider IS 'LLM provider name (e.g., openai, g
 COMMENT ON COLUMN llm_models.llm_model_name IS 'Name of the LLM model (e.g., GPT-4)';
 COMMENT ON COLUMN llm_models.deployment_name IS 'Name of the LLM deployment (e.g., gpt-4o)';
 COMMENT ON COLUMN llm_models.cloud_provider IS 'Cloud provider hosting the LLM (e.g., Azure, AWS)';
-COMMENT ON COLUMN llm_models.api_key_variable_name IS 'Variable Name of LLM API Key (e.g., OPENAI_API_KEY_GPT4O)';
-COMMENT ON COLUMN llm_models.api_endpoint_url IS 'API endpoint for the selected LLM instance, if applicable';
+COMMENT ON COLUMN llm_models.api_key_variable_name IS 'Variable Name of LLM API Key (e.g., OPENAI_API_KEY_GPT4O) - Required for all model configurations';
+COMMENT ON COLUMN llm_models.api_endpoint_url IS 'API endpoint for the selected LLM instance - Required for all model configurations';
 COMMENT ON COLUMN llm_models.llm_model_version IS 'Specific version of the model';
 COMMENT ON COLUMN llm_models.max_tokens IS 'Maximum tokens the model can process in a single request';
 COMMENT ON COLUMN llm_models.tokens_per_minute_limit IS 'Token rate limit per minute';
@@ -120,13 +120,14 @@ INSERT INTO llm_models (
 -- Example 2: Direct Anthropic API model (with default parameters)
 INSERT INTO llm_models (
     llm_provider, llm_model_name,
-    api_key_variable_name,
+    api_key_variable_name, api_endpoint_url,
     max_tokens, tokens_per_minute_limit,
     is_active_status, temperature, random_seed
 ) VALUES (
     'anthropic',
     'claude-3-5-sonnet-20240620',
     'ANTHROPIC_API_KEY',
+    'https://api.anthropic.com/v1',
     4096,
     50000,
     true,
@@ -158,12 +159,15 @@ INSERT INTO llm_models (
 -- Example 4: AWS Bedrock model (different cloud provider)
 INSERT INTO llm_models (
     llm_provider, llm_model_name,
+    api_key_variable_name, api_endpoint_url,
     cloud_provider, deployment_region,
     max_tokens, tokens_per_minute_limit, requests_per_minute_limit,
     is_active_status
 ) VALUES (
     'anthropic',
     'claude-3-5-sonnet-20240620',
+    'AWS_BEDROCK_ACCESS_KEY',
+    'https://bedrock-runtime.us-west-2.amazonaws.com',
     'Amazon Web Services',
     'us-west-2',
     4096,
@@ -175,16 +179,17 @@ INSERT INTO llm_models (
 -- Example 5: Google Vertex AI model (Gemini Pro)
 INSERT INTO llm_models (
     llm_provider, llm_model_name,
+    api_key_variable_name, api_endpoint_url,
     cloud_provider, deployment_region,
-    api_key_variable_name,
     max_tokens, tokens_per_minute_limit,
     is_active_status, temperature
 ) VALUES (
     'gemini',
     'gemini-pro',
+    'GOOGLE_CLOUD_API_KEY',
+    'https://us-central1-aiplatform.googleapis.com',
     'Google Cloud Platform',
     'us-central1',
-    'GOOGLE_CLOUD_API_KEY',
     30720,
     60000,
     true,
@@ -246,12 +251,13 @@ INSERT INTO llm_models (
 -- Example 9: On-premise model configuration (local deployment)
 INSERT INTO llm_models (
     llm_provider, llm_model_name,
-    api_endpoint_url, deployment_region,
+    api_key_variable_name, api_endpoint_url, deployment_region,
     max_tokens, tokens_per_minute_limit, requests_per_minute_limit,
     is_active_status
 ) VALUES (
     'on_premise',
     'llama-2-7b',
+    'LOCAL_LLM_API_KEY',
     'http://localhost:8000/v1',
     'local',
     2048,

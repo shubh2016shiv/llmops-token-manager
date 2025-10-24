@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS token_manager (
         'IBM Watsonx',
         'Oracle',
         'On Premise')),
-    api_endpoint_url TEXT,
+    api_endpoint_url TEXT NOT NULL,
     deployment_region TEXT,
     -- Token Allocation Management: Tracks allocated tokens and their status
     token_count INTEGER NOT NULL CHECK (token_count > 0),
@@ -68,7 +68,7 @@ COMMENT ON COLUMN token_manager.llm_model_name IS 'Name of the LLM model (e.g., 
 COMMENT ON COLUMN token_manager.llm_provider IS 'Provider of the LLM model (e.g., openai, anthropic, gemini)';
 COMMENT ON COLUMN token_manager.deployment_name IS 'Specific deployment of the model, if applicable';
 COMMENT ON COLUMN token_manager.cloud_provider IS 'Cloud provider hosting the LLM (e.g., Azure, AWS), if applicable';
-COMMENT ON COLUMN token_manager.api_endpoint_url IS 'API endpoint for the selected LLM instance, if applicable';
+COMMENT ON COLUMN token_manager.api_endpoint_url IS 'API endpoint for the selected LLM instance - Required for all token allocations';
 COMMENT ON COLUMN token_manager.deployment_region IS 'Region where the model is deployed on the cloud provider, if applicable';
 COMMENT ON COLUMN token_manager.token_count IS 'Number of tokens allocated for this request';
 COMMENT ON COLUMN token_manager.allocation_status IS 'Current status: ACQUIRED, RELEASED, EXPIRED, PAUSED, or FAILED';

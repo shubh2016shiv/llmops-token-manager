@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS user_llm_entitlements (
     -- Configurations: API and deployment details for client init
     api_key_variable_name TEXT,  -- Environment variable name for API key
     api_key_value TEXT NOT NULL,  -- Encrypted API key value (use pgcrypto for encryption)
-    api_endpoint_url TEXT,  -- Specific endpoint URL (nullable for some providers)
+    api_endpoint_url TEXT NOT NULL,  -- Specific endpoint URL (required for all configurations)
     cloud_provider TEXT CHECK (
         cloud_provider IN (
             'Azure',
@@ -75,7 +75,7 @@ COMMENT ON COLUMN user_llm_entitlements.llm_provider IS 'LLM provider type (e.g.
 COMMENT ON COLUMN user_llm_entitlements.llm_model_name IS 'Logical model name (e.g., gpt-4o, claude-3-5-sonnet)';
 COMMENT ON COLUMN user_llm_entitlements.api_key_variable_name IS 'Environment variable name for API key';
 COMMENT ON COLUMN user_llm_entitlements.api_key_value IS 'Encrypted API key for the LLM provider (use pgcrypto for at-rest encryption)';
-COMMENT ON COLUMN user_llm_entitlements.api_endpoint_url IS 'Specific API endpoint URL (nullable for some providers)';
+COMMENT ON COLUMN user_llm_entitlements.api_endpoint_url IS 'Specific API endpoint URL (required for all configurations)';
 COMMENT ON COLUMN user_llm_entitlements.cloud_provider IS 'Cloud provider hosting the LLM (e.g., Azure, Google Cloud Platform, Amazon Web Services)';
 COMMENT ON COLUMN user_llm_entitlements.deployment_name IS 'Physical deployment identifier for cloud providers';
 COMMENT ON COLUMN user_llm_entitlements.deployment_region IS 'Region where the model is deployed on the cloud provider';
@@ -169,13 +169,14 @@ INSERT INTO user_llm_entitlements (
 INSERT INTO user_llm_entitlements (
     user_id, llm_provider, llm_model_name,
     api_key_variable_name, api_key_value,
-    cloud_provider, deployment_region, created_by_user_id
+    api_endpoint_url, cloud_provider, deployment_region, created_by_user_id
 ) VALUES (
     '550e8400-e29b-41d4-a716-446655440000',
     'anthropic',
     'claude-3-5-sonnet-20240620',
     'AWS_ACCESS_KEY_ID',
     'encrypted_aws_key',
+    'https://bedrock-runtime.us-west-2.amazonaws.com',
     'Amazon Web Services',
     'us-west-2',
     'admin-uuid-here'
@@ -209,13 +210,14 @@ WHERE ule.llm_provider = 'openai'
 INSERT INTO user_llm_entitlements (
     user_id, llm_provider, llm_model_name,
     api_key_variable_name, api_key_value,
-    cloud_provider, deployment_region, created_by_user_id
+    api_endpoint_url, cloud_provider, deployment_region, created_by_user_id
 ) VALUES (
     '550e8400-e29b-41d4-a716-446655440000',
     'gemini',
     'gemini-pro',
     'GOOGLE_CLOUD_API_KEY',
     'encrypted_gcp_key',
+    'https://us-central1-aiplatform.googleapis.com',
     'Google Cloud Platform',
     'us-central1',
     'admin-uuid-here'

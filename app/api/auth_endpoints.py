@@ -7,26 +7,33 @@ Provides login, token generation, and refresh capabilities.
 The /login endpoint is for production use, while /token/generate is for development/testing only.
 """
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 
-from app.models.auth_models import (
-    AuthTokenGenerateRequest,
-    AuthTokenResponse,
-    AuthTokenRefreshRequest,
-    AuthTokenPayload,
-    AuthLoginRequest,
-)
+from app.auth.auth_dependencies import get_current_user
 from app.auth.jwt_auth_token_service import (
+    authenticate_user,
     create_access_token,
     create_refresh_token,
     decode_token,
-    verify_token_type,
     get_token_expiration_seconds,
     is_refresh_enabled,
-    authenticate_user,
+    verify_token_type,
 )
-from app.auth.auth_dependencies import get_current_user
+from app.core.config_manager import settings
+from app.core.rate_limiter import (
+    auth_login_rate_limiter,
+    auth_token_generate_rate_limiter,
+    auth_token_refresh_rate_limiter,
+)
+from app.models.auth_models import (
+    AuthLoginRequest,
+    AuthTokenGenerateRequest,
+    AuthTokenPayload,
+    AuthTokenRefreshRequest,
+    AuthTokenResponse,
+)
+from app.models.response_models import AuthConfigResponse
 
 # ============================================================================
 # ROUTER INITIALIZATION
@@ -43,6 +50,8 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 @router.post(
     "/login",
     response_model=AuthTokenResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(auth_login_rate_limiter())],
     summary="Authenticate user and get JWT auth token",
     description="""
     Authenticate user with username and password.
@@ -67,6 +76,7 @@ async def login(request: AuthLoginRequest):
     Raises:
         HTTPException 401: If authentication fails
         HTTPException 500: If token generation fails
+
     """
     logger.info(f"Login attempt for user: {request.username}")
 
@@ -121,6 +131,8 @@ async def login(request: AuthLoginRequest):
 @router.post(
     "/token/generate",
     response_model=AuthTokenResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(auth_token_generate_rate_limiter())],
     summary="Generate JWT token (Development Only)",
     description="""
     Generate JWT access and refresh tokens for a user.
@@ -154,6 +166,7 @@ async def generate_token(request: AuthTokenGenerateRequest):
     Raises:
         HTTPException 400: If role is invalid or refresh tokens disabled
         HTTPException 500: If token generation fails
+
     """
     logger.info(
         f"Generating tokens for user {request.user_id} with role {request.role}"
@@ -198,6 +211,8 @@ async def generate_token(request: AuthTokenGenerateRequest):
 @router.post(
     "/token/refresh",
     response_model=AuthTokenResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(auth_token_refresh_rate_limiter())],
     summary="Refresh access token",
     description="""
     Refresh an access token using a valid refresh token.
@@ -228,6 +243,7 @@ async def refresh_access_token(request: AuthTokenRefreshRequest):
         HTTPException 400: If refresh tokens disabled or invalid refresh token
         HTTPException 401: If refresh token is invalid or expired
         HTTPException 500: If token generation fails
+
     """
     if not is_refresh_enabled():
         logger.warning("Refresh token request received but refresh is disabled")
@@ -312,6 +328,7 @@ async def validate_token(
 
     Raises:
         HTTPException 401: If token is invalid or expired
+
     """
     logger.debug(f"Token validated for user {current_user.user_id}")
     return current_user
@@ -324,6 +341,7 @@ async def validate_token(
 
 @router.get(
     "/config",
+    response_model=AuthConfigResponse,
     summary="Get authentication configuration",
     description="""
     Get current JWT authentication configuration.
@@ -342,15 +360,14 @@ async def get_auth_config():
 
     Returns:
         Dictionary with authentication configuration
-    """
-    from app.core.config_manager import settings
 
-    return {
-        "jwt_algorithm": settings.jwt_algorithm,
-        "access_token_expire_hours": settings.jwt_access_token_expire_hours,
-        "refresh_enabled": settings.jwt_refresh_enabled,
-        "refresh_token_expire_days": settings.jwt_refresh_token_expire_days
+    """
+    return AuthConfigResponse(
+        jwt_algorithm=settings.jwt_algorithm,
+        access_token_expire_hours=settings.jwt_access_token_expire_hours,
+        refresh_enabled=settings.jwt_refresh_enabled,
+        refresh_token_expire_days=settings.jwt_refresh_token_expire_days
         if settings.jwt_refresh_enabled
         else None,
-        "token_type": "bearer",
-    }
+        token_type="bearer",
+    )

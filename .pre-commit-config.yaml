@@ -1,78 +1,49 @@
+# ============================================================
 # Pre-commit hooks for LLM Token Manager
-# Simplified and fast configuration for solo developer workflow
+# UV-powered | Ruff (linter + formatter) | Pyright (type checker)
+# ============================================================
 #
-# ============================================================
-# SETUP & USAGE
-# ============================================================
-# 1. Install pre-commit: pip install pre-commit
-# 2. Install hooks: pre-commit install
-# 3. Skip hooks for urgent commits: git commit --no-verify
+# SETUP:
+#   1. uv sync --dev                          # Install all deps including dev
+#   2. uv run pre-commit install              # Install git hook scripts
+#   3. uv run pre-commit run --all-files      # Run all hooks on all files (first time)
 #
-# ============================================================
-# FIRST RUN NOTES
-# ============================================================
-# - You'll see "[INFO] Initializing environment for..." messages
-# - This is normal! Pre-commit creates isolated environments for each hook
-# - It happens only once when a hook runs for the first time
-# - Future runs will be much faster
+# USAGE:
+#   - Auto-runs on `git commit` (staged files only)
+#   - Skip hooks:  git commit --no-verify
+#   - Run manually: uv run pre-commit run --all-files
 #
+# WHAT THESE HOOKS DO:
+#   1. ruff (--fix):    Auto-fixes lint violations + sorts imports
+#   2. ruff-format:     Auto-formats code (black-compatible style)
+#   3. pyright:         Static type checking (basic mode)
+#   4. pre-commit-hooks: Trailing whitespace, YAML validation, merge conflicts, etc.
 # ============================================================
-# MIGRATION NOTES
-# ============================================================
-# If you see warning about deprecated stage names, run:
-# pre-commit migrate-config
-# This is a one-time command needed when upgrading pre-commit or changing stage names
-#
-# ============================================================
-# COMMON COMMANDS
-# ============================================================
-# - Run on all files: pre-commit run --all-files
-# - Run on staged files: pre-commit run
-# - Run specific hook: pre-commit run trailing-whitespace
-# - Uninstall hooks: pre-commit uninstall
-# - Clean cache: pre-commit clean
-# - Force environment recreation: pre-commit clean && pre-commit run
-#
-# ============================================================
-# WHAT THESE HOOKS DO
-# ============================================================
-# 1. trailing-whitespace: Removes spaces at end of lines
-# 2. end-of-file-fixer: Ensures files end with single newline
-# 3. check-yaml: Validates YAML syntax
-# 4. check-merge-conflict: Detects merge conflict markers
-# 5. detect-private-key: Warns about potential private keys
-# 6. black: Formats Python code consistently
-# 7. isort: Sorts and organizes Python imports
-# 8. flake8: Lints Python code for style issues
-#
-# ============================================================
-# PERFORMANCE NOTES
-# ============================================================
-# - All hooks are optimized for speed
-# - Removed slow hooks: mypy, bandit, pylint
-# - CI handles comprehensive checks
-# - Typical run time: 2-5 seconds
-#
-# ============================================================
-# TROUBLESHOOTING
-# ============================================================
-# - If hooks are slow: pre-commit clean
-# - If hooks fail: Check the error message and fix manually
-# - If urgent: Use git commit --no-verify
-# - If environment issues: pre-commit clean && pre-commit install
 
 repos:
+  # Ruff: Fast Python linter + formatter (replaces black, isort, flake8, autoflake)
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Ruff version.
     rev: v0.14.0
     hooks:
-      # Run the linter.
-      - id: ruff-check
-        args: [ --fix ]
-      # Run the formatter.
+      # Linter with auto-fix enabled
+      - id: ruff
+        args: [--fix]
+      # Formatter (black-compatible)
       - id: ruff-format
 
-  # Basic file checks (fast)
+  # Pyright: Static type checker
+  # Uses the already-installed pyright from UV to avoid network dependency
+  - repo: local
+    hooks:
+      - id: pyright
+        name: pyright
+        entry: uv run pyright
+        language: system
+        types: [python]
+        pass_filenames: false
+        args: [--project=pyproject.toml]
+
+  # Basic file checks (fast, zero-config)
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
     hooks:
@@ -82,11 +53,6 @@ repos:
         args: [--unsafe]
       - id: check-merge-conflict
       - id: detect-private-key
-
-# Skip slow/problematic checks - let CI handle them
-# Removed: mypy (slow type checking)
-# Removed: bandit (security - CI handles it)
-# Removed: pylint (redundant with flake8)
 
 default_language_version:
   python: python3.11

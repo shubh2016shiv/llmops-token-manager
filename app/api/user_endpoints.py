@@ -5,18 +5,17 @@ Production-ready API endpoints for user CRUD operations.
 Provides essential user management functionality with robust error handling.
 """
 
-from uuid import uuid4, UUID
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, status, Depends
+from uuid import UUID, uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 
-from app.utils.passwrd_hashing import PasswordHasher
-from app.psql_db_services.users_service import UsersService
-from app.auth import require_developer, require_admin, AuthTokenPayload
-
-from app.models.request_models import UserCreateRequest, UserUpdateRequest, UserRole
+from app.auth import AuthTokenPayload, require_admin, require_developer
+from app.models.request_models import UserCreateRequest, UserRole, UserUpdateRequest
 from app.models.response_models import UserResponse
-
+from app.psql_db_services.users_service import UsersService
+from app.utils.passwrd_hashing import PasswordHasher
 
 # ============================================================================
 # ROUTER INITIALIZATION
@@ -62,10 +61,12 @@ async def create_user(request: UserCreateRequest):
     Raises:
         HTTPException 400: If email/username exists or validation fails
         HTTPException 500: On internal server error
+
     """
     logger.info(
         f"Creating user: username={request.username}, email={request.email}, role={request.role}"
     )
+    users_service = UsersService()
 
     try:
         # Generate unique user ID
@@ -78,7 +79,6 @@ async def create_user(request: UserCreateRequest):
         now = datetime.utcnow()
 
         # Create user in database
-        users_service = UsersService()
         user = await users_service.create_user(
             user_id=user_id,
             username=request.username,
@@ -138,11 +138,12 @@ async def get_user(
     Raises:
         HTTPException 404: If user not found
         HTTPException 500: On internal server error
+
     """
     logger.debug(f"Fetching user: user_id={user_id}")
+    users_service = UsersService()
 
     try:
-        users_service = UsersService()
         user = await users_service.get_user_by_id(user_id)
 
         if not user:
@@ -190,11 +191,12 @@ async def get_user_by_email(
     Raises:
         HTTPException 404: If user not found
         HTTPException 500: On internal server error
+
     """
     logger.debug(f"Fetching user by email: email={email}")
+    users_service = UsersService()
 
     try:
-        users_service = UsersService()
         user = await users_service.get_user_by_email(email)
 
         if not user:
@@ -228,10 +230,10 @@ async def get_user_by_email(
 #     description="Retrieve a paginated list of users with optional filtering by role and status.",
 # )
 # async def list_users(
-#     role: Optional[str] = Query(
+#     role: str | None = Query(
 #         None, description="Filter by role: owner, admin, developer, or viewer"
 #     ),
-#     status: Optional[str] = Query(
+#     status: str | None = Query(
 #         None, description="Filter by status: active, suspended, or inactive"
 #     ),
 #     limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
@@ -291,6 +293,7 @@ async def get_user_by_email(
 @router.patch(
     "/{user_id}",
     response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
     summary="Update user",
     description="Update user information. Only provided fields will be updated.",
 )
@@ -313,11 +316,12 @@ async def update_user(
         HTTPException 404: If user not found
         HTTPException 400: On invalid parameters or duplicate email
         HTTPException 500: On internal server error
+
     """
     logger.info(f"Updating user: user_id={user_id}")
+    users_service = UsersService()
 
     try:
-        users_service = UsersService()
         updated_user = await users_service.update_user(
             user_id=user_id,
             email_address=request.email,
@@ -362,6 +366,7 @@ async def update_user(
 @router.patch(
     "/{user_id}/suspend",
     response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
     summary="Suspend user",
     description="Suspend a user account by setting status to 'suspended'.",
 )
@@ -380,11 +385,12 @@ async def suspend_user(
     Raises:
         HTTPException 404: If user not found
         HTTPException 500: On internal server error
+
     """
     logger.info(f"Suspending user: user_id={user_id}")
+    users_service = UsersService()
 
     try:
-        users_service = UsersService()
         suspended_user = await users_service.suspend_user(user_id)
 
         if not suspended_user:
@@ -410,6 +416,7 @@ async def suspend_user(
 @router.patch(
     "/{user_id}/activate",
     response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
     summary="Activate user",
     description="Activate a user account by setting status to 'active'.",
 )
@@ -428,11 +435,12 @@ async def activate_user(
     Raises:
         HTTPException 404: If user not found
         HTTPException 500: On internal server error
+
     """
     logger.info(f"Activating user: user_id={user_id}")
+    users_service = UsersService()
 
     try:
-        users_service = UsersService()
         activated_user = await users_service.activate_user(user_id)
 
         if not activated_user:

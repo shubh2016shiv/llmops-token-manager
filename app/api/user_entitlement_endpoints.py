@@ -19,21 +19,23 @@ Security Features:
 """
 
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, status, Depends, Query
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from loguru import logger
 
-from app.psql_db_services.user_entitlements_service import UserEntitlementsService
-from app.psql_db_services.users_service import UsersService
-from app.utils.passwrd_hashing import PasswordHasher
-from app.auth import require_developer, require_admin, AuthTokenPayload
-
+from app.auth import AuthTokenPayload, require_admin, require_developer
 from app.models.request_models import (
     UserEntitlementCreateRequest,
 )
 from app.models.response_models import (
-    UserEntitlementResponse,
+    EntitlementDeleteResponse,
     UserEntitlementListResponse,
+    UserEntitlementResponse,
 )
+from app.psql_db_services.user_entitlements_service import UserEntitlementsService
+from app.psql_db_services.users_service import UsersService
+from app.utils.pagination import compute_offset
+from app.utils.passwrd_hashing import PasswordHasher
 
 # ============================================================================
 # ROUTER INITIALIZATION
@@ -64,7 +66,7 @@ async def create_user_entitlement(
     Create a new LLM entitlement for a user (admin/owner only).
 
     Comprehensive validation ensures data integrity:
-    1. Current user must have admin or owner role
+    1. Current user must have admin or owner role (enforced by require_admin dependency)
     2. Target user must exist in the system
     3. Provider/model must exist in llm_models table
     4. No duplicate entitlements allowed
@@ -72,11 +74,10 @@ async def create_user_entitlement(
 
     Process:
     1. Validate request data (Pydantic)
-    2. Check user role (admin/owner only)
-    3. Use path parameter user_id as the target user
-    4. Encrypt API key using PasswordHasher
-    5. Call service to create entitlement with all validations
-    6. Return created entitlement (API key excluded for security)
+    2. Use path parameter user_id as the target user
+    3. Encrypt API key using PasswordHasher
+    4. Call service to create entitlement with all validations
+    5. Return created entitlement (API key excluded for security)
 
     Args:
         user_id: User ID from path parameter (the target user to receive the entitlement)
@@ -88,30 +89,19 @@ async def create_user_entitlement(
 
     Raises:
         HTTPException 400: If validation fails or duplicate exists
-        HTTPException 403: If user is not admin/owner
+        HTTPException 403: If user is not admin/owner (enforced by require_admin dependency)
         HTTPException 404: If user or provider/model not found
         HTTPException 500: On internal server error
+
     """
     logger.info(
         f"Creating entitlement: target_user={user_id}, provider={request.llm_provider.value}, model={request.llm_model_name}"
     )
-
-    # Validate current user has admin or owner role
-    if current_user.role not in ["admin", "owner"]:
-        logger.warning(
-            f"User {current_user.user_id} with role {current_user.role} attempted to create entitlement"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admin and owner roles can create entitlements",
-        )
+    entitlements_service = UserEntitlementsService()
 
     try:
         # Encrypt API key using bcrypt
         encrypted_api_key = PasswordHasher.hash_password(request.api_key_value)
-
-        # Create entitlement service
-        entitlements_service = UserEntitlementsService()
 
         # Create entitlement (service handles all validations)
         entitlement = await entitlements_service.create_entitlement(
@@ -196,14 +186,16 @@ async def list_user_entitlements(
     Raises:
         HTTPException 404: If user not found
         HTTPException 500: On internal server error
+
     """
     logger.debug(
         f"Listing entitlements for user {user_id}: page={page}, size={page_size}"
     )
+    users_service = UsersService()
+    entitlements_service = UserEntitlementsService()
 
     try:
         # Verify user exists
-        users_service = UsersService()
         user = await users_service.get_user_by_id(user_id)
         if not user:
             raise HTTPException(
@@ -211,11 +203,13 @@ async def list_user_entitlements(
                 detail=f"User with ID '{user_id}' not found",
             )
 
-        # Calculate offset
-        offset = (page - 1) * page_size
+        # Calculate offset using shared pagination helper (enterprise pattern)
+        offset = compute_offset(page, page_size)
+
+        # Legacy inline math retained for learning/reference:
+        # offset = (page - 1) * page_size
 
         # Get entitlements
-        entitlements_service = UserEntitlementsService()
         entitlements = await entitlements_service.get_user_entitlements(
             user_id=user_id, limit=page_size, offset=offset
         )
@@ -250,6 +244,7 @@ async def list_user_entitlements(
 
 @router.delete(
     "/{entitlement_id}",
+    response_model=EntitlementDeleteResponse,
     status_code=status.HTTP_200_OK,
     summary="Delete entitlement",
     description="Delete an LLM entitlement. Only admin and owner roles can delete.",
@@ -263,11 +258,10 @@ async def delete_entitlement(
     Delete an LLM entitlement (admin/owner only).
 
     Process:
-    1. Validate user role (admin/owner only)
-    2. Verify entitlement exists and belongs to user
-    3. Get user details for response
-    4. Delete entitlement
-    5. Return detailed response with user info and deletion status
+    1. Verify entitlement exists and belongs to user
+    2. Get user details for response
+    3. Delete entitlement
+    4. Return detailed response with user info and deletion status
 
     Args:
         user_id: User ID from path parameter (the target user whose entitlement to delete)
@@ -278,28 +272,18 @@ async def delete_entitlement(
         Dict containing user details, entitlement info, and deletion status
 
     Raises:
-        HTTPException 403: If user is not admin/owner
+        HTTPException 403: If user is not admin/owner (enforced by require_admin dependency)
         HTTPException 404: If entitlement not found
         HTTPException 500: On internal server error
+
     """
     logger.info(
         f"Deleting entitlement: user={user_id}, entitlement_id={entitlement_id}"
     )
-
-    # Validate current user has admin or owner role
-    if current_user.role not in ["admin", "owner"]:
-        logger.warning(
-            f"User {current_user.user_id} with role {current_user.role} attempted to delete entitlement"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admin and owner roles can delete entitlements",
-        )
+    entitlements_service = UserEntitlementsService()
+    users_service = UsersService()
 
     try:
-        entitlements_service = UserEntitlementsService()
-        users_service = UsersService()
-
         # Verify entitlement exists and belongs to user
         existing_entitlement = await entitlements_service.get_entitlement_by_id(
             entitlement_id
@@ -373,11 +357,10 @@ async def delete_entitlement(
 
         # Try to get user details for error response
         try:
-            users_service = UsersService()
             user_details = await users_service.get_user_by_id(user_id)
             username = user_details.username if user_details else "N/A"
             email = user_details.email if user_details else "N/A"
-        except:
+        except Exception:
             username = "N/A"
             email = "N/A"
 

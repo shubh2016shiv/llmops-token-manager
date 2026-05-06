@@ -6,15 +6,15 @@ Provides status checks for database, Redis, and RabbitMQ.
 """
 
 from datetime import datetime, timezone
+
 from fastapi import APIRouter
 from loguru import logger
+from sqlalchemy import text
 
-from app.models.response_models import HealthStatus, DependencyHealth
 from app.core.config_manager import settings
 from app.core.database_connection import db_manager
 from app.core.redis_connection import redis_manager
-from sqlalchemy import text
-
+from app.models.response_models import DependencyHealth, HealthStatus
 
 router = APIRouter(prefix="/api/v1/health", tags=["Health"])
 
@@ -27,6 +27,7 @@ async def health_check():
 
     Returns:
         HealthStatus: Service health status
+
     """
     logger.debug("Health check requested")
 
@@ -54,6 +55,7 @@ async def check_dependencies():
 
     Returns:
         DependencyHealth: Health status of each infrastructure component
+
     """
     logger.debug("Dependency health check requested")
 
@@ -96,6 +98,7 @@ async def _check_database() -> bool:
 
     Returns:
         bool: True if database is accessible
+
     """
     try:
         async with db_manager.get_session() as session:
@@ -112,6 +115,7 @@ async def _check_redis() -> bool:
 
     Returns:
         bool: True if Redis is accessible
+
     """
     try:
         return await redis_manager.ping()
@@ -126,6 +130,7 @@ async def _check_rabbitmq() -> bool:
 
     Returns:
         bool: True if RabbitMQ broker is accessible
+
     """
     try:
         from app.llm_client_provisioning.llm_client_request_queue import celery_app

@@ -13,27 +13,27 @@ Core Operations:
 Based on reference Flask service patterns from token_manager_service.py
 """
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from loguru import logger
-from typing import Optional
 
-from app.psql_db_services.token_allocation_manager import TokenAllocationService
+from app.auth import AuthTokenPayload, require_developer, require_operator
 from app.models.request_models import (
+    PauseDeploymentRequest,
     TokenAllocationClientRequest,
     TokenReleaseRequest,
     TokenRetryRequest,
-    PauseDeploymentRequest,
 )
 from app.models.response_models import (
+    PauseDeploymentResponse,
     TokenAllocationResponse,
     TokenReleaseResponse,
     UserResponse,
 )
-from app.auth import require_developer, require_operator, AuthTokenPayload
+from app.psql_db_services.token_allocation_manager import TokenAllocationService
+from app.psql_db_services.users_service import UsersService
 
 # Services
 from app.utils.token_count_estimation import estimate_tokens
-from app.psql_db_services.users_service import UsersService
 
 # ============================================================================
 # ROUTER INITIALIZATION
@@ -41,7 +41,55 @@ from app.psql_db_services.users_service import UsersService
 
 router = APIRouter(prefix="/api/v1/tokens", tags=["Token Management"])
 
-users_service = UsersService()
+# ----------------------------------------------------------------------------
+# Enterprise pattern note: avoid module-level service singletons
+#
+# Why this matters:
+# - Hidden shared state: a module-level instance can accidentally accumulate
+#   state across requests/tests (caches, connection handles, mutated attributes).
+# - Testability: patching a global instance is brittle; it couples tests to a
+#   specific module variable name and import timing.
+# - Lifecycle clarity: FastAPI already provides a clean lifecycle model via
+#   dependency injection (`Depends`), which makes it explicit how a service is
+#   created and how it can be overridden in tests.
+#
+# Preferred pattern (FastAPI DI):
+#
+#   def get_users_service() -> UsersService:
+#       return UsersService()
+#
+#   @router.post("/...", ...)
+#   async def endpoint(..., users_service: UsersService = Depends(get_users_service)):
+#       user = await users_service.get_user_by_id(...)
+#
+# In tests, you patch `get_users_service` (the seam) and control the returned
+# service instance:
+#
+#   @patch("app.api.token_manager_endpoints.get_users_service")
+#   def test_...(mock_get_users_service, ...):
+#       mock_get_users_service.return_value.get_user_by_id = AsyncMock(...)
+#
+# We keep the old singleton line commented out for learning/reference:
+# users_service = UsersService()  # ❌ Avoid: module-level singleton service instance
+
+
+def get_users_service() -> UsersService:
+    """FastAPI dependency provider for `UsersService` instances."""
+    return UsersService()
+
+
+def _users_service_dependency() -> UsersService:
+    """
+    Indirection wrapper for dependency injection.
+
+    Enterprise/testing note:
+    - FastAPI's `Depends()` captures the callable object at definition time.
+    - By depending on this wrapper (and having it call `get_users_service()`),
+      unit tests can patch `get_users_service` cleanly without rebuilding the
+      router/app dependency graph.
+    """
+    return get_users_service()
+
 
 # ============================================================================
 # TOKEN ALLOCATION ENDPOINTS
@@ -58,6 +106,7 @@ users_service = UsersService()
 async def acquire_tokens(
     request: TokenAllocationClientRequest,
     current_user: AuthTokenPayload = Depends(require_developer),
+    users_service: UsersService = Depends(_users_service_dependency),
 ):
     """
     Acquire tokens for LLM usage.
@@ -79,12 +128,13 @@ async def acquire_tokens(
         HTTPException 400: If validation fails or token count exceeds limit
         HTTPException 404: If no deployments found for model
         HTTPException 500: On internal server error
+
     """
     # 1. Get user_id from JWT token
     user_id_uuid = current_user.user_id
 
     # 2. validate if user is active (optional - for extra security)
-    user: Optional[UserResponse] = await users_service.get_user_by_id(user_id_uuid)
+    user: UserResponse | None = await users_service.get_user_by_id(user_id_uuid)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
@@ -101,11 +151,9 @@ async def acquire_tokens(
     logger.info(
         f"Acquiring tokens: user={user_id_uuid}, provider={request.llm_provider}, model={request.llm_model_name}, tokens={estimated_token_count}"
     )
+    allocation_service = TokenAllocationService()
 
     try:
-        # Create allocation service instance
-        allocation_service = TokenAllocationService()
-
         # Acquire tokens
         allocation = await allocation_service.acquire_tokens(
             user_id=user_id_uuid,
@@ -148,11 +196,13 @@ async def acquire_tokens(
 @router.post(
     "/acquire/retry",
     response_model=TokenAllocationResponse,
+    status_code=status.HTTP_200_OK,
     summary="Retry acquiring tokens for waiting allocation",
     description="Retry acquiring tokens for a WAITING allocation. Checks if capacity is now available.",
 )
 async def retry_acquire_tokens(
     request: TokenRetryRequest,
+    response: Response,
     current_user: AuthTokenPayload = Depends(require_developer),
 ):
     """
@@ -177,13 +227,12 @@ async def retry_acquire_tokens(
         HTTPException 404: If token_request_id not found
         HTTPException 400: If allocation is not in WAITING status
         HTTPException 500: On internal server error
+
     """
     logger.info(f"Retrying token acquisition: {request.token_request_id}")
+    allocation_service = TokenAllocationService()
 
     try:
-        # Create allocation service instance
-        allocation_service = TokenAllocationService()
-
         # Retry acquiring tokens
         allocation = await allocation_service.retry_acquire_tokens(
             request.token_request_id
@@ -215,7 +264,29 @@ async def retry_acquire_tokens(
         # Check if still waiting
         if allocation.get("allocation_status") == "WAITING":
             logger.info(f"Token allocation still waiting: {request.token_request_id}")
-            return TokenAllocationResponse(**allocation), status.HTTP_202_ACCEPTED
+            # ----------------------------------------------------------------
+            # Enterprise FastAPI pattern: return a single model, set status code
+            #
+            # Returning `(payload, status_code)` tuples "works" but is fragile:
+            # - It obscures response contracts in OpenAPI/Swagger (status_code is
+            #   not declared on the decorator).
+            # - It mixes response styles across endpoints, making maintenance and
+            #   testing harder.
+            #
+            # Preferred patterns for variable success status codes:
+            # 1) Inject `Response` and set `response.status_code`, then return a
+            #    single response model.
+            # 2) Return an explicit `JSONResponse` when you need full control.
+            #
+            # Example:
+            #   async def handler(..., response: Response):
+            #       response.status_code = status.HTTP_202_ACCEPTED
+            #       return Model(...)
+            #
+            # Legacy tuple return kept for reference:
+            # return TokenAllocationResponse(**allocation), status.HTTP_202_ACCEPTED
+            response.status_code = status.HTTP_202_ACCEPTED
+            return TokenAllocationResponse(**allocation)
 
         # Successfully acquired
         logger.info(f"Token allocation acquired: {request.token_request_id}")
@@ -236,6 +307,7 @@ async def retry_acquire_tokens(
 @router.put(
     "/release",
     response_model=TokenReleaseResponse,
+    status_code=status.HTTP_200_OK,
     summary="Release allocated tokens",
     description="Release allocated tokens back to the pool. Idempotent operation - safe to call multiple times.",
 )
@@ -260,13 +332,12 @@ async def release_tokens(
     Raises:
         HTTPException 404: If token_request_id not found
         HTTPException 500: On internal server error
+
     """
     logger.info(f"Releasing tokens: {request.token_request_id}")
+    allocation_service = TokenAllocationService()
 
     try:
-        # Create allocation service instance
-        allocation_service = TokenAllocationService()
-
         # Check if allocation exists
         allocation = await allocation_service.get_allocation_by_request_id(
             request.token_request_id
@@ -323,12 +394,15 @@ async def release_tokens(
 
 @router.put(
     "/pause-deployment",
+    response_model=PauseDeploymentResponse,
+    status_code=status.HTTP_200_OK,
     summary="Pause a failing deployment",
     description="Pause a failing deployment for emergency failover. Blocks all new allocations to the specified deployment.",
 )
 async def pause_deployment(
     request: PauseDeploymentRequest,
     current_user: AuthTokenPayload = Depends(require_operator),
+    users_service: UsersService = Depends(_users_service_dependency),
 ):
     """
     Pause a failing deployment for emergency failover and capacity management.
@@ -363,17 +437,19 @@ async def pause_deployment(
         HTTPException 400: If validation fails
         HTTPException 404: If deployment not found
         HTTPException 500: On internal server error
+
     """
     logger.info(
         f"Pausing deployment: provider={request.llm_provider}, model={request.llm_model_name}, endpoint={request.api_endpoint_url}, reason={request.pause_reason}"
     )
+    allocation_service = TokenAllocationService()
 
     try:
         # 1. Get user_id from JWT token
         user_id_uuid = current_user.user_id
 
         # 2. validate if user is active (optional - for extra security)
-        user: Optional[UserResponse] = await users_service.get_user_by_id(user_id_uuid)
+        user: UserResponse | None = await users_service.get_user_by_id(user_id_uuid)
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
@@ -384,18 +460,36 @@ async def pause_deployment(
                 detail="User is not active",
             )
 
-        # Validate api_endpoint_url is not None
-        if not request.api_endpoint_url:
-            logger.warning(
-                f"Missing api_endpoint_url for pause deployment: {request.llm_model_name}"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="api_endpoint_url parameter is required for pause deployment operation",
-            )
-
-        # Create allocation service instance
-        allocation_service = TokenAllocationService()
+        # --------------------------------------------------------------------
+        # Enterprise validation pattern: validate request shape in the schema layer
+        #
+        # This endpoint used to manually validate `api_endpoint_url` and raise 400.
+        # We now enforce `api_endpoint_url` as a required, non-blank field in the
+        # `PauseDeploymentRequest` Pydantic model.
+        #
+        # Benefits:
+        # - Consistent FastAPI behavior: invalid/missing inputs result in 422 with
+        #   a standard validation error payload.
+        # - Accurate OpenAPI: clients can see `api_endpoint_url` is required.
+        # - Cleaner handlers: endpoint logic stays focused on business operations.
+        #
+        # Example (model layer):
+        #   class PauseDeploymentRequest(BaseModel):
+        #       api_endpoint_url: str = Field(..., min_length=1)
+        #       @field_validator("api_endpoint_url")
+        #       def strip_and_reject_blank(cls, v): ...
+        #
+        # We keep the legacy handler-level validation commented for learning:
+        #
+        # # Validate api_endpoint_url is not None
+        # if not request.api_endpoint_url:
+        #     logger.warning(
+        #         f"Missing api_endpoint_url for pause deployment: {request.llm_model_name}"
+        #     )
+        #     raise HTTPException(
+        #         status_code=status.HTTP_400_BAD_REQUEST,
+        #         detail="api_endpoint_url parameter is required for pause deployment operation",
+        #     )
 
         # Pause the deployment
         result = await allocation_service.pause_deployment(

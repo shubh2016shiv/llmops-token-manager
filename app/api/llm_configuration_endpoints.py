@@ -14,20 +14,43 @@ Public Operations:
 - List models by provider
 """
 
-from typing import Optional
-from fastapi import APIRouter, HTTPException, status, Query, Depends
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from loguru import logger
 
-from app.psql_db_services.llm_models_service import LLMModelsService
+from app.auth import AuthTokenPayload, require_admin, require_developer
 from app.models.request_models import LLMModelCreateRequest, LLMModelUpdateRequest
-from app.models.response_models import LLMModelResponse, LLMModelListResponse
-from app.auth import require_developer, require_admin, AuthTokenPayload
+from app.models.response_models import LLMModelListResponse, LLMModelResponse
+from app.psql_db_services.llm_models_service import LLMModelsService
+from app.utils.pagination import (
+    compute_pagination,
+    compute_pagination_from_limit_offset,
+)
 
 # ============================================================================
 # ROUTER INITIALIZATION
 # ============================================================================
 
 router = APIRouter(prefix="/api/v1/llm-models", tags=["LLM Model Configuration"])
+
+# ----------------------------------------------------------------------------
+# Enterprise route safety note: reserved static path segments
+#
+# This module contains both:
+# - a list route: `/provider/{llm_provider}`
+# - a generic route: `/{llm_provider}/{model_name}`
+#
+# FastAPI matches routes in definition order. Relying on ordering is fragile:
+# a future refactor (or formatting) could reorder routes and accidentally cause
+# `/provider/openai` to match the generic route with:
+#   llm_provider="provider", model_name="openai"
+#
+# Enterprise-safe approach:
+# - keep clear static prefixes for special routes, AND
+# - constrain generic path params so they cannot consume reserved static tokens.
+#
+# If new static prefixes are added in the future (e.g. `/by-provider/...`),
+# add them to this reserved set and update the path-param pattern accordingly.
+RESERVED_LLM_MODELS_PREFIXES = {"provider"}
 
 
 # ============================================================================
@@ -77,14 +100,15 @@ async def create_llm_model(
     Raises:
         HTTPException 400: If validation fails or model already exists
         HTTPException 500: On internal server error
+
     """
     logger.info(
         f"Creating LLM model: provider={request.llm_provider}, model={request.llm_model_name}"
     )
+    llm_service = LLMModelsService()
 
     try:
         # Create model in database
-        llm_service = LLMModelsService()
         model = await llm_service.create_llm_model(
             llm_provider=request.llm_provider,
             llm_model_name=request.llm_model_name,
@@ -153,11 +177,20 @@ async def create_llm_model(
 )
 async def list_llm_models_by_provider(
     llm_provider: str,
-    active_only: Optional[bool] = Query(
-        None, description="Filter for active models only"
+    active_only: bool | None = Query(None, description="Filter for active models only"),
+    # Preferred enterprise-style pagination parameters:
+    # - 1-based page number + explicit page size
+    page: int | None = Query(None, ge=1, description="Page number (preferred)"),
+    page_size: int | None = Query(
+        None, ge=1, le=1000, description="Items per page (preferred)"
     ),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
-    offset: int = Query(0, ge=0, description="Number of results to skip"),
+    # Legacy pagination parameters (deprecated, kept for backward compatibility):
+    # - offset-based pagination is harder for clients to use consistently, so we
+    #   prefer page/page_size going forward.
+    limit: int = Query(
+        100, ge=1, le=1000, description="Maximum number of results (deprecated)"
+    ),
+    offset: int = Query(0, ge=0, description="Number of results to skip (deprecated)"),
     current_user: AuthTokenPayload = Depends(require_developer),
 ):
     """
@@ -166,6 +199,8 @@ async def list_llm_models_by_provider(
     Args:
         llm_provider: LLM provider name (e.g., 'openai', 'anthropic')
         active_only: Optional filter for active models only
+        page: Preferred pagination page number (1-based)
+        page_size: Preferred pagination size
         limit: Maximum results per page (1-1000)
         offset: Pagination offset
 
@@ -175,32 +210,73 @@ async def list_llm_models_by_provider(
     Raises:
         HTTPException 400: On invalid parameters
         HTTPException 500: On internal server error
+
     """
     logger.debug(
         f"Listing LLM models: provider={llm_provider}, active_only={active_only}, limit={limit}, offset={offset}"
     )
+    llm_service = LLMModelsService()
 
     try:
-        llm_service = LLMModelsService()
+        # --------------------------------------------------------------------
+        # Enterprise pagination standardization:
+        # - Prefer page/page_size for new clients.
+        # - Keep limit/offset as deprecated aliases for existing clients.
+        # - Single source of truth for pagination math lives in app/utils/pagination.py
+        #   to avoid drift across endpoints.
+        # Precedence (decision complete):
+        # - If either page or page_size is provided, use page-based pagination.
+        # - Otherwise, fall back to legacy limit/offset.
+        # --------------------------------------------------------------------
+
+        using_page_params = page is not None or page_size is not None
+        resolved_page = page if page is not None else 1
+        resolved_page_size = page_size if page_size is not None else 100
+
+        # NOTE: This endpoint currently uses the page length as total_count.
+        # In production, prefer a database count query for accurate has_next.
         models = await llm_service.get_llm_models_by_provider(
             llm_provider=llm_provider,
             active_only=active_only,
-            limit=limit,
-            offset=offset,
+            limit=resolved_page_size if using_page_params else limit,
+            offset=(
+                (resolved_page - 1) * resolved_page_size
+                if using_page_params
+                else offset
+            ),
         )
 
         # Calculate pagination info
         total_count = len(
             models
         )  # For simplicity, in production you'd get this from a count query
-        has_next = (offset + limit) < total_count
-        has_previous = offset > 0
+
+        if using_page_params:
+            _, _, page_val, page_size_val, has_next, has_previous = compute_pagination(
+                total_count=total_count,
+                page=resolved_page,
+                page_size=resolved_page_size,
+            )
+        else:
+            _, _, page_val, page_size_val, has_next, has_previous = (
+                compute_pagination_from_limit_offset(
+                    total_count=total_count,
+                    limit=limit,
+                    offset=offset,
+                )
+            )
+
+        # Legacy inline math retained for learning/reference:
+        #
+        # total_count = len(models)
+        # has_next = (offset + limit) < total_count
+        # has_previous = offset > 0
 
         return LLMModelListResponse(
             models=[LLMModelResponse(**model) for model in models],
             total_count=total_count,
-            page=(offset // limit) + 1 if limit > 0 else 1,
-            page_size=limit,
+            page=page_val,
+            page_size=page_size_val,
             has_next=has_next,
             has_previous=has_previous,
         )
@@ -225,9 +301,16 @@ async def list_llm_models_by_provider(
     description="Retrieve a specific LLM model configuration by provider and model name.",
 )
 async def get_llm_model(
-    llm_provider: str,
     model_name: str,
-    version: Optional[str] = Query(None, description="Optional model version"),
+    llm_provider: str = Path(
+        ...,
+        # NOTE: FastAPI (via Pydantic v2) uses Rust's regex engine, which does
+        # not support look-around. This pattern is an explicit, lookaround-free
+        # equivalent of: "match anything except exactly 'provider'".
+        pattern=r"^(?:provider.+|[^p].+|p[^r].+|pr[^o].+|pro[^v].+|prov[^i].+|provi[^d].+|provid[^e].+|provide[^r].+)$",
+        description="LLM provider name (reserved segments like 'provider' are not allowed here)",
+    ),
+    version: str | None = Query(None, description="Optional model version"),
     current_user: AuthTokenPayload = Depends(require_developer),
 ):
     """
@@ -244,13 +327,14 @@ async def get_llm_model(
     Raises:
         HTTPException 404: If model configuration not found
         HTTPException 500: On internal server error
+
     """
     logger.debug(
         f"Fetching LLM model: provider={llm_provider}, model={model_name}, version={version}"
     )
+    llm_service = LLMModelsService()
 
     try:
-        llm_service = LLMModelsService()
         model = await llm_service.get_llm_model_by_provider_and_model(
             llm_provider=llm_provider,
             llm_model_name=model_name,
@@ -291,6 +375,7 @@ async def get_llm_model(
 @router.patch(
     "/{llm_provider}/{model_name}",
     response_model=LLMModelResponse,
+    status_code=status.HTTP_200_OK,
     summary="Update LLM model configuration",
     description="Update LLM model configuration fields. Only provided fields will be updated. Admin access required.",
 )
@@ -298,7 +383,7 @@ async def update_llm_model(
     llm_provider: str,
     model_name: str,
     request: LLMModelUpdateRequest,
-    version: Optional[str] = Query(None, description="Optional model version"),
+    version: str | None = Query(None, description="Optional model version"),
     current_user: AuthTokenPayload = Depends(require_admin),
 ):
     """
@@ -317,11 +402,12 @@ async def update_llm_model(
         HTTPException 404: If model configuration not found
         HTTPException 400: On invalid parameters or constraint violations
         HTTPException 500: On internal server error
+
     """
     logger.info(f"Updating LLM model: provider={llm_provider}, model={model_name}")
+    llm_service = LLMModelsService()
 
     try:
-        llm_service = LLMModelsService()
         updated_model = await llm_service.update_llm_model(
             llm_provider=llm_provider,
             llm_model_name=model_name,
@@ -388,13 +474,14 @@ async def update_llm_model(
 @router.patch(
     "/{llm_provider}/{model_name}/activate",
     response_model=LLMModelResponse,
+    status_code=status.HTTP_200_OK,
     summary="Activate LLM model",
     description="Activate an LLM model configuration for token allocation. Admin access required.",
 )
 async def activate_llm_model(
     llm_provider: str,
     model_name: str,
-    version: Optional[str] = Query(None, description="Optional model version"),
+    version: str | None = Query(None, description="Optional model version"),
     current_user: AuthTokenPayload = Depends(require_admin),
 ):
     """
@@ -411,11 +498,12 @@ async def activate_llm_model(
     Raises:
         HTTPException 404: If model configuration not found
         HTTPException 500: On internal server error
+
     """
     logger.info(f"Activating LLM model: provider={llm_provider}, model={model_name}")
+    llm_service = LLMModelsService()
 
     try:
-        llm_service = LLMModelsService()
         activated_model = await llm_service.activate_llm_model(
             llm_provider=llm_provider,
             llm_model_name=model_name,
@@ -449,13 +537,14 @@ async def activate_llm_model(
 @router.patch(
     "/{llm_provider}/{model_name}/deactivate",
     response_model=LLMModelResponse,
+    status_code=status.HTTP_200_OK,
     summary="Deactivate LLM model",
     description="Deactivate an LLM model configuration to prevent token allocation. Admin access required.",
 )
 async def deactivate_llm_model(
     llm_provider: str,
     model_name: str,
-    version: Optional[str] = Query(None, description="Optional model version"),
+    version: str | None = Query(None, description="Optional model version"),
     current_user: AuthTokenPayload = Depends(require_admin),
 ):
     """
@@ -472,11 +561,12 @@ async def deactivate_llm_model(
     Raises:
         HTTPException 404: If model configuration not found
         HTTPException 500: On internal server error
+
     """
     logger.info(f"Deactivating LLM model: provider={llm_provider}, model={model_name}")
+    llm_service = LLMModelsService()
 
     try:
-        llm_service = LLMModelsService()
         deactivated_model = await llm_service.deactivate_llm_model(
             llm_provider=llm_provider,
             llm_model_name=model_name,

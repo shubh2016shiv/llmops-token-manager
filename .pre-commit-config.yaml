@@ -26,8 +26,9 @@ repos:
     rev: v0.14.0
     hooks:
       # Linter with auto-fix enabled
+      # B008: Depends() in defaults is standard FastAPI pattern
       - id: ruff
-        args: [--fix]
+        args: [--fix, --ignore=B008]
       # Formatter (black-compatible)
       - id: ruff-format
 
@@ -40,7 +41,7 @@ repos:
         entry: uv run pyright
         language: system
         types: [python]
-        pass_filenames: false
+        pass_filenames: true
         args: [--project=pyproject.toml]
 
   # Basic file checks (fast, zero-config)

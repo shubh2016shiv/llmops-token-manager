@@ -1,6 +1,8 @@
 """
-JWT Authentication Module
--------------------------
+JWT Authentication Module.
+
+--------------------------
+
 Enterprise-grade JWT authorization layer with Role-Based Access Control (RBAC).
 
 This module provides:
@@ -32,37 +34,37 @@ Usage:
 
 # Core dependencies for endpoint protection
 from app.auth.auth_dependencies import (
-    get_current_user,
+    RoleChecker,
     get_active_user,
-    require_developer,
-    require_operator,
-    require_admin,
-    require_owner,
+    get_current_user,
+    require_active_admin,
     require_active_developer,
     require_active_operator,
-    require_active_admin,
     require_active_owner,
-    RoleChecker,
+    require_admin,
+    require_developer,
+    require_operator,
+    require_owner,
 )
 
 # JWT utilities for token operations
 from app.auth.jwt_auth_token_service import (
+    authenticate_user,
     create_access_token,
     create_refresh_token,
     decode_token,
-    verify_token_type,
     get_token_expiration_seconds,
     is_refresh_enabled,
-    authenticate_user,
+    verify_token_type,
 )
 
 # Pydantic models for JWT operations
 from app.models.auth_models import (
-    AuthTokenPayload,
-    AuthTokenResponse,
-    AuthTokenRefreshRequest,
-    AuthTokenGenerateRequest,
     AuthLoginRequest,
+    AuthTokenGenerateRequest,
+    AuthTokenPayload,
+    AuthTokenRefreshRequest,
+    AuthTokenResponse,
 )
 
 # Router for auth endpoints (imported separately to avoid circular imports)

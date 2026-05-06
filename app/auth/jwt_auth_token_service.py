@@ -1,6 +1,8 @@
 """
-JWT Utilities
--------------
+JWT Utilities.
+
+---------------
+
 Core JWT operations for token generation, validation, and decoding.
 Implements secure JWT handling with proper error handling and validation.
 
@@ -13,8 +15,9 @@ Security Best Practices:
 """
 
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Any
 from uuid import UUID
+
 from jose import JWTError, jwt
 from loguru import logger
 
@@ -38,6 +41,7 @@ def create_access_token(user_id: UUID, role: str) -> str:
     Raises:
         ValueError: If role is invalid
         JWTError: If token creation fails
+
     """
     # Validate role
     valid_roles = ["developer", "operator", "admin", "owner"]
@@ -69,7 +73,7 @@ def create_access_token(user_id: UUID, role: str) -> str:
 
     except JWTError as e:
         logger.error(f"Failed to create access token: {e}")
-        raise JWTError(f"Token creation failed: {str(e)}")
+        raise JWTError(f"Token creation failed: {str(e)}") from e
 
 
 def create_refresh_token(user_id: UUID, role: str) -> str:
@@ -88,6 +92,7 @@ def create_refresh_token(user_id: UUID, role: str) -> str:
     Raises:
         ValueError: If refresh tokens are disabled or role is invalid
         JWTError: If token creation fails
+
     """
     if not settings.jwt_refresh_enabled:
         raise ValueError("Refresh tokens are disabled in configuration")
@@ -122,7 +127,7 @@ def create_refresh_token(user_id: UUID, role: str) -> str:
 
     except JWTError as e:
         logger.error(f"Failed to create refresh token: {e}")
-        raise JWTError(f"Refresh token creation failed: {str(e)}")
+        raise JWTError(f"Refresh token creation failed: {str(e)}") from e
 
 
 def decode_token(token: str) -> AuthTokenPayload:
@@ -141,6 +146,7 @@ def decode_token(token: str) -> AuthTokenPayload:
     Raises:
         JWTError: If token is invalid, expired, or malformed
         ValueError: If token payload is invalid
+
     """
     try:
         # Decode and verify token
@@ -178,10 +184,10 @@ def decode_token(token: str) -> AuthTokenPayload:
 
     except JWTError as e:
         logger.warning(f"JWT decode failed: {e}")
-        raise JWTError(f"Invalid token: {str(e)}")
+        raise JWTError(f"Invalid token: {str(e)}") from e
     except (ValueError, TypeError) as e:
         logger.warning(f"Token payload validation failed: {e}")
-        raise ValueError(f"Invalid token payload: {str(e)}")
+        raise ValueError(f"Invalid token payload: {str(e)}") from e
 
 
 def verify_token_type(payload: AuthTokenPayload, expected_type: str) -> None:
@@ -197,6 +203,7 @@ def verify_token_type(payload: AuthTokenPayload, expected_type: str) -> None:
 
     Raises:
         ValueError: If token type doesn't match expected type
+
     """
     if payload.type != expected_type:
         raise ValueError(
@@ -212,6 +219,7 @@ def get_token_expiration_seconds() -> int:
 
     Returns:
         Number of seconds until access token expires
+
     """
     return settings.jwt_access_token_expire_hours * 3600
 
@@ -222,11 +230,12 @@ def is_refresh_enabled() -> bool:
 
     Returns:
         True if refresh tokens are enabled, False otherwise
+
     """
     return settings.jwt_refresh_enabled
 
 
-async def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
+async def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
     """
     Authenticate a user with username and password.
 
@@ -239,6 +248,7 @@ async def authenticate_user(username: str, password: str) -> Optional[Dict[str, 
 
     Raises:
         ValueError: If username or password is invalid
+
     """
     try:
         # Get user by username

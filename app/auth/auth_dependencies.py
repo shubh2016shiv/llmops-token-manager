@@ -1,8 +1,11 @@
 """
-FastAPI Authentication Dependencies
------------------------------------
+FastAPI Authentication Dependencies.
+
+-------------------------------------
+
 FastAPI dependencies for JWT-based authorization and role-based access control.
-Provides reusable dependencies for protecting endpoints with different permission levels.
+Provides reusable dependencies for protecting endpoints with different
+permission levels.
 
 Role Hierarchy (from request_models.py):
 OWNER > ADMIN > OPERATOR > DEVELOPER
@@ -14,16 +17,21 @@ Security Best Practices:
 - Clear error messages for debugging without exposing sensitive information
 """
 
-from typing import List, Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 from loguru import logger
 
 from app.auth.jwt_auth_token_service import decode_token, verify_token_type
-from app.models.auth_models import AuthTokenPayload
 from app.psql_db_services.users_service import UsersService
-from app.models.response_models import UserResponse
+
+if TYPE_CHECKING:
+    from app.models.auth_models import AuthTokenPayload
+    from app.models.response_models import UserResponse
 
 # OAuth2 scheme for extracting Bearer tokens from Authorization header
 oauth2_scheme = OAuth2PasswordBearer(
@@ -33,7 +41,7 @@ oauth2_scheme = OAuth2PasswordBearer(
 
 
 async def get_current_user(
-    token: Optional[str] = Depends(oauth2_scheme),
+    token: str | None = Depends(oauth2_scheme),
 ) -> AuthTokenPayload:
     """
     Extract and validate JWT token from Authorization header.
@@ -49,6 +57,7 @@ async def get_current_user(
 
     Raises:
         HTTPException 401: If token is missing, invalid, or expired
+
     """
     if not token:
         logger.warning("Missing authorization token")
@@ -76,14 +85,14 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from e
     except ValueError as e:
         logger.warning(f"Token validation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token format",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from e
 
 
 async def get_active_user(
@@ -105,13 +114,12 @@ async def get_active_user(
     Raises:
         HTTPException 403: If user not found or not active
         HTTPException 500: If database query fails
+
     """
     try:
         # Query database to verify user exists and is active
         users_service = UsersService()
-        user: Optional[UserResponse] = await users_service.get_user_by_id(
-            payload.user_id
-        )
+        user: UserResponse | None = await users_service.get_user_by_id(payload.user_id)
 
         if not user:
             logger.warning(f"User not found: {payload.user_id}")
@@ -136,7 +144,7 @@ async def get_active_user(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="User validation failed",
-        )
+        ) from e
 
 
 class RoleChecker:
@@ -152,12 +160,13 @@ class RoleChecker:
         @app.get("/admin-only", dependencies=[Depends(require_admin)])
     """
 
-    def __init__(self, allowed_roles: List[str]):
+    def __init__(self, allowed_roles: list[str]):
         """
         Initialize role checker with allowed roles.
 
         Args:
             allowed_roles: List of roles that can access the endpoint
+
         """
         self.allowed_roles = allowed_roles
 
@@ -183,6 +192,7 @@ class RoleChecker:
 
         Raises:
             HTTPException 403: If user's role is not authorized
+
         """
         if payload.role not in self.allowed_roles:
             logger.warning(
@@ -190,7 +200,10 @@ class RoleChecker:
             )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Insufficient permissions. Required roles: {', '.join(self.allowed_roles)}",
+                detail=(
+                    "Insufficient permissions. Required roles: "
+                    f"{', '.join(self.allowed_roles)}"
+                ),
             )
 
         logger.debug(

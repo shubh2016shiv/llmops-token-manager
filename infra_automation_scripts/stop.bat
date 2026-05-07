@@ -55,6 +55,7 @@ echo This will gracefully stop all infrastructure services:
 echo   - PostgreSQL (llm_postgres)
 echo   - Redis (llm_redis)
 echo   - RabbitMQ (llm_rabbitmq)
+echo   - Celery worker (llm_celery_worker)
 echo.
 set /p CONFIRM="Are you sure you want to stop all services? (y/N): "
 if /i not "%CONFIRM%"=="y" (

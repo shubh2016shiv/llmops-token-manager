@@ -81,7 +81,7 @@ echo.
 
 REM Check PostgreSQL
 echo Checking PostgreSQL...
-docker-compose exec -T postgres pg_isready -U myuser
+docker-compose exec -T postgres pg_isready -U myuser -d mydb
 if errorlevel 1 (
     echo WARNING: PostgreSQL may not be ready yet.
 ) else (
@@ -108,19 +108,35 @@ if errorlevel 1 (
     echo RabbitMQ is healthy!
 )
 
+REM Check Celery worker
+echo.
+echo Checking Celery worker...
+set "CELERY_HEALTH="
+for /f "usebackq delims=" %%i in (`docker inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}" llm_celery_worker 2^>nul`) do set "CELERY_HEALTH=%%i"
+if /i "%CELERY_HEALTH%"=="healthy" (
+    echo Celery worker is healthy!
+) else if /i "%CELERY_HEALTH%"=="starting" (
+    echo WARNING: Celery worker health check is still starting.
+) else (
+    echo WARNING: Celery worker may not be ready yet.
+)
+
 echo.
 echo ============================================================
 echo   Infrastructure Deployment Complete!
 echo ============================================================
 echo.
 echo Access points:
-echo   - PostgreSQL:          localhost:5432 (user: myuser, password: mypassword, db: mydb)
+echo   - PostgreSQL:          localhost:5433 (user: myuser, password: mypassword, db: mydb)
 echo   - Redis:               localhost:6379
 echo   - RabbitMQ AMQP:       localhost:5672
 echo   - RabbitMQ Dashboard:  http://localhost:15672 (login: rmq_user / rmq_password)
+echo   - Celery Worker:       docker inspect llm_celery_worker --format "{{.State.Health.Status}}"
 echo.
 echo Useful commands:
 echo   - View logs:          docker-compose logs -f
+echo   - View Celery logs:   docker-compose logs -f celery_worker
+echo   - Check Celery state: docker inspect llm_celery_worker --format "{{.State.Health.Status}}"
 echo   - Stop services:      docker-compose down
 echo   - Check health:       python check_infra_service_health.py
 echo.
@@ -128,6 +144,7 @@ echo Next steps:
 echo   1. Connect to PostgreSQL with your preferred client
 echo   2. Connect to Redis with your preferred client
 echo   3. Access RabbitMQ management UI at http://localhost:15672
+echo   4. Verify Celery worker health if you plan to queue async jobs
 echo.
 echo ============================================================
 echo.

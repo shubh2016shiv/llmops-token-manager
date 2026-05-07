@@ -1,4 +1,6 @@
 """
+LLM token count estimation utility - architectural notes.
+
 ================================================================================
 LLM TOKEN COUNT ESTIMATION UTILITY - ARCHITECTURAL NOTES
 ================================================================================
@@ -21,13 +23,16 @@ DEPENDENCIES:
 
 import logging
 import time
-from typing import Union, List, Dict, Any
+from typing import Any
+
 from ..models.token_manager_models import InputType, TokenEstimation
 
 try:
     import litellm
-except ImportError:
-    raise ImportError("LiteLLM library required. Install with: pip install litellm")
+except ImportError as err:
+    raise ImportError(
+        "LiteLLM library required. Install with: pip install litellm"
+    ) from err
 
 # Configure structured logging
 logging.basicConfig(
@@ -41,6 +46,7 @@ logger = logging.getLogger(__name__)
 class TokenEstimator:
     """
     Production-grade token estimator for per-user requests.
+
     Uses LiteLLM for reliable, scalable estimation without external infrastructure.
     Includes input validation, fallbacks, and timeouts for resilience.
     """
@@ -59,6 +65,7 @@ class TokenEstimator:
         Args:
             max_input_length: Max input chars (DoS prevention)
             timeout_seconds: Max time for estimation
+
         """
         cls._max_input_length = max_input_length
         cls._timeout_seconds = timeout_seconds
@@ -68,7 +75,7 @@ class TokenEstimator:
         )
 
     @staticmethod
-    def _detect_input_type(input_data: Union[str, List[Dict[str, Any]]]) -> InputType:
+    def _detect_input_type(input_data: str | list[dict[str, Any]]) -> InputType:
         """Detect and validate input type."""
         if isinstance(input_data, str):
             return InputType.SIMPLE_STRING
@@ -84,13 +91,14 @@ class TokenEstimator:
 
     @staticmethod
     def _validate_input_size(
-        input_data: Union[str, List[Dict[str, Any]]], max_length: int
+        input_data: str | list[dict[str, Any]], max_length: int
     ) -> None:
         """
         Validate input size to prevent resource exhaustion.
 
         Raises:
             ValueError: If input exceeds size limit
+
         """
         if isinstance(input_data, str):
             length = len(input_data)
@@ -108,7 +116,7 @@ class TokenEstimator:
                 )
 
     @staticmethod
-    def _count_images(messages: List[Dict[str, Any]]) -> int:
+    def _count_images(messages: list[dict[str, Any]]) -> int:
         """Count images in messages (for logging/fallback)."""
         count = 0
         for msg in messages:
@@ -125,12 +133,13 @@ class TokenEstimator:
     @classmethod
     def _fallback_estimate(
         cls,
-        input_data: Union[str, List[Dict[str, Any]]],
+        input_data: str | list[dict[str, Any]],
         input_type: InputType,
         image_count: int,
     ) -> int:
         """
         Fallback estimation if LiteLLM fails.
+
         Uses conservative heuristics (~4 chars/token, 170 tokens/image).
         """
         logger.warning("Using fallback token estimation (LiteLLM unavailable)")
@@ -154,7 +163,7 @@ class TokenEstimator:
     @classmethod
     def estimate(
         cls,
-        input_data: Union[str, List[Dict[str, Any]]],
+        input_data: str | list[dict[str, Any]],
         model: str,
         safety_margin: float = 0.0,
     ) -> TokenEstimation:
@@ -171,6 +180,7 @@ class TokenEstimator:
 
         Raises:
             ValueError: If input is invalid or too large
+
         """
         start_time = time.time()
 
@@ -195,7 +205,8 @@ class TokenEstimator:
         image_count = 0
 
         try:
-            # Step 3: Estimate tokens using LiteLLM (with implicit timeout via overall check)
+            # Step 3: Estimate tokens using LiteLLM.
+            # Timeout is enforced via overall processing time checks.
             if input_type == InputType.SIMPLE_STRING:
                 if not isinstance(input_data, str):
                     raise ValueError("Expected string for SIMPLE_STRING type")
@@ -239,14 +250,16 @@ class TokenEstimator:
             original = total_tokens
             total_tokens = int(total_tokens * (1 + safety_margin))
             logger.debug(
-                f"Applied {safety_margin * 100:.1f}% margin ({original} → {total_tokens})"
+                f"Applied {safety_margin * 100:.1f}% margin "
+                f"({original} -> {total_tokens})"
             )
 
         # Step 6: Calculate metrics and timeout check
         processing_time = time.time() - start_time
         if processing_time > cls._timeout_seconds:
             logger.warning(
-                f"Estimation took {processing_time:.2f}s (timeout: {cls._timeout_seconds}s)"
+                f"Estimation took {processing_time:.2f}s "
+                f"(timeout: {cls._timeout_seconds}s)"
             )
         processing_time_ms = processing_time * 1000
 
@@ -267,7 +280,7 @@ class TokenEstimator:
 
 # Convenience function
 def estimate_tokens(
-    input_data: Union[str, List[Dict[str, Any]]], model: str, safety_margin: float = 0.0
+    input_data: str | list[dict[str, Any]], model: str, safety_margin: float = 0.0
 ) -> TokenEstimation:
     """Quick token estimation."""
     return TokenEstimator.estimate(input_data, model, safety_margin)

@@ -73,6 +73,14 @@ class ApplicationSettings(BaseSettings):
     celery_task_time_limit: int = Field(
         default=600, description="Task hard time limit (seconds)"
     )
+    require_celery_worker_on_startup: bool = Field(
+        default=False,
+        description=(
+            "Require a healthy Celery worker during FastAPI startup. "
+            "Enterprise default is false to keep API and workers "
+            "deployable independently."
+        ),
+    )
 
     # Rate limiting configuration
     rate_limit_requests_per_minute: int = Field(

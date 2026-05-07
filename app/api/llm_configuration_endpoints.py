@@ -233,8 +233,6 @@ async def list_llm_models_by_provider(
         resolved_page = page if page is not None else 1
         resolved_page_size = page_size if page_size is not None else 100
 
-        # NOTE: This endpoint currently uses the page length as total_count.
-        # In production, prefer a database count query for accurate has_next.
         models = await llm_service.get_llm_models_by_provider(
             llm_provider=llm_provider,
             active_only=active_only,
@@ -246,10 +244,8 @@ async def list_llm_models_by_provider(
             ),
         )
 
-        # Calculate pagination info
-        total_count = len(
-            models
-        )  # For simplicity, in production you'd get this from a count query
+        # Calculate pagination info from authoritative DB count
+        total_count = await llm_service.count_llm_models_by_provider(llm_provider)
 
         if using_page_params:
             _, _, page_val, page_size_val, has_next, has_previous = compute_pagination(

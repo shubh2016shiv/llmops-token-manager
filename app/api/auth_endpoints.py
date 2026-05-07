@@ -8,9 +8,11 @@ The /login endpoint is for production use, while /token/generate is for developm
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from jose import JWTError
 from loguru import logger
+from pydantic import BaseModel
 
-from app.auth.auth_dependencies import get_current_user
+from app.auth.auth_dependencies import get_current_user, require_admin
 from app.auth.jwt_auth_token_service import (
     authenticate_user,
     create_access_token,
@@ -33,7 +35,17 @@ from app.models.auth_models import (
     AuthTokenRefreshRequest,
     AuthTokenResponse,
 )
-from app.models.response_models import AuthConfigResponse
+
+
+class AuthConfigResponse(BaseModel):
+    """Authentication configuration response (non-sensitive fields only)."""
+
+    jwt_algorithm: str
+    access_token_expire_hours: int
+    refresh_enabled: bool
+    refresh_token_expire_days: int | None
+    token_type: str
+
 
 # ============================================================================
 # ROUTER INITIALIZATION
@@ -140,6 +152,7 @@ async def login(request: AuthLoginRequest):
     ⚠️ DEVELOPMENT/TESTING ONLY ⚠️
 
     This endpoint is for development and testing purposes only.
+    Access requires admin/owner authentication and is disabled in production.
     In production, token generation should be handled by a separate authentication service.
 
     Use this endpoint to:
@@ -150,7 +163,10 @@ async def login(request: AuthLoginRequest):
     Security Note: This endpoint bypasses normal authentication flows.
     """,
 )
-async def generate_token(request: AuthTokenGenerateRequest):
+async def generate_token(
+    request: AuthTokenGenerateRequest,
+    current_user: AuthTokenPayload = Depends(require_admin),
+):
     """
     Generate JWT tokens for a user.
 
@@ -159,6 +175,7 @@ async def generate_token(request: AuthTokenGenerateRequest):
 
     Args:
         request: Token generation parameters (user_id, role)
+        current_user: Authenticated admin/owner user
 
     Returns:
         AuthTokenResponse: Generated access token and optional refresh token
@@ -171,6 +188,19 @@ async def generate_token(request: AuthTokenGenerateRequest):
     logger.info(
         f"Generating tokens for user {request.user_id} with role {request.role}"
     )
+    logger.debug(
+        f"Token generation requested by privileged user: {current_user.user_id}"
+    )
+
+    app_environment = getattr(settings, "app_environment", "development")
+    if app_environment == "production":
+        logger.warning(
+            "Token generation endpoint is disabled in production environment"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token generation endpoint is disabled in production",
+        )
 
     try:
         # Generate access token
@@ -284,11 +314,17 @@ async def refresh_access_token(request: AuthTokenRefreshRequest):
     except ValueError as e:
         logger.warning(f"Token refresh failed: {e}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
+    except JWTError as e:
         logger.warning(f"Refresh token validation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error refreshing token: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to refresh access token",
         )
 
 

@@ -24,6 +24,19 @@ from app.utils.passwrd_hashing import PasswordHasher
 router = APIRouter(prefix="/api/v1/users", tags=["Users"])
 
 
+def _mask_email(email: str) -> str:
+    """
+    Mask email for safer logging without exposing full PII.
+
+    Example: jane.doe@example.com -> ja***@example.com
+    """
+    if "@" not in email:
+        return "***"
+    local_part, domain = email.split("@", 1)
+    visible = local_part[:2] if local_part else ""
+    return f"{visible}***@{domain}"
+
+
 # ============================================================================
 # CREATE ENDPOINTS
 # ============================================================================
@@ -37,11 +50,14 @@ router = APIRouter(prefix="/api/v1/users", tags=["Users"])
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new user",
-    description="Create a new user account with username, email, and password.",
+    description="Create a new user account with username, email, and password. Admin access required.",
 )
-async def create_user(request: UserCreateRequest):
+async def create_user(
+    request: UserCreateRequest,
+    current_user: AuthTokenPayload = Depends(require_admin),
+):
     """
-    Create a new user in the system.
+    Create a new user in the system (admin/owner only).
 
     Process:
     1. Validate input (handled by Pydantic)
@@ -54,6 +70,7 @@ async def create_user(request: UserCreateRequest):
 
     Args:
         request: User creation parameters (first_name, last_name, username, email, password)
+        current_user: Current authenticated admin/owner
 
     Returns:
         UserResponse: Created user information
@@ -66,6 +83,7 @@ async def create_user(request: UserCreateRequest):
     logger.info(
         f"Creating user: username={request.username}, email={request.email}, role={request.role}"
     )
+    logger.debug(f"User creation requested by admin user_id={current_user.user_id}")
     users_service = UsersService()
 
     try:
@@ -193,14 +211,15 @@ async def get_user_by_email(
         HTTPException 500: On internal server error
 
     """
-    logger.debug(f"Fetching user by email: email={email}")
+    masked_email = _mask_email(email)
+    logger.debug(f"Fetching user by email: email={masked_email}")
     users_service = UsersService()
 
     try:
         user = await users_service.get_user_by_email(email)
 
         if not user:
-            logger.warning(f"User not found: email={email}")
+            logger.warning(f"User not found: email={masked_email}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"User with email '{email}' not found",

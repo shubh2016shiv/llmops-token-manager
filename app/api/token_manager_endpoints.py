@@ -24,7 +24,6 @@ from app.models.request_models import (
     TokenRetryRequest,
 )
 from app.models.response_models import (
-    PauseDeploymentResponse,
     TokenAllocationResponse,
     TokenReleaseResponse,
     UserResponse,
@@ -89,6 +88,27 @@ def _users_service_dependency() -> UsersService:
       router/app dependency graph.
     """
     return get_users_service()
+
+
+def _is_authorized_for_token_request(
+    allocation: dict,
+    current_user: AuthTokenPayload,
+) -> bool:
+    """
+    Check object-level authorization for token request operations.
+
+    Access policy:
+    - Token owner can operate on their own token request.
+    - Admin/owner roles can operate on any token request.
+    """
+    if current_user.role in {"admin", "owner"}:
+        return True
+
+    owner_id = allocation.get("user_id")
+    if owner_id is None:
+        return False
+
+    return str(owner_id) == str(current_user.user_id)
 
 
 # ============================================================================
@@ -246,6 +266,16 @@ async def retry_acquire_tokens(
                 detail=f"Token request '{request.token_request_id}' not found",
             )
 
+        if not _is_authorized_for_token_request(allocation, current_user):
+            logger.warning(
+                f"Unauthorized retry attempt by user {current_user.user_id} "
+                f"for token request {request.token_request_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to operate on this token request",
+            )
+
         # Check for errors in response
         if "error" in allocation:
             error_msg = allocation["error"]
@@ -355,6 +385,16 @@ async def release_tokens(
                 message="Tokens released successfully",
             )
 
+        if not _is_authorized_for_token_request(allocation, current_user):
+            logger.warning(
+                f"Unauthorized release attempt by user {current_user.user_id} "
+                f"for token request {request.token_request_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to operate on this token request",
+            )
+
         # Delete the allocation record
         deleted = await allocation_service.delete_allocation(request.token_request_id)
 
@@ -394,7 +434,7 @@ async def release_tokens(
 
 @router.put(
     "/pause-deployment",
-    response_model=PauseDeploymentResponse,
+    response_model=TokenAllocationResponse,
     status_code=status.HTTP_200_OK,
     summary="Pause a failing deployment",
     description="Pause a failing deployment for emergency failover. Blocks all new allocations to the specified deployment.",
@@ -492,6 +532,12 @@ async def pause_deployment(
         #     )
 
         # Pause the deployment
+        if request.api_endpoint_url is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="api_endpoint_url parameter is required for pause deployment operation",
+            )
+
         result = await allocation_service.pause_deployment(
             user_id=user_id_uuid,
             llm_provider=request.llm_provider,

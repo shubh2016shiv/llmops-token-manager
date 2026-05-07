@@ -2,25 +2,29 @@
 Health Check Endpoints
 ---------------------
 Health monitoring endpoints for service and dependencies.
-Provides status checks for database, Redis, and RabbitMQ.
+Provides status checks for database, Redis, RabbitMQ, and Celery worker readiness.
 """
 
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
 from loguru import logger
-from sqlalchemy import text
 
 from app.core.config_manager import settings
-from app.core.database_connection import db_manager
-from app.core.redis_connection import redis_manager
+from app.core.startup_diagnostics import (
+    ServiceStatus,
+    verify_celery_worker_readiness,
+    verify_database_connectivity,
+    verify_rabbitmq_connectivity,
+    verify_redis_connectivity,
+)
 from app.models.response_models import DependencyHealth, HealthStatus
 
 router = APIRouter(prefix="/api/v1/health", tags=["Health"])
 
 
 @router.get("/", response_model=HealthStatus)
-async def health_check():
+async def health_check() -> HealthStatus:
     """
     Basic health check endpoint.
     Returns service status and version information.
@@ -39,10 +43,10 @@ async def health_check():
 
 
 @router.get("/dependencies", response_model=DependencyHealth, status_code=200)
-async def check_dependencies():
+async def check_dependencies() -> DependencyHealth:
     """
     Check health of all service dependencies.
-    Tests connectivity to PostgreSQL, Redis, and RabbitMQ.
+    Tests connectivity to PostgreSQL, Redis, RabbitMQ, and Celery worker readiness.
 
     Returns a 200 OK status with the health status of each component.
     If any component is unhealthy, the overall status will be 'unhealthy'
@@ -68,15 +72,25 @@ async def check_dependencies():
     # Check RabbitMQ message broker
     rabbitmq_healthy = await _check_rabbitmq()
 
+    # Check Celery worker readiness
+    celery_worker_healthy = await _check_celery_worker()
+
     # Determine overall health status
-    all_healthy = postgresql_healthy and redis_healthy and rabbitmq_healthy
+    all_healthy = (
+        postgresql_healthy
+        and redis_healthy
+        and rabbitmq_healthy
+        and celery_worker_healthy
+    )
     status = "healthy" if all_healthy else "unhealthy"
 
     # Log appropriate message based on health status
     if not all_healthy:
         logger.warning(
             f"Infrastructure health check detected issues: "
-            f"postgresql={postgresql_healthy}, redis={redis_healthy}, rabbitmq={rabbitmq_healthy}"
+            "postgresql="
+            f"{postgresql_healthy}, redis={redis_healthy}, rabbitmq={rabbitmq_healthy}, "
+            f"celery_worker={celery_worker_healthy}"
         )
     else:
         logger.info("All infrastructure components healthy")
@@ -87,6 +101,7 @@ async def check_dependencies():
         postgresql=postgresql_healthy,
         redis=redis_healthy,
         rabbitmq=rabbitmq_healthy,
+        celery_worker=celery_worker_healthy,
         status=status,
         timestamp=datetime.now(timezone.utc),
     )
@@ -100,13 +115,8 @@ async def _check_database() -> bool:
         bool: True if database is accessible
 
     """
-    try:
-        async with db_manager.get_session() as session:
-            result = await session.execute(text("SELECT 1"))
-            return result.scalar() == 1
-    except Exception as e:
-        logger.error(f"Database health check failed: {e}")
-        return False
+    result = await verify_database_connectivity()
+    return _is_service_connected(result, "Database")
 
 
 async def _check_redis() -> bool:
@@ -117,11 +127,8 @@ async def _check_redis() -> bool:
         bool: True if Redis is accessible
 
     """
-    try:
-        return await redis_manager.ping()
-    except Exception as e:
-        logger.error(f"Redis health check failed: {e}")
-        return False
+    result = await verify_redis_connectivity()
+    return _is_service_connected(result, "Redis")
 
 
 async def _check_rabbitmq() -> bool:
@@ -132,15 +139,31 @@ async def _check_rabbitmq() -> bool:
         bool: True if RabbitMQ broker is accessible
 
     """
-    try:
-        from app.llm_client_provisioning.llm_client_request_queue import celery_app
+    result = await verify_rabbitmq_connectivity()
+    return _is_service_connected(result, "RabbitMQ broker")
 
-        # Check broker connection directly instead of worker inspection
-        # This verifies RabbitMQ server is accessible, not worker availability
-        with celery_app.connection() as conn:
-            conn.ensure_connection(max_retries=3)
-            # If we can establish a connection, RabbitMQ broker is working
-            return True
-    except Exception as e:
-        logger.error(f"RabbitMQ broker health check failed: {e}")
-        return False
+
+async def _check_celery_worker() -> bool:
+    """
+    Check Celery worker readiness separately from broker connectivity.
+
+    Returns:
+        bool: True if a Celery worker is ready to process tasks
+
+    """
+    result = await verify_celery_worker_readiness()
+    return _is_service_connected(result, "Celery worker")
+
+
+def _is_service_connected(result: ServiceStatus, service_name: str) -> bool:
+    """
+    Normalize dependency-health logging for a typed service status result.
+
+    This keeps the endpoint contract focused on booleans while startup
+    diagnostics remain the single source of truth for rich connection details.
+    """
+    is_connected = result.status == "connected"
+    if not is_connected:
+        error_message = result.error_message or "Unknown health check failure"
+        logger.error(f"{service_name} health check failed: {error_message}")
+    return is_connected

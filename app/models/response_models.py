@@ -562,6 +562,7 @@ class DependencyHealth(BaseModel):
     - PostgreSQL database
     - Redis cache
     - RabbitMQ message broker
+    - Celery worker readiness
 
     Each component is represented as a boolean indicating if it's operational.
     """
@@ -569,6 +570,7 @@ class DependencyHealth(BaseModel):
     postgresql: bool = Field(..., description="PostgreSQL database health status")
     redis: bool = Field(..., description="Redis cache health status")
     rabbitmq: bool = Field(..., description="RabbitMQ message broker health status")
+    celery_worker: bool = Field(..., description="Celery worker readiness status")
     status: str = Field(
         ..., description="Overall health status: 'healthy' or 'unhealthy'"
     )
@@ -582,6 +584,7 @@ class DependencyHealth(BaseModel):
                 "postgresql": True,
                 "redis": True,
                 "rabbitmq": True,
+                "celery_worker": True,
                 "status": "healthy",
                 "timestamp": "2025-10-13T10:30:00Z",
             }

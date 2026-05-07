@@ -9,6 +9,7 @@ Test Coverage:
 - Database verification (5 tests)
 - Redis verification (5 tests)
 - RabbitMQ verification (4 tests)
+- Celery worker readiness verification (3 tests)
 
 Total: 24 comprehensive unit tests
 """
@@ -23,6 +24,7 @@ from app.core.startup_diagnostics import (
     ServiceStatus,
     display_service_info,
     display_startup_failure,
+    verify_celery_worker_readiness,
     verify_database_connectivity,
     verify_rabbitmq_connectivity,
     verify_redis_connectivity,
@@ -228,6 +230,11 @@ class TestDisplayFunctions:
         mock_settings.redis_port = 6379
         mock_settings.redis_db = 0
         mock_settings.redis_max_connections = 50
+        mock_settings.rabbitmq_host = "localhost"
+        mock_settings.rabbitmq_port = 5672
+        mock_settings.rabbitmq_vhost = "/"
+        mock_settings.require_celery_worker_on_startup = False
+        mock_settings.celery_result_backend = "rpc://"
 
         # Capture stdout
         captured_output = StringIO()
@@ -263,6 +270,11 @@ class TestDisplayFunctions:
         mock_settings.redis_port = 6379
         mock_settings.redis_db = 0
         mock_settings.redis_max_connections = 50
+        mock_settings.rabbitmq_host = "localhost"
+        mock_settings.rabbitmq_port = 5672
+        mock_settings.rabbitmq_vhost = "/"
+        mock_settings.require_celery_worker_on_startup = False
+        mock_settings.celery_result_backend = "rpc://"
 
         # Capture stdout
         captured_output = StringIO()
@@ -300,6 +312,11 @@ class TestDisplayFunctions:
         mock_settings.redis_port = 6379
         mock_settings.redis_db = 0
         mock_settings.redis_max_connections = 50
+        mock_settings.rabbitmq_host = "localhost"
+        mock_settings.rabbitmq_port = 5672
+        mock_settings.rabbitmq_vhost = "/"
+        mock_settings.require_celery_worker_on_startup = False
+        mock_settings.celery_result_backend = "rpc://"
 
         # Capture stdout
         captured_output = StringIO()
@@ -321,6 +338,9 @@ class TestDisplayFunctions:
             assert "0" in output
             assert "Max Connections" in output
             assert "50" in output
+            assert "RABBITMQ BROKER" in output
+            assert "CELERY WORKER READINESS" in output
+            assert "rpc://" in output
         finally:
             sys.stdout = original_stdout
 
@@ -609,10 +629,16 @@ class TestVerifyRabbitMQConnectivity:
     # Group 6: RabbitMQ Verification (4 tests)
 
     @pytest.mark.asyncio
+    @patch("app.core.startup_diagnostics.settings")
     @patch("app.llm_client_provisioning.llm_client_request_queue.celery_app")
-    async def test_verify_rabbitmq_connectivity_success(self, mock_celery_app):
+    async def test_verify_rabbitmq_connectivity_success(
+        self, mock_celery_app, mock_settings
+    ):
         """Test successful RabbitMQ connectivity verification."""
         # Setup
+        mock_settings.rabbitmq_host = "broker"
+        mock_settings.rabbitmq_port = 5678
+        mock_settings.rabbitmq_vhost = "/test"
         mock_connection = MagicMock()
         mock_connection.ensure_connection = MagicMock()
         mock_celery_app.connection.return_value.__enter__.return_value = mock_connection
@@ -625,18 +651,23 @@ class TestVerifyRabbitMQConnectivity:
         assert result.status == "connected"
         assert result.error_message is None
         assert result.connection_details == {
-            "host": "localhost",
-            "port": "5672",
-            "broker": "Celery broker",
+            "host": "broker",
+            "port": "5678",
+            "virtual_host": "/test",
+            "component": "Celery broker",
         }
 
     @pytest.mark.asyncio
+    @patch("app.core.startup_diagnostics.settings")
     @patch("app.llm_client_provisioning.llm_client_request_queue.celery_app")
     async def test_verify_rabbitmq_connectivity_connection_refused(
-        self, mock_celery_app
+        self, mock_celery_app, mock_settings
     ):
         """Test RabbitMQ connectivity when connection is refused."""
         # Setup
+        mock_settings.rabbitmq_host = "localhost"
+        mock_settings.rabbitmq_port = 5672
+        mock_settings.rabbitmq_vhost = "/"
         mock_celery_app.connection.side_effect = ConnectionRefusedError(
             "Connection refused"
         )
@@ -652,16 +683,21 @@ class TestVerifyRabbitMQConnectivity:
         assert result.connection_details == {
             "host": "localhost",
             "port": "5672",
-            "broker": "Celery broker",
+            "virtual_host": "/",
+            "component": "Celery broker",
         }
 
     @pytest.mark.asyncio
+    @patch("app.core.startup_diagnostics.settings")
     @patch("app.llm_client_provisioning.llm_client_request_queue.celery_app")
     async def test_verify_rabbitmq_connectivity_generic_exception(
-        self, mock_celery_app
+        self, mock_celery_app, mock_settings
     ):
         """Test RabbitMQ connectivity with generic exception."""
         # Setup
+        mock_settings.rabbitmq_host = "localhost"
+        mock_settings.rabbitmq_port = 5672
+        mock_settings.rabbitmq_vhost = "/"
         mock_celery_app.connection.side_effect = Exception("RabbitMQ error")
 
         # Act
@@ -674,12 +710,16 @@ class TestVerifyRabbitMQConnectivity:
         assert "Check RabbitMQ configuration" in result.suggestion
 
     @pytest.mark.asyncio
+    @patch("app.core.startup_diagnostics.settings")
     @patch("app.llm_client_provisioning.llm_client_request_queue.celery_app")
     async def test_verify_rabbitmq_connectivity_connection_details_default(
-        self, mock_celery_app
+        self, mock_celery_app, mock_settings
     ):
         """Test that RabbitMQ uses default connection details."""
         # Setup
+        mock_settings.rabbitmq_host = "localhost"
+        mock_settings.rabbitmq_port = 5672
+        mock_settings.rabbitmq_vhost = "/"
         mock_connection = MagicMock()
         mock_connection.ensure_connection = MagicMock()
         mock_celery_app.connection.return_value.__enter__.return_value = mock_connection
@@ -691,5 +731,66 @@ class TestVerifyRabbitMQConnectivity:
         assert result.connection_details == {
             "host": "localhost",
             "port": "5672",
-            "broker": "Celery broker",
+            "virtual_host": "/",
+            "component": "Celery broker",
         }
+
+
+class TestVerifyCeleryWorkerReadiness:
+    """Test cases for Celery worker readiness verification."""
+
+    @pytest.mark.asyncio
+    @patch("app.core.startup_diagnostics.settings")
+    @patch("app.core.startup_diagnostics.inspect_celery_worker_readiness")
+    async def test_verify_celery_worker_readiness_success(
+        self, mock_inspect_worker, mock_settings
+    ):
+        """Test successful Celery worker readiness verification."""
+        mock_settings.rabbitmq_host = "broker"
+        mock_settings.rabbitmq_port = 5672
+        mock_inspect_worker.return_value = (True, None)
+
+        result = await verify_celery_worker_readiness()
+
+        assert result.name == "Celery worker"
+        assert result.status == "connected"
+        assert result.connection_details == {
+            "host": "broker",
+            "port": "5672",
+            "queues": "llm_requests_quorum_v1, priority_requests_quorum_v1",
+        }
+
+    @pytest.mark.asyncio
+    @patch("app.core.startup_diagnostics.settings")
+    @patch("app.core.startup_diagnostics.inspect_celery_worker_readiness")
+    async def test_verify_celery_worker_readiness_failure(
+        self, mock_inspect_worker, mock_settings
+    ):
+        """Test degraded Celery worker readiness details."""
+        mock_settings.rabbitmq_host = "broker"
+        mock_settings.rabbitmq_port = 5672
+        mock_inspect_worker.return_value = (False, "Worker not registered")
+
+        result = await verify_celery_worker_readiness()
+
+        assert result.name == "Celery worker"
+        assert result.status == "failed"
+        assert result.error_message == "Worker not registered"
+        assert "Start a Celery worker" in result.suggestion
+
+    @pytest.mark.asyncio
+    @patch("app.core.startup_diagnostics.settings")
+    @patch("app.core.startup_diagnostics.inspect_celery_worker_readiness")
+    async def test_verify_celery_worker_readiness_exception(
+        self, mock_inspect_worker, mock_settings
+    ):
+        """Test Celery worker readiness when the shared helper raises."""
+        mock_settings.rabbitmq_host = "broker"
+        mock_settings.rabbitmq_port = 5672
+        mock_inspect_worker.side_effect = RuntimeError("health helper failed")
+
+        result = await verify_celery_worker_readiness()
+
+        assert result.name == "Celery worker"
+        assert result.status == "failed"
+        assert result.error_message == "health helper failed"

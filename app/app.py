@@ -21,6 +21,7 @@ from app.core.redis_connection import redis_manager
 from app.core.startup_diagnostics import (
     display_service_info,
     display_startup_failure,
+    verify_celery_worker_readiness,
     verify_database_connectivity,
     verify_rabbitmq_connectivity,
     verify_redis_connectivity,
@@ -89,17 +90,41 @@ async def lifespan(app: FastAPI):
     service_statuses.append(rabbitmq_status)
 
     if rabbitmq_status.status == "connected":
-        logger.info("[SUCCESS] RabbitMQ connected and ready")
+        logger.info("[SUCCESS] RabbitMQ broker connected and ready")
     else:
         logger.error(f"[FAILED] RabbitMQ: {rabbitmq_status.error_message}")
 
-    # Check if any service failed
-    failed_services = [s for s in service_statuses if s.status == "failed"]
+    # Check Celery worker readiness separately from broker connectivity.
+    logger.info("Checking Celery worker readiness...")
+    celery_worker_status = await verify_celery_worker_readiness()
+    service_statuses.append(celery_worker_status)
 
-    if failed_services:
-        display_startup_failure(failed_services)
+    if celery_worker_status.status == "connected":
+        logger.info("[SUCCESS] Celery worker ready for async execution")
+    elif settings.require_celery_worker_on_startup:
+        logger.error(f"[FAILED] Celery worker: {celery_worker_status.error_message}")
+    else:
+        logger.warning(
+            "[DEGRADED] Celery worker unavailable: "
+            f"{celery_worker_status.error_message}. "
+            "FastAPI will continue startup because "
+            "REQUIRE_CELERY_WORKER_ON_STARTUP is false."
+        )
+
+    startup_blockers = [
+        service
+        for service in service_statuses
+        if service.status == "failed"
+        and (
+            service.name != "Celery worker" or settings.require_celery_worker_on_startup
+        )
+    ]
+
+    if startup_blockers:
+        display_startup_failure(startup_blockers)
         logger.error(
-            f"Application startup failed: {len(failed_services)} service(s) unavailable"
+            "Application startup failed: "
+            f"{len(startup_blockers)} service(s) unavailable"
         )
         import os
 

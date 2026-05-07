@@ -15,6 +15,13 @@ from sqlalchemy import text
 from app.core.config_manager import settings
 from app.core.database_connection import db_manager
 from app.core.redis_connection import redis_manager
+from app.llm_client_provisioning.celery_healthcheck import (
+    inspect_celery_worker_readiness,
+)
+from app.llm_client_provisioning.queue_contract import (
+    LLM_REQUESTS_QUEUE,
+    PRIORITY_REQUESTS_QUEUE,
+)
 
 
 @dataclass
@@ -101,6 +108,29 @@ def display_service_info():
     print(f"{'Port':<20} | {str(settings.redis_port):<57}")
     print(f"{'Database':<20} | {str(settings.redis_db):<57}")
     print(f"{'Max Connections':<20} | {str(settings.redis_max_connections):<57}")
+    print(header_line)
+
+    print("\nRABBITMQ BROKER")
+    print(header_line)
+    print(f"{'Parameter':<20} | {'Value':<57}")
+    print(f"{header_line}")
+    print(f"{'Host':<20} | {settings.rabbitmq_host:<57}")
+    print(f"{'Port':<20} | {str(settings.rabbitmq_port):<57}")
+    print(f"{'Virtual Host':<20} | {settings.rabbitmq_vhost:<57}")
+    print(f"{'Broker URL Source':<20} | {'Environment / derived settings':<57}")
+    print(header_line)
+
+    print("\nCELERY WORKER READINESS")
+    print(header_line)
+    print(f"{'Parameter':<20} | {'Value':<57}")
+    print(f"{header_line}")
+    print(
+        f"{'Startup Critical':<20} | "
+        f"{str(settings.require_celery_worker_on_startup):<57}"
+    )
+    print(f"{'Primary Queue':<20} | {LLM_REQUESTS_QUEUE:<57}")
+    print(f"{'Priority Queue':<20} | {PRIORITY_REQUESTS_QUEUE:<57}")
+    print(f"{'Result Backend':<20} | {settings.celery_result_backend:<57}")
     print(header_line)
     print(border_line + "\n")
 
@@ -226,18 +256,16 @@ async def verify_rabbitmq_connectivity() -> ServiceStatus:
     try:
         from app.llm_client_provisioning.llm_client_request_queue import celery_app
 
-        # Check broker connection directly instead of worker inspection
-        # This verifies RabbitMQ server is accessible, not worker availability
         with celery_app.connection() as conn:
             conn.ensure_connection(max_retries=3)
-            # If we can establish a connection, RabbitMQ broker is working
             return ServiceStatus(
                 name="RabbitMQ",
                 status="connected",
                 connection_details={
-                    "host": "localhost",  # Default RabbitMQ host
-                    "port": "5672",  # Default AMQP port
-                    "broker": "Celery broker",
+                    "host": settings.rabbitmq_host,
+                    "port": str(settings.rabbitmq_port),
+                    "virtual_host": settings.rabbitmq_vhost,
+                    "component": "Celery broker",
                 },
             )
     except ConnectionRefusedError:
@@ -248,12 +276,14 @@ async def verify_rabbitmq_connectivity() -> ServiceStatus:
                 "Connection refused - RabbitMQ is not running or not accessible"
             ),
             suggestion=(
-                "Start RabbitMQ server or check if it's running on localhost:5672"
+                "Start RabbitMQ server or check whether the configured "
+                "broker host and port are reachable"
             ),
             connection_details={
-                "host": "localhost",
-                "port": "5672",
-                "broker": "Celery broker",
+                "host": settings.rabbitmq_host,
+                "port": str(settings.rabbitmq_port),
+                "virtual_host": settings.rabbitmq_vhost,
+                "component": "Celery broker",
             },
         )
     except Exception as e:
@@ -262,5 +292,55 @@ async def verify_rabbitmq_connectivity() -> ServiceStatus:
             status="failed",
             error_message=str(e),
             suggestion="Check RabbitMQ configuration and verify broker settings",
-            connection_details={"host": "localhost", "port": "5672"},
+            connection_details={
+                "host": settings.rabbitmq_host,
+                "port": str(settings.rabbitmq_port),
+                "virtual_host": settings.rabbitmq_vhost,
+            },
+        )
+
+
+async def verify_celery_worker_readiness() -> ServiceStatus:
+    """Verify Celery worker readiness using the shared worker health contract."""
+    try:
+        is_ready, reason = inspect_celery_worker_readiness(max_retries=1)
+        if not is_ready:
+            return ServiceStatus(
+                name="Celery worker",
+                status="failed",
+                error_message=reason or "Celery worker readiness check failed",
+                suggestion=(
+                    "Start a Celery worker and verify it can import tasks "
+                    "and reach the configured broker"
+                ),
+                connection_details={
+                    "host": settings.rabbitmq_host,
+                    "port": str(settings.rabbitmq_port),
+                    "queues": f"{LLM_REQUESTS_QUEUE}, {PRIORITY_REQUESTS_QUEUE}",
+                },
+            )
+
+        return ServiceStatus(
+            name="Celery worker",
+            status="connected",
+            connection_details={
+                "host": settings.rabbitmq_host,
+                "port": str(settings.rabbitmq_port),
+                "queues": f"{LLM_REQUESTS_QUEUE}, {PRIORITY_REQUESTS_QUEUE}",
+            },
+        )
+    except Exception as e:
+        return ServiceStatus(
+            name="Celery worker",
+            status="failed",
+            error_message=str(e),
+            suggestion=(
+                "Check Celery worker configuration and confirm the worker "
+                "health contract can run successfully"
+            ),
+            connection_details={
+                "host": settings.rabbitmq_host,
+                "port": str(settings.rabbitmq_port),
+                "queues": f"{LLM_REQUESTS_QUEUE}, {PRIORITY_REQUESTS_QUEUE}",
+            },
         )

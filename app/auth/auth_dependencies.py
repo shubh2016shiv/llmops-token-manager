@@ -19,7 +19,7 @@ Security Best Practices:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -41,7 +41,7 @@ oauth2_scheme = OAuth2PasswordBearer(
 
 
 async def get_current_user(
-    token: str | None = Depends(oauth2_scheme),
+    token: Annotated[str | None, Depends(oauth2_scheme)],
 ) -> AuthTokenPayload:
     """
     Extract and validate JWT token from Authorization header.
@@ -95,8 +95,12 @@ async def get_current_user(
         ) from e
 
 
+current_user_dependency = Depends(get_current_user)
+"""Module-level singleton dependency (Ruff B008-safe)."""
+
+
 async def get_active_user(
-    payload: AuthTokenPayload = Depends(get_current_user),
+    payload: Annotated[AuthTokenPayload, Depends(get_current_user)],
 ) -> AuthTokenPayload:
     """
     Verify user exists and is active in database.
@@ -179,7 +183,7 @@ class RoleChecker:
                 )
 
     def __call__(
-        self, payload: AuthTokenPayload = Depends(get_current_user)
+        self, payload: AuthTokenPayload = current_user_dependency
     ) -> AuthTokenPayload:
         """
         Check if user's role is authorized for the endpoint.
@@ -244,7 +248,7 @@ Use for system administration endpoints.
 
 
 async def require_active_developer(
-    payload: AuthTokenPayload = Depends(require_developer),
+    payload: Annotated[AuthTokenPayload, Depends(require_developer)],
 ) -> AuthTokenPayload:
     """
     Require developer role or higher AND verify user is active.
@@ -255,7 +259,7 @@ async def require_active_developer(
 
 
 async def require_active_operator(
-    payload: AuthTokenPayload = Depends(require_operator),
+    payload: Annotated[AuthTokenPayload, Depends(require_operator)],
 ) -> AuthTokenPayload:
     """
     Require operator role or higher AND verify user is active.
@@ -266,7 +270,7 @@ async def require_active_operator(
 
 
 async def require_active_admin(
-    payload: AuthTokenPayload = Depends(require_admin),
+    payload: Annotated[AuthTokenPayload, Depends(require_admin)],
 ) -> AuthTokenPayload:
     """
     Require admin role or higher AND verify user is active.
@@ -277,7 +281,7 @@ async def require_active_admin(
 
 
 async def require_active_owner(
-    payload: AuthTokenPayload = Depends(require_owner),
+    payload: Annotated[AuthTokenPayload, Depends(require_owner)],
 ) -> AuthTokenPayload:
     """
     Require owner role AND verify user is active.

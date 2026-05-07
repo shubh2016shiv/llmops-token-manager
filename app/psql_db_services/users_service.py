@@ -8,19 +8,18 @@ Production-ready database service for user management operations including:
 - Optimized for high-concurrency environments (10,000+ concurrent users)
 """
 
-from typing import Optional, List, Dict, Any, Union
-from uuid import UUID
 from datetime import datetime
+from functools import lru_cache
+from typing import Any
+from uuid import UUID
 
-from sqlalchemy import text
+from email_validator import EmailNotValidError, validate_email
 from loguru import logger
+from sqlalchemy import text
 
 from app.core.database_connection import DatabaseManager
-from app.psql_db_services.base_service import BaseDatabaseService
-from functools import lru_cache
-from email_validator import validate_email, EmailNotValidError
-
 from app.models.response_models import UserResponse
+from app.psql_db_services.base_service import BaseDatabaseService
 
 
 class UsersService(BaseDatabaseService):
@@ -41,7 +40,7 @@ class UsersService(BaseDatabaseService):
     VALID_USER_ROLES = ["developer", "operator", "admin", "owner"]
     VALID_USER_STATUSES = ["active", "suspended", "inactive"]
 
-    def __init__(self, database_manager: Optional[DatabaseManager] = None):
+    def __init__(self, database_manager: DatabaseManager | None = None):
         super().__init__(database_manager)
 
     # ========================================================================
@@ -70,8 +69,9 @@ class UsersService(BaseDatabaseService):
             logger.error(f"Error checking username existence: {e}")
             raise
 
+    @staticmethod
     @lru_cache(maxsize=1000)  # Cache validation results
-    def validate_email_address(self, email_address: str) -> str:
+    def validate_email_address(email_address: str) -> str:
         """
         Validate email address with caching for performance.
 
@@ -80,6 +80,7 @@ class UsersService(BaseDatabaseService):
 
         Raises:
             ValueError: If email format is invalid
+
         """
         if not email_address:
             raise ValueError("Email address cannot be empty")
@@ -90,7 +91,7 @@ class UsersService(BaseDatabaseService):
             # Use normalized email
             return validated.email
         except EmailNotValidError as e:
-            raise ValueError(f"Invalid email: {str(e)}")
+            raise ValueError(f"Invalid email: {str(e)}") from e
 
     def validate_user_role(self, user_role: str) -> None:
         """
@@ -101,6 +102,7 @@ class UsersService(BaseDatabaseService):
 
         Raises:
             ValueError: If role is invalid
+
         """
         if user_role not in self.VALID_USER_ROLES:
             raise ValueError(
@@ -116,6 +118,7 @@ class UsersService(BaseDatabaseService):
 
         Raises:
             ValueError: If status is invalid
+
         """
         if user_status not in self.VALID_USER_STATUSES:
             raise ValueError(
@@ -136,9 +139,9 @@ class UsersService(BaseDatabaseService):
         password_hash: str,
         user_role: str = "developer",
         user_status: str = "active",
-        created_at: Optional[datetime] = None,
-        updated_at: Optional[datetime] = None,
-    ) -> Dict[str, Any]:
+        created_at: datetime | None = None,
+        updated_at: datetime | None = None,
+    ) -> dict[str, Any]:
         """
         Create a new user record in the database.
 
@@ -160,6 +163,7 @@ class UsersService(BaseDatabaseService):
         Raises:
             ValueError: If email or username already exists
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         # Check uniqueness
         if await self.check_email_exists(email):
@@ -218,7 +222,7 @@ class UsersService(BaseDatabaseService):
     # READ OPERATIONS
     # ========================================================================
 
-    async def get_user_by_id(self, user_id: Union[str, UUID]) -> Optional[UserResponse]:
+    async def get_user_by_id(self, user_id: str | UUID) -> UserResponse | None:
         """
         Retrieve a user by their unique identifier.
 
@@ -231,13 +235,14 @@ class UsersService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If user_id is invalid
+
         """
         # Handle both string and UUID inputs
         if isinstance(user_id, str):
             try:
                 user_id = UUID(user_id)
-            except ValueError:
-                raise ValueError("user_id must be a valid UUID string")
+            except ValueError as err:
+                raise ValueError("user_id must be a valid UUID string") from err
 
         self.validate_uuid(user_id, "user_id")
 
@@ -279,7 +284,7 @@ class UsersService(BaseDatabaseService):
             logger.error(f"Error fetching user {user_id}: {e}")
             return default_user
 
-    async def get_user_by_email(self, email_address: str) -> Optional[Dict[str, Any]]:
+    async def get_user_by_email(self, email_address: str) -> dict[str, Any] | None:
         """
         Retrieve a user by their email address.
 
@@ -292,6 +297,7 @@ class UsersService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If email is invalid
+
         """
         self.validate_email_address(email_address)
 
@@ -310,7 +316,7 @@ class UsersService(BaseDatabaseService):
             logger.error(f"Error fetching user by email {email_address}: {e}")
             raise
 
-    async def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+    async def get_user_by_username(self, username: str) -> dict[str, Any] | None:
         """
         Retrieve a user by their username.
 
@@ -322,6 +328,7 @@ class UsersService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         try:
             async with self.get_session() as session:
@@ -338,11 +345,11 @@ class UsersService(BaseDatabaseService):
 
     async def get_all_users(
         self,
-        role_filter: Optional[str] = None,
-        status_filter: Optional[str] = None,
+        role_filter: str | None = None,
+        status_filter: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Retrieve all users with optional filtering and pagination.
 
@@ -360,6 +367,7 @@ class UsersService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid pagination or filter parameters
+
         """
         self.validate_pagination_parameters(limit, offset)
 
@@ -371,7 +379,7 @@ class UsersService(BaseDatabaseService):
         try:
             async with self.get_session() as session:
                 sql_query = "SELECT * FROM users WHERE 1=1"
-                params: Dict[str, Any] = {}
+                params: dict[str, Any] = {}
 
                 if role_filter:
                     sql_query += " AND role = :role"
@@ -395,7 +403,7 @@ class UsersService(BaseDatabaseService):
 
     async def get_users_by_role(
         self, user_role: str, limit: int = 100, offset: int = 0
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Retrieve all users with a specific role.
 
@@ -410,6 +418,7 @@ class UsersService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid parameters
+
         """
         return await self.get_all_users(
             role_filter=user_role, limit=limit, offset=offset
@@ -417,7 +426,7 @@ class UsersService(BaseDatabaseService):
 
     async def get_active_users(
         self, limit: int = 100, offset: int = 0
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Retrieve all active users.
 
@@ -431,6 +440,7 @@ class UsersService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid pagination parameters
+
         """
         return await self.get_all_users(
             status_filter="active", limit=limit, offset=offset
@@ -449,6 +459,7 @@ class UsersService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If status is invalid
+
         """
         self.validate_user_status(user_status)
 
@@ -471,10 +482,10 @@ class UsersService(BaseDatabaseService):
     async def update_user(
         self,
         user_id: UUID,
-        email_address: Optional[str] = None,
-        user_role: Optional[str] = None,
-        user_status: Optional[str] = None,
-    ) -> Optional[UserResponse]:
+        email_address: str | None = None,
+        user_role: str | None = None,
+        user_status: str | None = None,
+    ) -> UserResponse | None:
         """
         Update user information with dynamic field updates.
 
@@ -493,6 +504,7 @@ class UsersService(BaseDatabaseService):
             sqlalchemy.exc.IntegrityError: If email already exists
             sqlalchemy.exc.SQLAlchemyError: On other database errors
             ValueError: On invalid input parameters
+
         """
         # TODO: Block updating user_id, created_at, updated_at, password
         # TODO: Only admin can change user role
@@ -552,7 +564,7 @@ class UsersService(BaseDatabaseService):
 
     async def update_user_role(
         self, user_id: UUID, new_user_role: str
-    ) -> Optional[UserResponse]:
+    ) -> UserResponse | None:
         """
         Update a user's role.
 
@@ -566,12 +578,13 @@ class UsersService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid parameters
+
         """
         return await self.update_user(user_id=user_id, user_role=new_user_role)
 
     async def update_user_status(
         self, user_id: UUID, new_user_status: str
-    ) -> Optional[UserResponse]:
+    ) -> UserResponse | None:
         """
         Update a user's status.
 
@@ -585,10 +598,11 @@ class UsersService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: On invalid parameters
+
         """
         return await self.update_user(user_id=user_id, user_status=new_user_status)
 
-    async def suspend_user(self, user_id: UUID) -> Optional[UserResponse]:
+    async def suspend_user(self, user_id: UUID) -> UserResponse | None:
         """
         Suspend a user account by setting status to 'suspended'.
 
@@ -601,12 +615,13 @@ class UsersService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If user_id is invalid
+
         """
         return await self.update_user_status(
             user_id=user_id, new_user_status="suspended"
         )
 
-    async def activate_user(self, user_id: UUID) -> Optional[UserResponse]:
+    async def activate_user(self, user_id: UUID) -> UserResponse | None:
         """
         Activate a user account by setting status to 'active'.
 
@@ -619,6 +634,7 @@ class UsersService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If user_id is invalid
+
         """
         return await self.update_user_status(user_id=user_id, new_user_status="active")
 
@@ -642,6 +658,7 @@ class UsersService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If user_id is invalid
+
         """
         self.validate_uuid(user_id, "user_id")
 
@@ -681,6 +698,7 @@ class UsersService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If email is invalid
+
         """
         self.validate_email_address(email_address)
 

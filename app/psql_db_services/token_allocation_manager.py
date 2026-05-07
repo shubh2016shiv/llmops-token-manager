@@ -9,14 +9,14 @@ Production-ready database service for token allocation, tracking, and lifecycle 
 - Optimized for high-concurrency environments (10,000+ concurrent users)
 """
 
-from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timedelta
 import json
+from typing import Any
 import uuid
 from uuid import UUID
 
-from sqlalchemy import text
 from loguru import logger
+from sqlalchemy import text
 
 from app.core.database_connection import DatabaseManager
 from app.psql_db_services.base_service import BaseDatabaseService
@@ -50,12 +50,13 @@ class TokenAllocationService(BaseDatabaseService):
 
     DEFAULT_ALLOCATION_STATUS = "ACQUIRED"
 
-    def __init__(self, database_manager: Optional[DatabaseManager] = None):
+    def __init__(self, database_manager: DatabaseManager | None = None):
         """
         Initialize the token allocation service with database manager.
 
         Args:
             database_manager: Optional DatabaseManager instance (uses singleton if not provided)
+
         """
         super().__init__(database_manager)
 
@@ -68,6 +69,7 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             ValueError: If status is not in the list of valid statuses
+
         """
         self.validate_enum_value(
             allocation_status, self.VALID_ALLOCATION_STATUSES, "allocation status"
@@ -86,16 +88,16 @@ class TokenAllocationService(BaseDatabaseService):
         token_count: int,
         api_endpoint_url: str,
         allocation_status: str = DEFAULT_ALLOCATION_STATUS,
-        allocation_timestamp: Optional[datetime] = None,
-        expiration_timestamp: Optional[datetime] = None,
-        deployment_name: Optional[str] = None,
-        cloud_provider_name: Optional[str] = None,
-        deployment_region: Optional[str] = None,
-        request_metadata: Optional[Dict[str, Any]] = None,
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        seed: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        allocation_timestamp: datetime | None = None,
+        expiration_timestamp: datetime | None = None,
+        deployment_name: str | None = None,
+        cloud_provider_name: str | None = None,
+        deployment_region: str | None = None,
+        request_metadata: dict[str, Any] | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        seed: int | None = None,
+    ) -> dict[str, Any]:
         """
         Create a new token allocation record in the database.
 
@@ -127,6 +129,7 @@ class TokenAllocationService(BaseDatabaseService):
             sqlalchemy.exc.IntegrityError: If allocation with same ID already exists
             sqlalchemy.exc.SQLAlchemyError: On other database errors
             ValueError: On invalid input parameters
+
         """
         self.validate_string_not_empty(
             token_request_identifier, "token_request_identifier"
@@ -200,7 +203,7 @@ class TokenAllocationService(BaseDatabaseService):
 
     async def get_allocation_by_request_id(
         self, token_request_identifier: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Retrieve a token allocation by its unique request identifier.
 
@@ -213,6 +216,7 @@ class TokenAllocationService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If token_request_identifier is invalid
+
         """
         self.validate_string_not_empty(
             token_request_identifier, "token_request_identifier"
@@ -234,8 +238,8 @@ class TokenAllocationService(BaseDatabaseService):
             raise
 
     async def get_total_allocated_tokens_by_model(
-        self, llm_model_name: str, included_statuses: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
+        self, llm_model_name: str, included_statuses: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         """
         Get total allocated tokens grouped by model and API endpoint.
 
@@ -255,6 +259,7 @@ class TokenAllocationService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If llm_model_name is invalid
+
         """
         self.validate_string_not_empty(llm_model_name, "llm_model_name")
 
@@ -319,6 +324,7 @@ class TokenAllocationService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
             ValueError: If parameters are invalid
+
         """
         self.validate_string_not_empty(llm_model_name, "llm_model_name")
         self.validate_string_not_empty(api_endpoint_url, "api_endpoint_url")
@@ -349,8 +355,8 @@ class TokenAllocationService(BaseDatabaseService):
             raise
 
     async def get_user_allocations(
-        self, user_id: UUID, status_filter: Optional[List[str]] = None, limit: int = 100
-    ) -> List[Dict[str, Any]]:
+        self, user_id: UUID, status_filter: list[str] | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
         """
         Get all allocations for a specific user
 
@@ -364,6 +370,7 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         try:
             async with self.get_session() as session:
@@ -412,6 +419,7 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         try:
             async with self.get_session() as session:
@@ -439,12 +447,12 @@ class TokenAllocationService(BaseDatabaseService):
         self,
         token_request_id: str,
         new_status: str,
-        api_endpoint: Optional[str] = None,
-        deployment_region: Optional[str] = None,
-        expires_at: Optional[datetime] = None,
-        completed_at: Optional[datetime] = None,
-        latency_ms: Optional[int] = None,
-    ) -> Optional[Dict[str, Any]]:
+        api_endpoint: str | None = None,
+        deployment_region: str | None = None,
+        expires_at: datetime | None = None,
+        completed_at: datetime | None = None,
+        latency_ms: int | None = None,
+    ) -> dict[str, Any] | None:
         """
         Update allocation status and related fields
 
@@ -462,12 +470,13 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         try:
             async with self.get_session() as session:
                 # Build dynamic update query
                 update_fields = ["allocation_status = :new_status"]
-                params: Dict[str, Any] = {
+                params: dict[str, Any] = {
                     "new_status": new_status,
                     "token_request_id": token_request_id,
                 }
@@ -520,7 +529,7 @@ class TokenAllocationService(BaseDatabaseService):
         api_endpoint: str,
         deployment_region: str,
         expires_at: datetime,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Atomically transition allocation from WAITING to ACQUIRED
         Only succeeds if current status is WAITING (prevents race conditions)
@@ -536,6 +545,7 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         try:
             async with self.get_session() as session:
@@ -651,6 +661,7 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         try:
             async with self.get_session() as session:
@@ -684,6 +695,7 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         try:
             async with self.get_session() as session:
@@ -708,7 +720,7 @@ class TokenAllocationService(BaseDatabaseService):
             raise
 
     async def delete_allocations_by_user(
-        self, user_id: UUID, status: Optional[str] = None
+        self, user_id: UUID, status: str | None = None
     ) -> int:
         """
         Delete all allocations for a user (optional: filter by status)
@@ -722,6 +734,7 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         try:
             async with self.get_session() as session:
@@ -759,7 +772,7 @@ class TokenAllocationService(BaseDatabaseService):
         api_endpoint: str,
         pause_reason: str = "",
         pause_duration_minutes: int = 30,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Pause a deployment by creating a PAUSED allocation
         Similar to MongoDB's pause_llm_deployment method
@@ -778,6 +791,7 @@ class TokenAllocationService(BaseDatabaseService):
         Raises:
             ValueError: If model or deployment not found
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         try:
             async with self.get_session() as session:
@@ -872,10 +886,10 @@ class TokenAllocationService(BaseDatabaseService):
         deployment_region: str,
         max_token_limit: int,
         pause_duration_minutes: int,
-        cloud_provider: Optional[str] = None,
-        deployment_name: Optional[str] = None,
-        reason: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        cloud_provider: str | None = None,
+        deployment_name: str | None = None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
         """
         Create a PAUSED allocation to block an entire deployment
         Used for failover scenarios and deployment maintenance
@@ -897,6 +911,7 @@ class TokenAllocationService(BaseDatabaseService):
         Raises:
             ValueError: On invalid input parameters
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         if max_token_limit <= 0:
             raise ValueError(f"Token limit must be positive, got {max_token_limit}")
@@ -936,7 +951,7 @@ class TokenAllocationService(BaseDatabaseService):
 
     async def get_allocation_summary_by_model(
         self, llm_model_name: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get comprehensive summary of allocations for a model
 
@@ -948,6 +963,7 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         try:
             async with self.get_session() as session:
@@ -981,7 +997,7 @@ class TokenAllocationService(BaseDatabaseService):
             logger.error(f"Error generating summary for model {llm_model_name}: {e}")
             raise
 
-    async def get_user_token_usage_stats(self, user_id: UUID) -> Dict[str, Any]:
+    async def get_user_token_usage_stats(self, user_id: UUID) -> dict[str, Any]:
         """
         Get token usage statistics for a user
 
@@ -993,6 +1009,7 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         try:
             async with self.get_session() as session:
@@ -1023,7 +1040,7 @@ class TokenAllocationService(BaseDatabaseService):
 
     async def retry_acquire_tokens(
         self, token_request_id: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Retry acquiring tokens for a waiting request
         Similar to MongoDB's retry_acquire method
@@ -1037,6 +1054,7 @@ class TokenAllocationService(BaseDatabaseService):
         Raises:
             ValueError: If token request not found or invalid
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         try:
             # Get the allocation record
@@ -1123,8 +1141,8 @@ class TokenAllocationService(BaseDatabaseService):
         llm_provider: str,
         llm_model_name: str,
         token_count: int,
-        request_context: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        request_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         Acquire tokens for a model
 
@@ -1141,6 +1159,7 @@ class TokenAllocationService(BaseDatabaseService):
         Raises:
             ValueError: If token count exceeds limit or no deployments found
             sqlalchemy.exc.SQLAlchemyError: On database errors
+
         """
         if token_count <= 0:
             raise ValueError(f"Token count must be positive, got {token_count}")
@@ -1234,7 +1253,7 @@ class TokenAllocationService(BaseDatabaseService):
 
     async def get_least_loaded_deployment(
         self, llm_model_name: str
-    ) -> Tuple[int, Dict[str, Any]]:
+    ) -> tuple[int, dict[str, Any]]:
         """
         Get the least loaded deployment for a model
         Similar to MongoDB's _get_total_allocated_tokens
@@ -1247,6 +1266,7 @@ class TokenAllocationService(BaseDatabaseService):
 
         Raises:
             ValueError: If no deployments found for model
+
         """
         try:
             # Get all active deployments for this model
@@ -1344,7 +1364,7 @@ class TokenAllocationService(BaseDatabaseService):
 
 
 def get_token_allocation_repository(
-    db_manager: Optional[DatabaseManager] = None,
+    db_manager: DatabaseManager | None = None,
 ) -> TokenAllocationService:
     """
     Factory function to get a TokenAllocationRepository instance
@@ -1365,5 +1385,6 @@ def get_token_allocation_repository(
         ...     llm_model_name="gpt-4",
         ...     token_count=1000
         ... )
+
     """
     return TokenAllocationService(db_manager)

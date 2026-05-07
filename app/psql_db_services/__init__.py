@@ -14,9 +14,9 @@ with proper error handling, validation, and logging.
 """
 
 from app.psql_db_services.base_service import BaseDatabaseService
-from app.psql_db_services.users_service import UsersService
 from app.psql_db_services.llm_models_service import LLMModelsService
 from app.psql_db_services.token_allocation_manager import TokenAllocationService
+from app.psql_db_services.users_service import UsersService
 
 __all__ = [
     "BaseDatabaseService",

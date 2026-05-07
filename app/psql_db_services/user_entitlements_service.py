@@ -8,12 +8,12 @@ Production-ready database service for managing user entitlements to LLM models i
 - Optimized for high-concurrency environments (10,000+ concurrent users)
 """
 
-from typing import Optional, List, Dict, Any
-from uuid import UUID
 from datetime import datetime
+from typing import Any
+from uuid import UUID
 
-from sqlalchemy import text
 from loguru import logger
+from sqlalchemy import text
 
 from app.core.database_connection import DatabaseManager
 from app.psql_db_services.base_service import BaseDatabaseService
@@ -34,12 +34,13 @@ class UserEntitlementsService(BaseDatabaseService):
     - Thread-safe operations for high-concurrency scenarios
     """
 
-    def __init__(self, database_manager: Optional[DatabaseManager] = None):
+    def __init__(self, database_manager: DatabaseManager | None = None):
         """
         Initialize the user entitlements service with database manager.
 
         Args:
             database_manager: Optional DatabaseManager instance (uses singleton if not provided)
+
         """
         super().__init__(database_manager)
 
@@ -59,6 +60,7 @@ class UserEntitlementsService(BaseDatabaseService):
 
         Raises:
             Exception: On database errors
+
         """
         try:
             async with self.get_session() as session:
@@ -88,6 +90,7 @@ class UserEntitlementsService(BaseDatabaseService):
 
         Raises:
             Exception: On database errors
+
         """
         try:
             async with self.get_session() as session:
@@ -130,6 +133,7 @@ class UserEntitlementsService(BaseDatabaseService):
 
         Raises:
             Exception: On database errors
+
         """
         try:
             async with self.get_session() as session:
@@ -167,10 +171,10 @@ class UserEntitlementsService(BaseDatabaseService):
         encrypted_api_key: str,
         created_by_user_id: UUID,
         api_endpoint_url: str,
-        cloud_provider: Optional[str] = None,
-        deployment_name: Optional[str] = None,
-        region: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        cloud_provider: str | None = None,
+        deployment_name: str | None = None,
+        region: str | None = None,
+    ) -> dict[str, Any]:
         """
         Create a new user LLM entitlement with comprehensive validation.
 
@@ -198,6 +202,7 @@ class UserEntitlementsService(BaseDatabaseService):
         Raises:
             ValueError: If validation fails
             Exception: On database errors
+
         """
         # Validation 1: Check user exists
         if not await self.validate_user_exists(user_id):
@@ -280,9 +285,7 @@ class UserEntitlementsService(BaseDatabaseService):
     # READ OPERATIONS
     # ========================================================================
 
-    async def get_entitlement_by_id(
-        self, entitlement_id: int
-    ) -> Optional[Dict[str, Any]]:
+    async def get_entitlement_by_id(self, entitlement_id: int) -> dict[str, Any] | None:
         """
         Retrieve an entitlement by its unique identifier.
 
@@ -296,6 +299,7 @@ class UserEntitlementsService(BaseDatabaseService):
 
         Raises:
             Exception: On database errors
+
         """
         self.validate_positive_integer(entitlement_id, "entitlement_id")
 
@@ -319,7 +323,7 @@ class UserEntitlementsService(BaseDatabaseService):
 
     async def get_user_entitlements(
         self, user_id: UUID, limit: int = 100, offset: int = 0
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Retrieve all entitlements for a specific user with pagination.
 
@@ -336,6 +340,7 @@ class UserEntitlementsService(BaseDatabaseService):
         Raises:
             ValueError: On invalid pagination parameters
             Exception: On database errors
+
         """
         self.validate_uuid(user_id, "user_id")
         self.validate_pagination_parameters(limit, offset)
@@ -374,6 +379,7 @@ class UserEntitlementsService(BaseDatabaseService):
 
         Raises:
             Exception: On database errors
+
         """
         self.validate_uuid(user_id, "user_id")
 
@@ -396,12 +402,12 @@ class UserEntitlementsService(BaseDatabaseService):
     async def update_entitlement(
         self,
         entitlement_id: int,
-        encrypted_api_key: Optional[str] = None,
-        api_endpoint_url: Optional[str] = None,
-        cloud_provider: Optional[str] = None,
-        deployment_name: Optional[str] = None,
-        region: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        encrypted_api_key: str | None = None,
+        api_endpoint_url: str | None = None,
+        cloud_provider: str | None = None,
+        deployment_name: str | None = None,
+        region: str | None = None,
+    ) -> dict[str, Any] | None:
         """
         Update an entitlement with dynamic field updates.
 
@@ -422,6 +428,7 @@ class UserEntitlementsService(BaseDatabaseService):
         Raises:
             ValueError: On invalid parameters
             Exception: On database errors
+
         """
         self.validate_positive_integer(entitlement_id, "entitlement_id")
 
@@ -444,7 +451,7 @@ class UserEntitlementsService(BaseDatabaseService):
 
         try:
             # Build dynamic UPDATE query
-            set_clauses = [f"{field} = :{field}" for field in update_fields_dict.keys()]
+            set_clauses = [f"{field} = :{field}" for field in update_fields_dict]
             set_clauses.append("updated_at = :updated_at")
 
             sql_query = f"""
@@ -494,6 +501,7 @@ class UserEntitlementsService(BaseDatabaseService):
         Raises:
             ValueError: If entitlement_id is invalid
             Exception: On database errors
+
         """
         self.validate_positive_integer(entitlement_id, "entitlement_id")
 

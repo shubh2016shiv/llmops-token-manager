@@ -12,13 +12,14 @@ This base class provides:
 - Validation helpers
 """
 
-from typing import Optional, List, Dict, Any, Tuple, AsyncGenerator, Union
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 from uuid import UUID
 
+from loguru import logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from loguru import logger
 
 from app.core.database_connection import DatabaseManager
 
@@ -36,13 +37,14 @@ class BaseDatabaseService:
     Thread-safe and optimized for high-concurrency scenarios (10,000+ concurrent users).
     """
 
-    def __init__(self, database_manager: Optional[DatabaseManager] = None):
+    def __init__(self, database_manager: DatabaseManager | None = None):
         """
         Initialize the database service with a database manager.
 
         Args:
             database_manager: Optional DatabaseManager instance. If not provided,
                             uses the singleton instance for connection pooling.
+
         """
         self.database_manager = database_manager or DatabaseManager()
         self._service_name = self.__class__.__name__
@@ -62,6 +64,7 @@ class BaseDatabaseService:
             async with self.get_session() as session:
                 result = await session.execute(text("SELECT * FROM users"))
                 users = result.mappings().all()
+
         """
         async with self.database_manager.get_session() as session:
             yield session
@@ -69,9 +72,9 @@ class BaseDatabaseService:
     async def execute_single_query(
         self,
         sql_query: str,
-        query_parameters: Optional[Dict[str, Any]] = None,
+        query_parameters: dict[str, Any] | None = None,
         fetch_results: bool = True,
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> list[dict[str, Any]] | None:
         """
         Execute a single SQL query with automatic session management.
 
@@ -90,6 +93,7 @@ class BaseDatabaseService:
                 "SELECT * FROM users WHERE email = :email",
                 {"email": email}
             )
+
         """
         try:
             async with self.get_session() as session:
@@ -110,7 +114,7 @@ class BaseDatabaseService:
     async def execute_batch_insert(
         self,
         sql_query: str,
-        parameter_list: List[Dict[str, Any]],
+        parameter_list: list[dict[str, Any]],
         page_size: int = 1000,
     ) -> int:
         """
@@ -132,6 +136,7 @@ class BaseDatabaseService:
                 "INSERT INTO logs (user_id, action) VALUES (:user_id, :action)",
                 [{"user_id": user1_id, "action": 'login'}, {"user_id": user2_id, "action": 'logout'}]
             )
+
         """
         if not parameter_list:
             logger.warning(
@@ -166,7 +171,7 @@ class BaseDatabaseService:
     # ========================================================================
 
     def validate_uuid(
-        self, uuid_value: Union[UUID, str], parameter_name: str = "UUID"
+        self, uuid_value: UUID | str, parameter_name: str = "UUID"
     ) -> None:
         """
         Validate that a UUID is not None and is a valid UUID instance.
@@ -177,12 +182,15 @@ class BaseDatabaseService:
 
         Raises:
             ValueError: If UUID is invalid or None
+
         """
         if isinstance(uuid_value, str):
             try:
                 uuid_value = UUID(uuid_value)
-            except ValueError:
-                raise ValueError(f"{parameter_name} must be a valid UUID string")
+            except ValueError as err:
+                raise ValueError(
+                    f"{parameter_name} must be a valid UUID string"
+                ) from err
         if uuid_value is None:
             raise ValueError(f"{parameter_name} cannot be None")
         if not isinstance(uuid_value, UUID):
@@ -204,6 +212,7 @@ class BaseDatabaseService:
 
         Raises:
             ValueError: If integer is not positive
+
         """
         if not isinstance(integer_value, int):
             raise ValueError(f"{parameter_name} must be an integer")
@@ -227,6 +236,7 @@ class BaseDatabaseService:
 
         Raises:
             ValueError: If string is None or empty
+
         """
         if not string_value or not isinstance(string_value, str):
             raise ValueError(f"{parameter_name} must be a non-empty string")
@@ -234,7 +244,7 @@ class BaseDatabaseService:
             raise ValueError(f"{parameter_name} cannot be only whitespace")
 
     def validate_enum_value(
-        self, enum_value: str, valid_values: List[str], parameter_name: str = "value"
+        self, enum_value: str, valid_values: list[str], parameter_name: str = "value"
     ) -> None:
         """
         Validate that a value is one of the allowed enum values.
@@ -246,6 +256,7 @@ class BaseDatabaseService:
 
         Raises:
             ValueError: If value is not in the list of valid values
+
         """
         if enum_value not in valid_values:
             raise ValueError(
@@ -266,6 +277,7 @@ class BaseDatabaseService:
 
         Raises:
             ValueError: If pagination parameters are invalid
+
         """
         if limit <= 0:
             raise ValueError(f"limit must be positive, got {limit}")
@@ -281,10 +293,10 @@ class BaseDatabaseService:
     def build_dynamic_update_query(
         self,
         table_name: str,
-        update_fields: Dict[str, Any],
+        update_fields: dict[str, Any],
         where_clause: str,
-        where_parameters: Dict[str, Any],
-    ) -> Tuple[str, Dict[str, Any]]:
+        where_parameters: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
         """
         Build a dynamic UPDATE query with only the fields that need updating.
 
@@ -307,6 +319,7 @@ class BaseDatabaseService:
                 "user_id = :user_id",
                 {"user_id": user_id}
             )
+
         """
         if not update_fields:
             raise ValueError("update_fields cannot be empty")
@@ -337,7 +350,7 @@ class BaseDatabaseService:
         operation_type: str,
         entity_identifier: Any,
         success: bool = True,
-        additional_context: Optional[str] = None,
+        additional_context: str | None = None,
     ) -> None:
         """
         Log database operations for monitoring and debugging.
@@ -347,6 +360,7 @@ class BaseDatabaseService:
             entity_identifier: Identifier of the entity being operated on
             success: Whether the operation was successful
             additional_context: Optional additional context information
+
         """
         log_level = "info" if success else "error"
         status = "succeeded" if success else "failed"

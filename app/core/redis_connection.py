@@ -1,6 +1,6 @@
 """
-Redis Connection Manager
-------------------------
+Redis Connection Manager.
+
 Manages Redis connection pool for caching and rate limiting.
 Provides async Redis client with connection pooling.
 
@@ -95,10 +95,11 @@ This implementation follows the same patterns used by major cloud providers
 enterprise applications requiring high availability and performance.
 """
 
-from typing import Optional
+import inspect
+
+from loguru import logger
 import redis.asyncio as aioredis
 from redis.asyncio.connection import ConnectionPool
-from loguru import logger
 
 from app.core.config_manager import settings
 
@@ -108,12 +109,13 @@ class RedisManager:
 
     def __init__(self):
         """Initialize Redis manager."""
-        self._pool: Optional[ConnectionPool] = None
-        self._client: Optional[aioredis.Redis] = None
+        self._pool: ConnectionPool | None = None
+        self._client: aioredis.Redis | None = None
 
     def initialize(self) -> None:
         """
         Initialize Redis connection pool and client.
+
         Creates connection pool based on configuration.
         """
         if self._pool is not None:
@@ -121,7 +123,8 @@ class RedisManager:
             return
 
         logger.info(
-            f"Initializing Redis connection to {settings.redis_host}:{settings.redis_port}"
+            "Initializing Redis connection to "
+            f"{settings.redis_host}:{settings.redis_port}"
         )
 
         # Create connection pool
@@ -161,11 +164,14 @@ class RedisManager:
 
         Returns:
             bool: True if Redis is responsive, False otherwise
+
         """
         try:
             if self._client is None:
                 return False
-            response = await self._client.ping()
+            response = self._client.ping()
+            if inspect.isawaitable(response):
+                response = await response
             return bool(response)
         except Exception as e:
             logger.error(f"Redis ping failed: {e}")
@@ -181,6 +187,7 @@ class RedisManager:
 
         Raises:
             RuntimeError: If Redis not initialized
+
         """
         if self._client is None:
             raise RuntimeError("Redis not initialized. Call initialize() first.")

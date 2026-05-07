@@ -1,15 +1,19 @@
 """
-Database Connection Manager
----------------------------
+Database Connection Manager.
+
 Manages PostgreSQL database connections with SQLAlchemy async engine.
 Provides both ORM and raw SQL query capabilities.
 """
 
+import asyncio
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 import logging
 import os
 import sys
-from typing import Any, Dict, Optional, AsyncGenerator, List, Union
-from contextlib import asynccontextmanager
+from typing import Any
+
+from sqlalchemy import text
 
 # SQLAlchemy imports for ORM session support
 from sqlalchemy.ext.asyncio import (
@@ -17,9 +21,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy import text
 
-import asyncio
 from app.core.config_manager import settings
 
 # Add parent directory to path for direct script execution
@@ -52,15 +54,16 @@ class DatabaseManager:
     def __new__(cls, *args, **kwargs):
         """Implement singleton pattern."""
         if cls._instance is None:
-            cls._instance = super(DatabaseManager, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
         return cls._instance
 
-    async def initialize(self, config: Optional[Dict[str, Any]] = None) -> None:
+    async def initialize(self, config: dict[str, Any] | None = None) -> None:
         """
         Initialize SQLAlchemy async engine.
 
         Args:
             config: Optional configuration override
+
         """
         if self._engine is not None:
             logger.warning("Database engine already initialized")
@@ -80,7 +83,8 @@ class DatabaseManager:
             }
 
         logger.info(
-            f"Initializing database connection to {config.get('host')}:{config.get('port')}"
+            "Initializing database connection to "
+            f"{config.get('host')}:{config.get('port')}"
         )
 
         try:
@@ -145,6 +149,7 @@ class DatabaseManager:
             async with db_manager.get_session() as session:
                 result = await session.execute(text("SELECT 1"))
                 value = result.scalar()
+
         """
         if not self._sessionmaker:
             raise RuntimeError("Database not initialized. Call initialize() first.")
@@ -165,9 +170,9 @@ class DatabaseManager:
     async def execute_raw_query(
         self,
         query: str,
-        params: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
         fetch_mode: str = "all",
-    ) -> Union[List[Dict[str, Any]], Dict[str, Any], int, None]:
+    ) -> list[dict[str, Any]] | dict[str, Any] | int | None:
         """
         Execute a raw SQL query using SQLAlchemy's text() function.
 
@@ -192,6 +197,7 @@ class DatabaseManager:
                 "SELECT * FROM users WHERE email = :email",
                 {"email": "user@example.com"}
             )
+
         """
         async with self.get_session() as session:
             result = await session.execute(text(query), params or {})
@@ -209,7 +215,7 @@ class DatabaseManager:
             else:
                 return None
 
-    async def execute_transaction(self, queries: List[Dict[str, Any]]) -> bool:
+    async def execute_transaction(self, queries: list[dict[str, Any]]) -> bool:
         """
         Execute multiple queries in a transaction using SQLAlchemy.
 
@@ -230,6 +236,7 @@ class DatabaseManager:
                     "params": {}
                 }
             ])
+
         """
         try:
             async with self.get_session() as session:
@@ -282,9 +289,11 @@ if __name__ == "__main__":
     }
 
     async def test_connection():
+        """Run a local connectivity smoke test for the database manager."""
         try:
             print(
-                f"Attempting to connect to database at {test_config['host']}:{test_config['port']}"
+                "Attempting to connect to database at "
+                f"{test_config['host']}:{test_config['port']}"
             )
             await initialize_db(config=test_config)
 

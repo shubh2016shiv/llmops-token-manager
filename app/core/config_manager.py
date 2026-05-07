@@ -1,13 +1,12 @@
 """
-Configuration Manager
---------------------
+Configuration Manager.
+
 Centralized configuration management using Pydantic Settings.
 All application settings are loaded from environment variables with validation.
 """
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
 
 
 class ApplicationSettings(BaseSettings):
@@ -20,6 +19,10 @@ class ApplicationSettings(BaseSettings):
     # Application metadata
     app_name: str = Field(default="LLM Token Manager", description="Application name")
     app_version: str = Field(default="1.0.0", description="Application version")
+    app_environment: str = Field(
+        default="development",
+        description="Application environment (development, staging, production)",
+    )
     debug: bool = Field(default=False, description="Debug mode")
     log_level: str = Field(default="INFO", description="Logging level")
 
@@ -44,7 +47,7 @@ class ApplicationSettings(BaseSettings):
     redis_host: str = Field(default="localhost", description="Redis host")
     redis_port: int = Field(default=6379, description="Redis port")
     redis_db: int = Field(default=0, description="Redis database number")
-    redis_password: Optional[str] = Field(default=None, description="Redis password")
+    redis_password: str | None = Field(default=None, description="Redis password")
     redis_max_connections: int = Field(default=50, description="Redis max connections")
 
     # RabbitMQ configuration
@@ -57,9 +60,7 @@ class ApplicationSettings(BaseSettings):
     rabbitmq_vhost: str = Field(default="/", description="RabbitMQ virtual host")
 
     # Celery configuration
-    celery_broker_url: Optional[str] = Field(
-        default=None, description="Celery broker URL"
-    )
+    celery_broker_url: str | None = Field(default=None, description="Celery broker URL")
     celery_result_backend: str = Field(
         default="rpc://", description="Celery result backend"
     )
@@ -81,25 +82,34 @@ class ApplicationSettings(BaseSettings):
         default=60, description="Rate limit window in seconds"
     )
 
+    # Endpoint-specific rate limits (enterprise defaults)
+    rate_limit_login_per_minute: int = Field(
+        default=10, description="Max login attempts per minute per IP+username"
+    )
+    rate_limit_token_generate_per_minute: int = Field(
+        default=30, description="Max token generate requests per minute per IP"
+    )
+    rate_limit_token_refresh_per_minute: int = Field(
+        default=60, description="Max token refresh requests per minute per IP"
+    )
+
     # Caching configuration
     cache_enabled: bool = Field(default=True, description="Enable response caching")
     cache_ttl_seconds: int = Field(default=300, description="Cache TTL in seconds")
 
     # LLM Provider API Keys
-    openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
-    azure_openai_api_key: Optional[str] = Field(
+    openai_api_key: str | None = Field(default=None, description="OpenAI API key")
+    azure_openai_api_key: str | None = Field(
         default=None, description="Azure OpenAI API key"
     )
-    azure_openai_endpoint: Optional[str] = Field(
+    azure_openai_endpoint: str | None = Field(
         default=None, description="Azure OpenAI endpoint"
     )
     azure_openai_api_version: str = Field(
         default="2024-02-15-preview", description="Azure OpenAI API version"
     )
-    anthropic_api_key: Optional[str] = Field(
-        default=None, description="Anthropic API key"
-    )
-    google_api_key: Optional[str] = Field(default=None, description="Google API key")
+    anthropic_api_key: str | None = Field(default=None, description="Anthropic API key")
+    google_api_key: str | None = Field(default=None, description="Google API key")
 
     # Default LLM settings
     default_max_tokens: int = Field(default=1000, description="Default max tokens")
@@ -130,6 +140,18 @@ class ApplicationSettings(BaseSettings):
         if v_upper not in valid_levels:
             raise ValueError(f"Log level must be one of {valid_levels}")
         return v_upper
+
+    @field_validator("app_environment")
+    @classmethod
+    def validate_app_environment(cls, v: str) -> str:
+        """Validate application environment value."""
+        normalized = v.lower().strip()
+        valid_envs = {"development", "staging", "production"}
+        if normalized not in valid_envs:
+            raise ValueError(
+                f"app_environment must be one of {sorted(valid_envs)}, got '{v}'"
+            )
+        return normalized
 
     @field_validator("default_temperature")
     @classmethod

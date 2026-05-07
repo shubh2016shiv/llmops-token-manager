@@ -1,12 +1,14 @@
 """
-Startup Diagnostics Module
--------------------------
-Handles service connectivity verification and error reporting during application startup.
-Provides clear, actionable error messages when infrastructure services are unavailable.
+Startup Diagnostics Module.
+
+Handles service connectivity verification and error reporting during
+application startup.
+Provides clear, actionable error messages when infrastructure services
+are unavailable.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Dict, List
+
 from loguru import logger
 from sqlalchemy import text
 
@@ -21,12 +23,12 @@ class ServiceStatus:
 
     name: str
     status: str  # "connected", "failed", "skipped"
-    error_message: Optional[str] = None
-    suggestion: Optional[str] = None
-    connection_details: Optional[Dict[str, str]] = None
+    error_message: str | None = None
+    suggestion: str | None = None
+    connection_details: dict[str, str] | None = None
 
 
-def display_startup_failure(failed_services: List[ServiceStatus]):
+def display_startup_failure(failed_services: list[ServiceStatus]):
     """Display formatted startup failure message."""
     border = "═" * 80
     print("\n" + border)
@@ -83,9 +85,11 @@ def display_service_info():
     print(f"{'Host':<20} | {settings.database_host:<57}")
     print(f"{'Port':<20} | {str(settings.database_port):<57}")
     print(f"{'Database':<20} | {settings.database_name:<57}")
-    print(
-        f"{'Connection Pool':<20} | {f'{settings.database_pool_size} connections (+ {settings.database_max_overflow} overflow)':<57}"
+    pool_value = (
+        f"{settings.database_pool_size} connections "
+        f"(+ {settings.database_max_overflow} overflow)"
     )
+    print(f"{'Connection Pool':<20} | {pool_value:<57}")
     print(header_line)
 
     # Redis connection table - properly aligned
@@ -134,8 +138,13 @@ async def verify_database_connectivity() -> ServiceStatus:
         return ServiceStatus(
             name="PostgreSQL",
             status="failed",
-            error_message="Connection refused - PostgreSQL is not running or not accessible",
-            suggestion=f"Start PostgreSQL server or check if it's running on {settings.database_host}:{settings.database_port}",
+            error_message=(
+                "Connection refused - PostgreSQL is not running or not accessible"
+            ),
+            suggestion=(
+                "Start PostgreSQL server or check if it's running on "
+                f"{settings.database_host}:{settings.database_port}"
+            ),
             connection_details={
                 "host": settings.database_host,
                 "port": str(settings.database_port),
@@ -147,7 +156,9 @@ async def verify_database_connectivity() -> ServiceStatus:
             name="PostgreSQL",
             status="failed",
             error_message=str(e),
-            suggestion="Check database configuration in .env file and verify credentials",
+            suggestion=(
+                "Check database configuration in .env file and verify credentials"
+            ),
             connection_details={
                 "host": settings.database_host,
                 "port": str(settings.database_port),
@@ -184,8 +195,13 @@ async def verify_redis_connectivity() -> ServiceStatus:
         return ServiceStatus(
             name="Redis",
             status="failed",
-            error_message="Connection refused - Redis is not running or not accessible",
-            suggestion=f"Start Redis server with: redis-server or check if it's running on {settings.redis_host}:{settings.redis_port}",
+            error_message=(
+                "Connection refused - Redis is not running or not accessible"
+            ),
+            suggestion=(
+                "Start Redis server with: redis-server or check if it's running on "
+                f"{settings.redis_host}:{settings.redis_port}"
+            ),
             connection_details={
                 "host": settings.redis_host,
                 "port": str(settings.redis_port),
@@ -228,8 +244,12 @@ async def verify_rabbitmq_connectivity() -> ServiceStatus:
         return ServiceStatus(
             name="RabbitMQ",
             status="failed",
-            error_message="Connection refused - RabbitMQ is not running or not accessible",
-            suggestion="Start RabbitMQ server or check if it's running on localhost:5672",
+            error_message=(
+                "Connection refused - RabbitMQ is not running or not accessible"
+            ),
+            suggestion=(
+                "Start RabbitMQ server or check if it's running on localhost:5672"
+            ),
             connection_details={
                 "host": "localhost",
                 "port": "5672",

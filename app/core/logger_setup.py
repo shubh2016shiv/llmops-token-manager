@@ -1,22 +1,28 @@
 """
-Logger Setup
------------
+Logger Setup.
+
 Centralized logging configuration using loguru.
 Provides structured logging with proper formatting and rotation.
 """
 
 import sys
+
 from loguru import logger
+
 from app.core.config_manager import settings
 
 
 def configure_logger() -> None:
     """
     Configure loguru logger with appropriate settings.
+
     Removes default handler and adds custom formatted handler.
     """
     # Remove default handler
     logger.remove()
+
+    # Ensure correlation_id always exists in `extra` (prevents KeyError in format)
+    logger.configure(extra={"correlation_id": "-"})
 
     # Add custom handler with formatting
     logger.add(
@@ -24,6 +30,7 @@ def configure_logger() -> None:
         format=(
             "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
             "<level>{level: <8}</level> | "
+            "<magenta>{extra[correlation_id]}</magenta> | "
             "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
             "<level>{message}</level>"
         ),
@@ -42,6 +49,7 @@ def configure_logger() -> None:
             level=settings.log_level,
             format=(
                 "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
+                "{extra[correlation_id]} | "
                 "{name}:{function}:{line} | {message}"
             ),
             backtrace=True,

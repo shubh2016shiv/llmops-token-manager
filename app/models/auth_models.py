@@ -6,8 +6,8 @@ Defines the structure for token payloads, responses, and requests.
 """
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 
@@ -55,7 +55,7 @@ class AuthTokenResponse(BaseModel):
         default="bearer", description="Token type (always 'bearer')"
     )
     expires_in: int = Field(..., description="Token expiration time in seconds")
-    refresh_token: Optional[str] = Field(
+    refresh_token: str | None = Field(
         default=None, description="Refresh token (only if refresh is enabled)"
     )
 

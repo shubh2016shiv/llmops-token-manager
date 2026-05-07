@@ -1,8 +1,9 @@
 from datetime import datetime
-from typing import Optional, Dict, Any
-from uuid import UUID
-from pydantic import BaseModel, Field, field_validator, model_validator
 from enum import Enum
+from typing import Any
+from uuid import UUID
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 ########################################################
@@ -112,18 +113,18 @@ class TokenAllocation(BaseModel):
         description="Name of the LLM model (e.g., GPT-4)",
         alias="model_name",  # Maps to database column 'model_name'
     )
-    deployment_name: Optional[str] = Field(
+    deployment_name: str | None = Field(
         default=None, description="Specific deployment of the model, if applicable"
     )
-    cloud_provider: Optional[str] = Field(
+    cloud_provider: str | None = Field(
         default=None, description="Cloud provider hosting the LLM (e.g., Azure, AWS)"
     )
-    api_endpoint_url: Optional[str] = Field(
+    api_endpoint_url: str | None = Field(
         default=None,
         description="API endpoint URL for the selected LLM instance",
         alias="api_endpoint",  # Backward compatibility alias
     )
-    deployment_region: Optional[str] = Field(
+    deployment_region: str | None = Field(
         default=None,
         description="Geographic region of the LLM instance (e.g., eastus2, westus2)",
         alias="region",  # Backward compatibility alias
@@ -138,20 +139,20 @@ class TokenAllocation(BaseModel):
     allocated_at: datetime = Field(
         ..., description="Timestamp when tokens were allocated"
     )
-    expires_at: Optional[datetime] = Field(
+    expires_at: datetime | None = Field(
         default=None, description="Optional expiration time for the allocation lock"
     )
-    request_context: Optional[Dict[str, Any]] = Field(
+    request_context: dict[str, Any] | None = Field(
         default=None,
         description="Additional context data in JSON format (e.g., team, application)",
     )
-    temperature: Optional[float] = Field(
+    temperature: float | None = Field(
         default=None, description="Temperature setting for this specific request"
     )
-    top_p: Optional[float] = Field(
+    top_p: float | None = Field(
         default=None, description="Top P (nucleus sampling) parameter for this request"
     )
-    seed: Optional[int] = Field(
+    seed: int | None = Field(
         default=None, description="Seed value for reproducible LLM outputs"
     )
 
@@ -184,7 +185,7 @@ class TokenAllocation(BaseModel):
 
     @field_validator("cloud_provider")
     @classmethod
-    def validate_cloud_provider(cls, v: Optional[str]) -> Optional[str]:
+    def validate_cloud_provider(cls, v: str | None) -> str | None:
         """Validate cloud provider matches database CHECK constraint."""
         if v is None:
             return v

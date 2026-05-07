@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -12,7 +12,7 @@ class User(BaseModel):
     Maps to: users_schema.sql
     """
 
-    user_id: Optional[UUID] = Field(
+    user_id: UUID | None = Field(
         default=None, description="Unique identifier for the user (auto-generated)"
     )
     username: str = Field(..., description="Unique username for login", max_length=50)
@@ -25,10 +25,10 @@ class User(BaseModel):
     status: str = Field(
         default="active", description="User status: active, suspended, or inactive"
     )
-    created_at: Optional[datetime] = Field(
+    created_at: datetime | None = Field(
         default=None, description="Timestamp of the user's creation"
     )
-    updated_at: Optional[datetime] = Field(
+    updated_at: datetime | None = Field(
         default=None, description="Timestamp of the user's last update"
     )
 

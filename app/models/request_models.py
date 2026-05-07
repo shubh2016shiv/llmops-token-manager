@@ -11,11 +11,12 @@ Key Capabilities:
 - RBAC based request validation for each request type
 """
 
-from typing import Optional, Dict, Any, Union, List
-from pydantic import BaseModel, Field, field_validator, model_validator, EmailStr
-from enum import Enum
-from uuid import UUID
 from datetime import datetime
+from enum import Enum
+from typing import Any
+from uuid import UUID
+
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 
 class LLMProvider(str, Enum):
@@ -90,7 +91,7 @@ class UserCreateRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr = Field(...)
     password: str = Field(..., min_length=8)
-    role: Optional[UserRole] = Field(
+    role: UserRole | None = Field(
         default=UserRole.DEVELOPER,
         description="User role: owner, admin, developer, operator, viewer, or user",
     )
@@ -128,21 +129,21 @@ class UserCreateRequest(BaseModel):
 class UserUpdateRequest(BaseModel):
     """Request model for updating user information."""
 
-    email: Optional[EmailStr] = Field(None, description="New email address")
-    first_name: Optional[str] = Field(
+    email: EmailStr | None = Field(None, description="New email address")
+    first_name: str | None = Field(
         None, description="New first name", min_length=1, max_length=50
     )
-    last_name: Optional[str] = Field(
+    last_name: str | None = Field(
         None, description="New last name", min_length=1, max_length=50
     )
-    username: Optional[str] = Field(
+    username: str | None = Field(
         None, description="New username", min_length=1, max_length=50
     )
-    password: Optional[str] = Field(None, description="New password", min_length=8)
-    role: Optional[UserRole] = Field(
+    password: str | None = Field(None, description="New password", min_length=8)
+    role: UserRole | None = Field(
         None, description="New role: owner, admin, developer, or viewer"
     )
-    status: Optional[UserStatus] = Field(
+    status: UserStatus | None = Field(
         None, description="New status: active, suspended, or inactive"
     )
 
@@ -178,28 +179,28 @@ class TokenAllocationClientRequest(BaseModel):
         alias="model_name",
     )
 
-    input_data: Union[str, List[Dict[str, Any]]] = Field(
+    input_data: str | list[dict[str, Any]] = Field(
         ..., description="The actual input text or structured data for token estimation"
     )
 
-    deployment_name: Optional[str] = Field(
+    deployment_name: str | None = Field(
         default=None,
         description="Optional physical deployment instance identifier",
         max_length=100,
     )
 
-    cloud_provider: Optional[CloudProvider] = Field(
+    cloud_provider: CloudProvider | None = Field(
         default=None,
         description="Cloud provider hosting the deployment",
     )
 
-    deployment_region: Optional[str] = Field(
+    deployment_region: str | None = Field(
         default=None,
         description="Preferred deployment region for deployment selection",
         max_length=50,
     )
 
-    request_context: Optional[Dict[str, Any]] = Field(
+    request_context: dict[str, Any] | None = Field(
         default=None,
         description="Metadata for tracking (team, project, batch_id, etc.)",
     )
@@ -256,7 +257,7 @@ class TokenAllocationRequest(BaseModel):
         le=3000000,
     )
 
-    deployment_name: Optional[str] = Field(
+    deployment_name: str | None = Field(
         default=None,
         description=(
             "The PHYSICAL deployment instance identifier (e.g., 'azure-gpt4-eastus-prod-01', "
@@ -268,18 +269,18 @@ class TokenAllocationRequest(BaseModel):
         max_length=100,
     )
 
-    cloud_provider: Optional[CloudProvider] = Field(
+    cloud_provider: CloudProvider | None = Field(
         default=None,
         description="Cloud provider hosting the deployment",
     )
 
-    deployment_region: Optional[str] = Field(
+    deployment_region: str | None = Field(
         default=None,
         description="Preferred deployment region - system tries this region first if capacity available",
         max_length=50,
     )
 
-    request_context: Optional[Dict[str, Any]] = Field(
+    request_context: dict[str, Any] | None = Field(
         default=None,
         description="Metadata for tracking (team, project, batch_id, etc.)",
     )
@@ -351,14 +352,34 @@ class PauseDeploymentRequest(BaseModel):
         alias="model_name",  # Maps to database column 'model_name'
     )
 
-    cloud_provider: Optional[CloudProvider] = Field(
+    cloud_provider: CloudProvider | None = Field(
         default=None,
         description="Cloud provider to pause (if cloud-deployed)",
     )
 
-    api_endpoint_url: Optional[str] = Field(
-        default=None, description="Endpoint URL to pause", min_length=1, max_length=500
+    api_endpoint_url: str = Field(
+        ...,
+        description="Endpoint URL to pause",
+        min_length=1,
+        max_length=500,
     )
+
+    @field_validator("api_endpoint_url")
+    @classmethod
+    def validate_api_endpoint_url(cls, v: str) -> str:
+        """
+        Normalize and validate `api_endpoint_url`.
+
+        Enterprise pattern:
+        - Perform required-field and basic normalization in the schema layer so:
+          - OpenAPI accurately marks the field as required
+          - FastAPI returns a consistent 422 validation error for malformed requests
+          - endpoint handlers stay focused on business logic (DRY, testable)
+        """
+        normalized = v.strip()
+        if not normalized:
+            raise ValueError("api_endpoint_url cannot be empty")
+        return normalized
 
     pause_reason: str = Field(
         ...,
@@ -367,7 +388,7 @@ class PauseDeploymentRequest(BaseModel):
         max_length=1000,
     )
 
-    pause_duration_minutes: Optional[int] = Field(
+    pause_duration_minutes: int | None = Field(
         default=None,
         description="How long to pause - if omitted, uses config default",
         gt=0,
@@ -415,7 +436,7 @@ class ResumeDeploymentRequest(BaseModel):
         alias="model_name",  # Maps to database column 'model_name'
     )
 
-    cloud_provider: Optional[CloudProvider] = Field(
+    cloud_provider: CloudProvider | None = Field(
         default=None,
         description="Cloud provider to resume (if cloud-deployed)",
     )
@@ -463,7 +484,7 @@ class DeploymentConfigCreate(BaseModel):
         alias="model_name",  # Maps to database column 'model_name'
     )
 
-    cloud_provider: Optional[CloudProvider] = Field(
+    cloud_provider: CloudProvider | None = Field(
         default=None,
         description="Cloud provider hosting this deployment",
     )
@@ -482,7 +503,7 @@ class DeploymentConfigCreate(BaseModel):
         max_length=100,
     )
 
-    api_endpoint_url: Optional[str] = Field(
+    api_endpoint_url: str | None = Field(
         default=None,
         description="Base URL for API calls",
         min_length=1,
@@ -507,21 +528,21 @@ class DeploymentConfigCreate(BaseModel):
         le=100000000,
     )
 
-    max_token_lock_time_secs: Optional[int] = Field(
+    max_token_lock_time_secs: int | None = Field(
         default=70,
         description="Default reservation expiry time in seconds",
         gt=0,
         le=3600,
     )
 
-    temperature: Optional[float] = Field(
+    temperature: float | None = Field(
         default=0.0,
         description="Default temperature for this deployment",
         ge=0.0,
         le=2.0,
     )
 
-    seed: Optional[int] = Field(
+    seed: int | None = Field(
         default=42, description="Default seed for this deployment", ge=0
     )
 
@@ -529,7 +550,7 @@ class DeploymentConfigCreate(BaseModel):
         default=True, description="Enable/disable traffic to this deployment"
     )
 
-    created_at: Optional[datetime] = Field(
+    created_at: datetime | None = Field(
         default=datetime.now(),
         description="Timestamp when the deployment configuration was created",
     )
@@ -574,7 +595,7 @@ class DeploymentConfigUpdate(BaseModel):
         default=UserRole.ADMIN,
     )
 
-    llm_model_name: Optional[str] = Field(
+    llm_model_name: str | None = Field(
         default=None,
         description="Updated model identifier",
         min_length=1,
@@ -582,67 +603,67 @@ class DeploymentConfigUpdate(BaseModel):
         alias="model_name",  # Maps to database column 'model_name'
     )
 
-    api_version: Optional[str] = Field(
+    api_version: str | None = Field(
         default=None,
         description="Updated provider API version",
         min_length=1,
         max_length=50,
     )
 
-    deployment_name: Optional[str] = Field(
+    deployment_name: str | None = Field(
         default=None,
         description="Updated deployment-specific name",
         min_length=1,
         max_length=100,
     )
 
-    api_base: Optional[str] = Field(
+    api_base: str | None = Field(
         default=None,
         description="Updated base URL for API calls",
         min_length=1,
         max_length=500,
     )
 
-    api_key_identifier: Optional[str] = Field(
+    api_key_identifier: str | None = Field(
         default=None,
         description="Updated API key identifier",
         min_length=1,
         max_length=200,
     )
 
-    region: Optional[str] = Field(
+    region: str | None = Field(
         default=None,
         description="Updated geographic region for routing",
         min_length=1,
         max_length=50,
     )
 
-    max_tokens: Optional[int] = Field(
+    max_tokens: int | None = Field(
         default=None,
         description="Updated maximum tokens per minute (TPM) quota",
         gt=0,
         le=100000000,
     )
 
-    max_token_lock_time_secs: Optional[int] = Field(
+    max_token_lock_time_secs: int | None = Field(
         default=None,
         description="Updated default reservation expiry time in seconds",
         gt=0,
         le=3600,
     )
 
-    temperature: Optional[float] = Field(
+    temperature: float | None = Field(
         default=None,
         description="Updated default temperature for this deployment",
         ge=0.0,
         le=2.0,
     )
 
-    seed: Optional[int] = Field(
+    seed: int | None = Field(
         default=None, description="Updated default seed for this deployment", ge=0
     )
 
-    is_active: Optional[bool] = Field(
+    is_active: bool | None = Field(
         default=None, description="Updated enable/disable traffic to this deployment"
     )
 
@@ -698,7 +719,7 @@ class LLMModelCreateRequest(BaseModel):
         max_length=100,
     )
 
-    cloud_provider: Optional[CloudProvider] = Field(
+    cloud_provider: CloudProvider | None = Field(
         default=None,
         description="Cloud provider hosting the LLM",
     )
@@ -710,34 +731,34 @@ class LLMModelCreateRequest(BaseModel):
         max_length=200,
     )
 
-    llm_model_version: Optional[str] = Field(
+    llm_model_version: str | None = Field(
         default=None,
         description="Optional model version (e.g., '2024-08', 'v1.0')",
         max_length=50,
     )
 
-    max_tokens: Optional[int] = Field(
+    max_tokens: int | None = Field(
         default=None,
         description="Maximum tokens per request",
         gt=0,
         le=1000000,
     )
 
-    tokens_per_minute_limit: Optional[int] = Field(
+    tokens_per_minute_limit: int | None = Field(
         default=None,
         description="Token rate limit per minute",
         gt=0,
         le=10000000,
     )
 
-    requests_per_minute_limit: Optional[int] = Field(
+    requests_per_minute_limit: int | None = Field(
         default=None,
         description="Request rate limit per minute",
         gt=0,
         le=10000,
     )
 
-    deployment_name: Optional[str] = Field(
+    deployment_name: str | None = Field(
         default=None,
         description="Optional deployment identifier",
         max_length=100,
@@ -768,13 +789,13 @@ class LLMModelCreateRequest(BaseModel):
         le=1.0,
     )
 
-    random_seed: Optional[int] = Field(
+    random_seed: int | None = Field(
         default=None,
         description="Optional random seed for reproducible results",
         ge=0,
     )
 
-    deployment_region: Optional[str] = Field(
+    deployment_region: str | None = Field(
         default=None,
         description="Optional geographic deployment region",
         max_length=50,
@@ -888,95 +909,95 @@ class LLMModelUpdateRequest(BaseModel):
        all cloud fields must be provided together.
     """
 
-    llm_provider: Optional[LLMProvider] = Field(
+    llm_provider: LLMProvider | None = Field(
         default=None,
         description="Updated LLM provider type",
     )
 
-    llm_model_name: Optional[str] = Field(
+    llm_model_name: str | None = Field(
         default=None,
         description="Updated LLM model name",
         min_length=1,
         max_length=100,
     )
 
-    cloud_provider: Optional[CloudProvider] = Field(
+    cloud_provider: CloudProvider | None = Field(
         default=None,
         description="Updated cloud provider hosting the LLM",
     )
 
-    api_key_variable_name: Optional[str] = Field(
+    api_key_variable_name: str | None = Field(
         default=None,
         description="Updated API key environment variable name",
         min_length=1,
         max_length=200,
     )
 
-    llm_model_version: Optional[str] = Field(
+    llm_model_version: str | None = Field(
         default=None,
         description="Updated model version",
         max_length=50,
     )
 
-    max_tokens: Optional[int] = Field(
+    max_tokens: int | None = Field(
         default=None,
         description="Updated maximum tokens per request",
         gt=0,
         le=1000000,
     )
 
-    tokens_per_minute_limit: Optional[int] = Field(
+    tokens_per_minute_limit: int | None = Field(
         default=None,
         description="Updated token rate limit per minute",
         gt=0,
         le=10000000,
     )
 
-    requests_per_minute_limit: Optional[int] = Field(
+    requests_per_minute_limit: int | None = Field(
         default=None,
         description="Updated request rate limit per minute",
         gt=0,
         le=10000,
     )
 
-    deployment_name: Optional[str] = Field(
+    deployment_name: str | None = Field(
         default=None,
         description="Updated deployment identifier",
         max_length=100,
     )
 
-    api_endpoint_url: Optional[str] = Field(
+    api_endpoint_url: str | None = Field(
         default=None,
         description="Updated API endpoint URL",
         max_length=500,
     )
 
-    is_active_status: Optional[bool] = Field(
+    is_active_status: bool | None = Field(
         default=None,
         description="Updated activation status",
     )
 
-    temperature: Optional[float] = Field(
+    temperature: float | None = Field(
         default=None,
         description="Updated temperature setting (0.0 to 2.0)",
         ge=0.0,
         le=2.0,
     )
 
-    top_p: Optional[float] = Field(
+    top_p: float | None = Field(
         default=None,
         description="Updated top_p (nucleus sampling) setting (0.0 to 1.0)",
         ge=0.0,
         le=1.0,
     )
 
-    random_seed: Optional[int] = Field(
+    random_seed: int | None = Field(
         default=None,
         description="Updated random seed for reproducible results",
         ge=0,
     )
 
-    deployment_region: Optional[str] = Field(
+    deployment_region: str | None = Field(
         default=None,
         description="Updated geographic deployment region",
         max_length=50,
@@ -1092,7 +1113,7 @@ class UserEntitlementCreateRequest(BaseModel):
         min_length=1,
         max_length=100,
     )
-    api_key_variable_name: Optional[str] = Field(
+    api_key_variable_name: str | None = Field(
         None,
         description="Environment variable name for the API key",
         max_length=200,
@@ -1105,16 +1126,16 @@ class UserEntitlementCreateRequest(BaseModel):
     api_endpoint_url: str = Field(
         ..., description="Specific API endpoint URL", max_length=500
     )
-    cloud_provider: Optional[CloudProvider] = Field(
+    cloud_provider: CloudProvider | None = Field(
         None,
         description="Cloud provider hosting the LLM",
     )
-    deployment_name: Optional[str] = Field(
+    deployment_name: str | None = Field(
         None,
         description="Physical deployment identifier for cloud providers",
         max_length=100,
     )
-    deployment_region: Optional[str] = Field(
+    deployment_region: str | None = Field(
         None,
         description="Geographic region where model is deployed",
         max_length=50,

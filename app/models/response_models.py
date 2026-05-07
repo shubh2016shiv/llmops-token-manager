@@ -6,10 +6,11 @@ Simple, focused schemas for returning data to clients.
 """
 
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List, Union
-from uuid import UUID
-from pydantic import BaseModel, Field, field_validator, ConfigDict
 from enum import Enum
+from typing import Any, Literal, TypeAlias
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Valid LLM providers from database schema
 VALID_LLM_PROVIDERS = [
@@ -50,6 +51,34 @@ class AllocationStatus(str, Enum):
     FAILED = "FAILED"
 
 
+class AuthConfigResponse(BaseModel):
+    """Response schema for JWT authentication configuration (non-sensitive)."""
+
+    jwt_algorithm: str = Field(..., description="JWT algorithm used to sign tokens")
+    access_token_expire_hours: int = Field(
+        ..., description="Access token expiration duration in hours"
+    )
+    refresh_enabled: bool = Field(..., description="Whether refresh tokens are enabled")
+    refresh_token_expire_days: int | None = Field(
+        default=None,
+        description="Refresh token expiration duration in days (null when refresh disabled)",
+    )
+    token_type: Literal["bearer"] = Field(
+        ..., description="Token type for Authorization header"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "jwt_algorithm": "HS256",
+                "access_token_expire_hours": 24,
+                "refresh_enabled": False,
+                "refresh_token_expire_days": None,
+                "token_type": "bearer",
+            }
+        }
+
+
 # ============================================================================
 # USER RESPONSE MODEL
 # ============================================================================
@@ -63,8 +92,8 @@ class UserResponse(BaseModel):
     last_name: str
     role: str
     status: str
-    created_at: Union[datetime, None]
-    updated_at: Union[datetime, None]
+    created_at: datetime | None
+    updated_at: datetime | None
 
     class Config:
         json_schema_extra = {
@@ -100,16 +129,16 @@ class TokenAllocationResponse(BaseModel):
     )
     # -- Model & Deployment Configuration: Specifies the target LLM and deployment
     llm_model_name: str = Field(..., description="Name of the LLM model (e.g., GPT-4)")
-    deployment_name: Optional[str] = Field(
+    deployment_name: str | None = Field(
         default=None, description="Specific deployment of the model, if applicable"
     )
-    cloud_provider: Optional[str] = Field(
+    cloud_provider: str | None = Field(
         default=None, description="Cloud provider hosting the LLM (e.g., Azure, AWS)"
     )
-    api_endpoint_url: Optional[str] = Field(
+    api_endpoint_url: str | None = Field(
         default=None, description="API endpoint URL to use"
     )
-    deployment_region: Optional[str] = Field(
+    deployment_region: str | None = Field(
         default=None, description="Deployment region where model is deployed"
     )
     # -- Token Allocation Management: Tracks allocated tokens and their status
@@ -120,21 +149,21 @@ class TokenAllocationResponse(BaseModel):
     )
     # -- Timing & Expiration: Manages allocation lifecycle
     allocated_at: datetime = Field(..., description="When tokens were allocated")
-    expires_at: Optional[datetime] = Field(
+    expires_at: datetime | None = Field(
         default=None, description="When allocation expires (if applicable)"
     )
     # -- Additional context: Additional context data in JSON format (e.g., team, application)
-    request_context: Optional[Dict[str, Any]] = Field(
+    request_context: dict[str, Any] | None = Field(
         default=None,
         description="Additional context data in JSON format (e.g., team, application)",
     )
-    temperature: Optional[float] = Field(
+    temperature: float | None = Field(
         default=None, description="Temperature setting for this specific request"
     )
-    top_p: Optional[float] = Field(
+    top_p: float | None = Field(
         default=None, description="Top P (nucleus sampling) parameter for this request"
     )
-    seed: Optional[int] = Field(
+    seed: int | None = Field(
         default=None, description="Seed value for reproducible LLM outputs"
     )
 
@@ -148,7 +177,7 @@ class TokenAllocationResponse(BaseModel):
 
     @field_validator("cloud_provider")
     @classmethod
-    def validate_cloud_provider(cls, v: Optional[str]) -> Optional[str]:
+    def validate_cloud_provider(cls, v: str | None) -> str | None:
         """Validate cloud provider matches database schema."""
         if v is not None and v not in VALID_CLOUD_PROVIDERS:
             raise ValueError(f"Invalid cloud provider: {v}")
@@ -229,6 +258,55 @@ class TokenAllocationResponse(BaseModel):
         }
 
 
+class PauseDeploymentAlreadyPausedResponse(BaseModel):
+    """Response schema when a deployment is already paused."""
+
+    alloc_status: Literal["ALREADY_PAUSED"] = Field(
+        ..., description="Pause operation status"
+    )
+    llm_model_name: str = Field(..., description="Model name for the paused deployment")
+    api_endpoint_url: str = Field(..., description="API endpoint URL that is paused")
+    reason: str = Field(..., description="Reason explaining why it is already paused")
+
+
+class PauseDeploymentAllocationResponse(BaseModel):
+    """
+    Response schema for a successful pause allocation record.
+
+    This mirrors the allocation dict returned from the token allocation service.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    token_request_id: str = Field(
+        ..., description="Token request ID for pause allocation"
+    )
+    user_id: UUID = Field(..., description="User who requested the pause")
+    llm_provider: str = Field(..., description="LLM provider")
+    llm_model_name: str = Field(..., description="Model name paused")
+    deployment_name: str | None = Field(default=None, description="Deployment name")
+    cloud_provider: str | None = Field(default=None, description="Cloud provider")
+    api_endpoint_url: str = Field(..., description="Paused API endpoint URL")
+    deployment_region: str | None = Field(default=None, description="Deployment region")
+    token_count: int = Field(
+        ..., description="Token count consumed by pause allocation"
+    )
+    allocation_status: str = Field(..., description="Allocation status (PAUSED)")
+    allocated_at: datetime = Field(..., description="When pause allocation was created")
+    expires_at: datetime | None = Field(default=None, description="When pause expires")
+    request_context: dict[str, Any] | str | None = Field(
+        default=None, description="Request context metadata (dict or JSON string)"
+    )
+    temperature: float | None = Field(default=None, description="Temperature")
+    top_p: float | None = Field(default=None, description="Top-p")
+    seed: int | None = Field(default=None, description="Seed")
+
+
+PauseDeploymentResponse: TypeAlias = (
+    PauseDeploymentAlreadyPausedResponse | PauseDeploymentAllocationResponse
+)
+
+
 # ============================================================================
 # TOKEN RELEASE RESPONSE MODEL
 # ============================================================================
@@ -261,34 +339,32 @@ class LLMModelResponse(BaseModel):
 
     llm_provider: str = Field(..., description="LLM provider name")
     llm_model_name: str = Field(..., description="Name of the LLM model")
-    cloud_provider: Optional[str] = Field(
+    cloud_provider: str | None = Field(
         default=None,
         description="Cloud provider hosting the LLM (e.g., Azure, Google Cloud Platform)",
     )
-    deployment_name: Optional[str] = Field(default=None, description="Deployment name")
-    api_key_variable_name: Optional[str] = Field(
+    deployment_name: str | None = Field(default=None, description="Deployment name")
+    api_key_variable_name: str | None = Field(
         default=None, description="Environment variable name for API key"
     )
-    api_endpoint_url: Optional[str] = Field(
-        default=None, description="API endpoint URL"
-    )
-    llm_model_version: Optional[str] = Field(default=None, description="Model version")
-    max_tokens: Optional[int] = Field(
+    api_endpoint_url: str | None = Field(default=None, description="API endpoint URL")
+    llm_model_version: str | None = Field(default=None, description="Model version")
+    max_tokens: int | None = Field(
         default=None, description="Maximum tokens per request"
     )
-    tokens_per_minute_limit: Optional[int] = Field(
+    tokens_per_minute_limit: int | None = Field(
         default=None, description="Token rate limit per minute"
     )
-    requests_per_minute_limit: Optional[int] = Field(
+    requests_per_minute_limit: int | None = Field(
         default=None, description="Request rate limit per minute"
     )
     is_active_status: bool = Field(..., description="Whether model is currently active")
     temperature: float = Field(..., description="Default temperature setting")
     top_p: float = Field(..., description="Default top_p (nucleus sampling) setting")
-    random_seed: Optional[int] = Field(
+    random_seed: int | None = Field(
         default=None, description="Random seed for reproducible results"
     )
-    deployment_region: Optional[str] = Field(
+    deployment_region: str | None = Field(
         default=None, description="Geographic deployment region"
     )
     created_at: datetime = Field(..., description="When model was registered")
@@ -304,7 +380,7 @@ class LLMModelResponse(BaseModel):
 
     @field_validator("cloud_provider")
     @classmethod
-    def validate_cloud_provider(cls, v: Optional[str]) -> Optional[str]:
+    def validate_cloud_provider(cls, v: str | None) -> str | None:
         """Validate cloud provider matches database schema."""
         if v is not None and v not in VALID_CLOUD_PROVIDERS:
             raise ValueError(f"Invalid cloud provider: {v}")
@@ -351,7 +427,7 @@ class LLMModelListResponse(BaseModel):
     - When filtering models by provider with optional active-only filtering
     """
 
-    models: List[LLMModelResponse] = Field(
+    models: list[LLMModelResponse] = Field(
         ..., description="List of LLM model configurations"
     )
     total_count: int = Field(..., description="Total number of models available")
@@ -401,7 +477,7 @@ class ErrorResponse(BaseModel):
 
     error: str = Field(..., description="Error type or code")
     message: str = Field(..., description="Human-readable error message")
-    details: Optional[Dict[str, Any]] = Field(
+    details: dict[str, Any] | None = Field(
         default=None, description="Additional error details"
     )
     timestamp: datetime = Field(
@@ -419,12 +495,36 @@ class ErrorResponse(BaseModel):
         }
 
 
+class RateLimitErrorResponse(BaseModel):
+    """
+    Standard rate limit error response schema.
+
+    Returned with HTTP 429 and typically accompanied by `Retry-After` header.
+    """
+
+    error: Literal["RATE_LIMITED"] = Field(..., description="Error code")
+    message: str = Field(..., description="Human-readable error message")
+    details: dict[str, Any] = Field(
+        ...,
+        description="Rate limit rule details (rule name, retry_after_seconds, etc.)",
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "error": "RATE_LIMITED",
+                "message": "Too many requests. Please retry later.",
+                "details": {"rule": "auth_login", "retry_after_seconds": 12},
+            }
+        }
+
+
 class AllocationListResponse(BaseModel):
     """
     Response schema for listing token allocations.
     """
 
-    allocations: List[TokenAllocationResponse] = Field(
+    allocations: list[TokenAllocationResponse] = Field(
         ..., description="List of token allocations"
     )
     total_count: int = Field(..., description="Total number of allocations")
@@ -608,7 +708,7 @@ class HealthStatus(BaseModel):
     )
 
     status: str = Field(..., description="Token allocation service health status")
-    version: Optional[str] = Field(default=None, description="Application version")
+    version: str | None = Field(default=None, description="Application version")
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Health check timestamp",
@@ -646,19 +746,17 @@ class UserEntitlementResponse(BaseModel):
     user_id: UUID = Field(..., description="User who has the entitlement")
     llm_provider: str = Field(..., description="LLM provider type")
     llm_model_name: str = Field(..., description="Logical model name")
-    api_key_variable_name: Optional[str] = Field(
+    api_key_variable_name: str | None = Field(
         None, description="Environment variable name for the API key"
     )
-    api_endpoint_url: Optional[str] = Field(
-        None, description="Specific API endpoint URL"
-    )
-    cloud_provider: Optional[str] = Field(
+    api_endpoint_url: str | None = Field(None, description="Specific API endpoint URL")
+    cloud_provider: str | None = Field(
         None, description="Cloud provider hosting the LLM"
     )
-    deployment_name: Optional[str] = Field(
+    deployment_name: str | None = Field(
         None, description="Physical deployment identifier"
     )
-    deployment_region: Optional[str] = Field(
+    deployment_region: str | None = Field(
         None, description="Geographic deployment region"
     )
     created_at: datetime = Field(..., description="When entitlement was created")
@@ -677,7 +775,7 @@ class UserEntitlementResponse(BaseModel):
 
     @field_validator("cloud_provider")
     @classmethod
-    def validate_cloud_provider(cls, v: Optional[str]) -> Optional[str]:
+    def validate_cloud_provider(cls, v: str | None) -> str | None:
         """Validate cloud provider matches database schema."""
         if v is not None and v not in VALID_CLOUD_PROVIDERS:
             raise ValueError(f"Invalid cloud provider: {v}")
@@ -708,7 +806,7 @@ class UserEntitlementListResponse(BaseModel):
     Response schema for paginated list of user LLM entitlements.
     """
 
-    entitlements: List[UserEntitlementResponse] = Field(
+    entitlements: list[UserEntitlementResponse] = Field(
         ..., description="List of user entitlements"
     )
     total_count: int = Field(..., description="Total number of entitlements")
@@ -738,3 +836,56 @@ class UserEntitlementListResponse(BaseModel):
                 "page_size": 50,
             }
         }
+
+
+class EntitlementDeleteUserDetails(BaseModel):
+    """User details included in delete entitlement response."""
+
+    user_id: UUID = Field(..., description="Target user ID")
+    username: str = Field(..., description="Target username")
+    email: str = Field(..., description="Target user email")
+
+
+class EntitlementDeleteEntitlementDetails(BaseModel):
+    """Entitlement details included in delete entitlement response."""
+
+    llm_provider: str = Field(..., description="LLM provider type")
+    llm_model_name: str = Field(..., description="Logical model name")
+    cloud_provider: str | None = Field(
+        default=None, description="Cloud provider hosting the LLM"
+    )
+    api_endpoint_url: str | None = Field(
+        default=None, description="Specific API endpoint URL"
+    )
+
+
+class EntitlementDeleteActor(BaseModel):
+    """Actor metadata for delete entitlement response."""
+
+    admin_user_id: UUID = Field(..., description="Admin user ID who performed deletion")
+    admin_username: str = Field(
+        ..., description="Admin username who performed deletion"
+    )
+
+
+class EntitlementDeleteResponse(BaseModel):
+    """
+    Response schema for successful entitlement deletion.
+
+    Note: This models only the 200-success response payload.
+    """
+
+    deletion_status: Literal["success"] = Field(
+        ..., description="Deletion status (success)"
+    )
+    entitlement_id: int = Field(..., description="Deleted entitlement identifier")
+    user_details: EntitlementDeleteUserDetails = Field(
+        ..., description="Target user details"
+    )
+    entitlement_details: EntitlementDeleteEntitlementDetails = Field(
+        ..., description="Deleted entitlement details"
+    )
+    deleted_by: EntitlementDeleteActor = Field(
+        ..., description="Admin/owner who performed deletion"
+    )
+    message: str = Field(..., description="Human-friendly deletion summary")

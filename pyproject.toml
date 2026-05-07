@@ -146,6 +146,17 @@ force-sort-within-sections = true
     "B008",
     "B904",
 ]
+"app/models/*.py" = [
+    "D101",
+    "D102",
+    "D105",
+    "D106",
+    "D200",
+    "D205",
+    "D400",
+    "D415",
+    "E501",
+]
 
 # ================================================================
 # Pyright - Static type checker (CI-focused)
@@ -160,7 +171,8 @@ exclude = [
     "**/venv",
     "**/migrations",
     "tests",
-    "app/api/llm_endpoints_DELETE.py",
+    "**/*_DELETE.py",
+    "**/*_OBSELETE.py",
 ]
 reportMissingImports = false
 reportMissingTypeStubs = false

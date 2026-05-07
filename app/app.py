@@ -1,40 +1,60 @@
 """
-FastAPI Application Entry Point
--------------------------------
+FastAPI Application Entry Point.
+
 Main application initialization and configuration.
 Registers routers, middleware, and lifecycle handlers.
 """
 
 # Import everything else
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
+from app.api import api_router
 from app.core.config_manager import settings
+from app.core.correlation_id import correlation_id_middleware
 from app.core.database_connection import db_manager
 from app.core.redis_connection import redis_manager
 from app.core.startup_diagnostics import (
-    display_startup_failure,
     display_service_info,
+    display_startup_failure,
     verify_database_connectivity,
-    verify_redis_connectivity,
     verify_rabbitmq_connectivity,
+    verify_redis_connectivity,
 )
-from app.api import (
-    health_endpoints,
-    user_endpoints,
-    llm_configuration_endpoints,
-    token_manager_endpoints,
-    user_entitlement_endpoints,
-)
-from app.api.auth_endpoints import router as auth_router
+
+# -----------------------------------------------------------------------------
+# APP BOOTSTRAP EXPLANATION (for future maintainers)
+# -----------------------------------------------------------------------------
+# "Application bootstrap" is the startup wiring layer where we assemble the app:
+# - create the FastAPI instance
+# - register middleware
+# - register routers/endpoints
+# - define lifecycle hooks (startup/shutdown)
+#
+# In enterprise systems, bootstrap should stay thin and declarative:
+# - it should compose modules, not contain business logic
+# - it should be easy to scan and reason about quickly
+# - it should minimize edit hotspots that cause merge conflicts
+#
+# This project follows an "aggregated router" pattern:
+# - `app.api` exposes a single `api_router` that already includes all endpoint routers
+# - bootstrap performs one include: `app.include_router(api_router)`
+#
+# Why this is considered an enterprise best practice:
+# 1) Consistency: route registration happens in one dedicated API package module.
+# 2) Maintainability: new endpoint modules usually only touch `app/api/__init__.py`.
+# 3) Safety: inclusion order is centralized, helping avoid FastAPI route precedence
+#    surprises.
+# 4) Readability: bootstrap remains focused on system assembly (middleware + lifecycle).
+# -----------------------------------------------------------------------------
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager with graceful error handling."""
-
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Debug mode: {settings.debug}")
 
@@ -104,7 +124,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="Production-ready LLM token management system with multi-provider support",
+    description=(
+        "Production-ready LLM token management system with multi-provider support"
+    ),
     lifespan=lifespan,
     debug=settings.debug,
     # Enable Swagger UI and ReDoc in development, configurable for production
@@ -113,6 +135,9 @@ app = FastAPI(
     openapi_url="/api/openapi.json",  # Professional API path
     swagger_ui_parameters={"displayRequestDuration": True},  # Enhanced Swagger UI
 )
+
+# Correlation ID middleware (register early so it wraps all routes/middleware)
+app.middleware("http")(correlation_id_middleware)
 
 # CORS middleware
 app.add_middleware(
@@ -124,12 +149,8 @@ app.add_middleware(
 )
 
 # Register routers
-app.include_router(health_endpoints.router)
-app.include_router(auth_router)  # JWT authentication endpoints
-app.include_router(llm_configuration_endpoints.router)
-app.include_router(user_endpoints.router)
-app.include_router(user_entitlement_endpoints.router)  # User LLM entitlements
-app.include_router(token_manager_endpoints.router)
+# Enterprise pattern: register one aggregated API router from `app.api`.
+app.include_router(api_router)
 
 
 # Root endpoint

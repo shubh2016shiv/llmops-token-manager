@@ -13,18 +13,19 @@ Test Coverage:
 Total: 24 comprehensive unit tests
 """
 
-import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
 from io import StringIO
 import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.core.startup_diagnostics import (
     ServiceStatus,
-    display_startup_failure,
     display_service_info,
+    display_startup_failure,
     verify_database_connectivity,
-    verify_redis_connectivity,
     verify_rabbitmq_connectivity,
+    verify_redis_connectivity,
 )
 
 

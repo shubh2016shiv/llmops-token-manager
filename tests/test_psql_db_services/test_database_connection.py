@@ -2,10 +2,12 @@
 Unit tests for DatabaseManager using SQLAlchemy async engine
 """
 
-import pytest
+from contextlib import suppress
 from unittest.mock import AsyncMock, MagicMock, patch
-from sqlalchemy.ext.asyncio import AsyncSession
+
+import pytest
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database_connection import DatabaseManager
 
@@ -23,10 +25,8 @@ class TestDatabaseManager:
         yield
         # Clean up after each test
         if DatabaseManager._engine is not None:
-            try:
+            with suppress(Exception):
                 await DatabaseManager._engine.dispose()
-            except Exception:
-                pass
         DatabaseManager._instance = None
         DatabaseManager._engine = None
         DatabaseManager._sessionmaker = None
@@ -251,10 +251,8 @@ class TestDatabaseManagerQueries:
         DatabaseManager._sessionmaker = None
         yield
         if DatabaseManager._engine is not None:
-            try:
+            with suppress(Exception):
                 await DatabaseManager._engine.dispose()
-            except Exception:
-                pass
         DatabaseManager._instance = None
         DatabaseManager._engine = None
         DatabaseManager._sessionmaker = None
@@ -502,10 +500,8 @@ class TestDatabaseManagerTransactions:
         DatabaseManager._sessionmaker = None
         yield
         if DatabaseManager._engine is not None:
-            try:
+            with suppress(Exception):
                 await DatabaseManager._engine.dispose()
-            except Exception:
-                pass
         DatabaseManager._instance = None
         DatabaseManager._engine = None
         DatabaseManager._sessionmaker = None

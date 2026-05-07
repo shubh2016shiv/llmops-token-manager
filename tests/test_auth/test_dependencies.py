@@ -4,18 +4,19 @@ Auth Dependencies Tests
 Test FastAPI dependencies for JWT authentication and role-based authorization.
 """
 
-import pytest
 from unittest.mock import AsyncMock, patch
-from fastapi import HTTPException
 from uuid import uuid4
 
+from fastapi import HTTPException
+import pytest
+
 from app.auth.auth_dependencies import (
-    get_current_user,
-    get_active_user,
     RoleChecker,
+    get_active_user,
+    get_current_user,
+    require_admin,
     require_developer,
     require_operator,
-    require_admin,
     require_owner,
 )
 from app.models.auth_models import AuthTokenPayload

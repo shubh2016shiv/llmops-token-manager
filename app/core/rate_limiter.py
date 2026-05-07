@@ -18,7 +18,8 @@ import os
 import time
 from typing import TYPE_CHECKING
 
-from fastapi import HTTPException, Request, status
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse
 from limits import parse
 from limits.aio.storage import MemoryStorage
 from limits.aio.strategies import MovingWindowRateLimiter
@@ -41,6 +42,33 @@ class RateLimitRule:
     name: str
     limit: str  # e.g. "10/minute"
     key_namespace: str  # e.g. "auth_login"
+
+
+class RateLimitExceededError(Exception):
+    """Structured rate-limit exception with response-ready payload."""
+
+    def __init__(self, payload: dict, retry_after: int):
+        self.payload = payload
+        self.retry_after = retry_after
+        super().__init__(payload.get("message", "Rate limit exceeded"))
+
+
+# Backward-compatible alias for existing imports.
+RateLimitExceeded = RateLimitExceededError
+
+
+def register_rate_limit_exception_handler(app: FastAPI) -> None:
+    """Register a standardized top-level 429 payload for rate limit errors."""
+
+    @app.exception_handler(RateLimitExceededError)
+    async def _rate_limit_exceeded_handler(
+        request: Request, exc: RateLimitExceededError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content=exc.payload,
+            headers={"Retry-After": str(exc.retry_after)},
+        )
 
 
 def _redis_dsn() -> str:
@@ -134,9 +162,8 @@ def rate_limit_dependency(
             )
             retry_after = _retry_after_seconds(reset_at)
 
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail={
+            raise RateLimitExceededError(
+                payload={
                     "error": "RATE_LIMITED",
                     "message": "Too many requests. Please retry later.",
                     "details": {
@@ -145,10 +172,10 @@ def rate_limit_dependency(
                         "remaining": remaining,
                     },
                 },
-                headers={"Retry-After": str(retry_after)},
+                retry_after=retry_after,
             )
 
-        except HTTPException:
+        except RateLimitExceededError:
             raise
         except Exception as e:
             # Fail-open with observability.

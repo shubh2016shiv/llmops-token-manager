@@ -15,15 +15,16 @@ Test Coverage:
 Total: 26 comprehensive unit tests
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.core.database_connection import (
     DatabaseManager,
-    initialize_db,
     close_db,
-    get_db_manager,
     db_manager,
+    get_db_manager,
+    initialize_db,
 )
 
 

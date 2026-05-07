@@ -15,16 +15,16 @@ Test Coverage:
 Total: 27 comprehensive unit tests
 """
 
-import pytest
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
-from datetime import datetime
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 from app.api.user_endpoints import router
 from app.models.response_models import UserResponse
-
 
 # ============================================================================
 # TEST SETUP
@@ -105,6 +105,15 @@ def sample_update_request():
 
 class TestCreateUser:
     """Test cases for user creation endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def _override_admin_auth(self, app, mock_admin_user):
+        """Create-user endpoint is admin-protected; default tests run as admin."""
+        from app.auth.auth_dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+        yield
+        app.dependency_overrides.clear()
 
     @patch("app.api.user_endpoints.UsersService")
     @patch("app.api.user_endpoints.PasswordHasher")
@@ -356,6 +365,24 @@ class TestCreateUser:
         assert "detail" in data
         # Should have validation error for invalid role enum value
 
+    def test_create_user_unauthenticated_returns_401(
+        self, app, client, sample_create_request
+    ):
+        """Unauthenticated create-user requests must be rejected."""
+        app.dependency_overrides.clear()
+        response = client.post("/api/v1/users/", json=sample_create_request)
+        assert response.status_code == 401
+
+    def test_create_user_developer_role_returns_403(
+        self, app, client, mock_developer_user, sample_create_request
+    ):
+        """Developer role should not be allowed to create users."""
+        from app.auth.auth_dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+        response = client.post("/api/v1/users/", json=sample_create_request)
+        assert response.status_code == 403
+
 
 # ============================================================================
 # GET USER BY ID TESTS
@@ -565,6 +592,37 @@ class TestGetUserByEmail:
     """Test cases for get user by email endpoint."""
 
     @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.logger.debug")
+    def test_get_user_by_email_logs_masked_email(
+        self,
+        mock_logger_debug,
+        mock_users_service,
+        app,
+        client,
+        mock_developer_user,
+        sample_user_data,
+    ):
+        """Email logging should be masked and must not contain raw local-part."""
+        from app.auth.auth_dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
+        mock_service_instance = AsyncMock()
+        mock_service_instance.get_user_by_email.return_value = sample_user_data
+        mock_users_service.return_value = mock_service_instance
+        email = "jane.doe@example.com"
+
+        response = client.get(f"/api/v1/users/email/{email}")
+
+        assert response.status_code == 200
+        assert mock_logger_debug.called
+        log_args = " ".join(str(arg) for arg in mock_logger_debug.call_args[0])
+        assert "jane.doe@" not in log_args
+        assert "ja***@example.com" in log_args
+
+        app.dependency_overrides.clear()
+
+    @patch("app.api.user_endpoints.UsersService")
     def test_get_user_by_email_success(
         self, mock_users_service, app, client, mock_developer_user, sample_user_data
     ):
@@ -597,8 +655,9 @@ class TestGetUserByEmail:
         app.dependency_overrides.clear()
 
     @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.logger.warning")
     def test_get_user_by_email_not_found(
-        self, mock_users_service, app, client, mock_developer_user
+        self, mock_logger_warning, mock_users_service, app, client, mock_developer_user
     ):
         """Test user not found by email returns 404 error."""
         # Override auth dependency
@@ -619,6 +678,10 @@ class TestGetUserByEmail:
         assert response.status_code == 404
         data = response.json()
         assert f"User with email '{email}' not found" in data["detail"]
+        assert mock_logger_warning.called
+        log_args = " ".join(str(arg) for arg in mock_logger_warning.call_args[0])
+        assert "nonexistent@" not in log_args
+        assert "no***@example.com" in log_args
 
         # Cleanup
         app.dependency_overrides.clear()

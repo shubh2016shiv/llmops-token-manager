@@ -9,11 +9,12 @@ Tests cover:
 - Business logic for token acquisition and retry
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
+
+import pytest
 
 from app.psql_db_services.token_allocation_manager import (
     TokenAllocationService,
@@ -1078,7 +1079,7 @@ class TestTokenAllocationServiceBusinessLogic:
 
             # Assertions
             assert "error" in result
-            assert "Invalid token_request_id = req_123" == result["error"]
+            assert result["error"] == "Invalid token_request_id = req_123"
 
     @pytest.mark.asyncio
     async def test_retry_acquire_tokens_not_waiting(self):

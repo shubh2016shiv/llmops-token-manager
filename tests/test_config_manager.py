@@ -12,8 +12,8 @@ Test Coverage:
 Total: 13 comprehensive unit tests
 """
 
-import pytest
 from pydantic import ValidationError
+import pytest
 
 from app.core.config_manager import ApplicationSettings
 

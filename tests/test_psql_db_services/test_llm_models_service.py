@@ -15,15 +15,15 @@ Test Coverage:
 Total: 56 comprehensive unit tests
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import psycopg
 from psycopg import IntegrityError
+import pytest
 
-from app.psql_db_services.llm_models_service import LLMModelsService
 from app.core.database_connection import DatabaseManager
+from app.psql_db_services.llm_models_service import LLMModelsService
 
 
 def setup_mock_database_connection(mock_db_manager, mock_cursor_data=None):
@@ -33,6 +33,7 @@ def setup_mock_database_connection(mock_db_manager, mock_cursor_data=None):
     Args:
         mock_db_manager: The mock database manager
         mock_cursor_data: Optional data to return from session operations
+
     """
     # Create mock session
     mock_session = AsyncMock()

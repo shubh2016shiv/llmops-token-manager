@@ -16,6 +16,7 @@ from app.api import api_router
 from app.core.config_manager import settings
 from app.core.correlation_id import correlation_id_middleware
 from app.core.database_connection import db_manager
+from app.core.rate_limiter import register_rate_limit_exception_handler
 from app.core.redis_connection import redis_manager
 from app.core.startup_diagnostics import (
     display_service_info,
@@ -135,6 +136,9 @@ app = FastAPI(
     openapi_url="/api/openapi.json",  # Professional API path
     swagger_ui_parameters={"displayRequestDuration": True},  # Enhanced Swagger UI
 )
+
+# Register standardized rate-limit error handler.
+register_rate_limit_exception_handler(app)
 
 # Correlation ID middleware (register early so it wraps all routes/middleware)
 app.middleware("http")(correlation_id_middleware)

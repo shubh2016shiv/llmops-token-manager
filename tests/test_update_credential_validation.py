@@ -5,11 +5,12 @@ This module tests the validation rules for LLMModelUpdateRequest to ensure
 proper credential combinations are enforced during update operations.
 """
 
-import pytest
 from pydantic import ValidationError
+import pytest
+
 from app.models.request_models import (
-    LLMModelUpdateRequest,
     CloudProvider,
+    LLMModelUpdateRequest,
 )
 
 

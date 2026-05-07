@@ -245,7 +245,10 @@ async def list_llm_models_by_provider(
         )
 
         # Calculate pagination info from authoritative DB count
-        total_count = await llm_service.count_llm_models_by_provider(llm_provider)
+        total_count = await llm_service.count_llm_models_by_provider(
+            llm_provider=llm_provider,
+            active_only=active_only,
+        )
 
         if using_page_params:
             _, _, page_val, page_size_val, has_next, has_previous = compute_pagination(

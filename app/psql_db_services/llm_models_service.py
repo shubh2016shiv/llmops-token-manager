@@ -9,10 +9,10 @@ Production-ready database service for LLM model configuration and tracking inclu
 - Optimized for high-concurrency environments (10,000+ concurrent users)
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Any
 
-from sqlalchemy import text
 from loguru import logger
+from sqlalchemy import text
 
 from app.core.database_connection import DatabaseManager
 from app.psql_db_services.base_service import BaseDatabaseService
@@ -47,12 +47,13 @@ class LLMModelsService(BaseDatabaseService):
         "meta",
     ]
 
-    def __init__(self, database_manager: Optional[DatabaseManager] = None):
+    def __init__(self, database_manager: DatabaseManager | None = None):
         """
         Initialize the LLM models service with database manager.
 
         Args:
             database_manager: Optional DatabaseManager instance (uses singleton if not provided)
+
         """
         super().__init__(database_manager)
 
@@ -66,12 +67,12 @@ class LLMModelsService(BaseDatabaseService):
 
     def validate_llm_model_numerical_parameters(
         self,
-        maximum_tokens: Optional[int] = None,
-        tokens_per_minute_limit: Optional[int] = None,
-        requests_per_minute_limit: Optional[int] = None,
-        temperature_value: Optional[float] = None,
-        top_p_value: Optional[float] = None,
-        random_seed: Optional[int] = None,
+        maximum_tokens: int | None = None,
+        tokens_per_minute_limit: int | None = None,
+        requests_per_minute_limit: int | None = None,
+        temperature_value: float | None = None,
+        top_p_value: float | None = None,
+        random_seed: int | None = None,
     ) -> None:
         """
         Validate numerical parameters for LLM model configuration.
@@ -86,6 +87,7 @@ class LLMModelsService(BaseDatabaseService):
 
         Raises:
             ValueError: On invalid numerical values
+
         """
         if maximum_tokens is not None:
             self.validate_positive_integer(maximum_tokens, "maximum_tokens")
@@ -130,17 +132,17 @@ class LLMModelsService(BaseDatabaseService):
         llm_model_name: str,
         api_key_variable_name: str,
         api_endpoint_url: str,
-        max_tokens: Optional[int] = None,
-        tokens_per_minute_limit: Optional[int] = None,
-        requests_per_minute_limit: Optional[int] = None,
-        deployment_name: Optional[str] = None,
+        max_tokens: int | None = None,
+        tokens_per_minute_limit: int | None = None,
+        requests_per_minute_limit: int | None = None,
+        deployment_name: str | None = None,
         is_active_status: bool = True,
         temperature: float = 0.7,
         top_p: float = 1.0,
-        random_seed: Optional[int] = None,
-        deployment_region: Optional[str] = None,
-        llm_model_version: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        random_seed: int | None = None,
+        deployment_region: str | None = None,
+        llm_model_version: str | None = None,
+    ) -> dict[str, Any]:
         """
         Create a new LLM model configuration in the database.
 
@@ -167,8 +169,8 @@ class LLMModelsService(BaseDatabaseService):
             sqlalchemy.exc.IntegrityError: If model configuration already exists
             sqlalchemy.exc.SQLAlchemyError: On other database errors
             ValueError: On invalid input parameters
-        """
 
+        """
         self.validate_string_not_empty(llm_model_name, "model_name")
         self.validate_llm_model_numerical_parameters(
             maximum_tokens=max_tokens,
@@ -233,8 +235,8 @@ class LLMModelsService(BaseDatabaseService):
         self,
         llm_provider: str,
         llm_model_name: str,
-        llm_model_version: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        llm_model_version: str | None = None,
+    ) -> dict[str, Any] | None:
         """
         Retrieve an LLM model by its provider, model name, and optional version.
 
@@ -251,6 +253,7 @@ class LLMModelsService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
             ValueError: If llm_provider or llm_model_name is invalid or empty.
+
         """
         self.validate_llm_provider(llm_provider)
         self.validate_string_not_empty(llm_model_name, "llm_model_name")
@@ -286,10 +289,10 @@ class LLMModelsService(BaseDatabaseService):
     async def get_llm_models_by_provider(
         self,
         llm_provider: str,
-        active_only: Optional[bool] = None,
+        active_only: bool | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Retrieve all LLM models for a specific provider with optional active status filter and pagination.
 
@@ -308,6 +311,7 @@ class LLMModelsService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
             ValueError: On invalid llm_provider or pagination parameters.
+
         """
         self.validate_llm_provider(llm_provider)
         self.validate_pagination_parameters(limit, offset)
@@ -317,7 +321,7 @@ class LLMModelsService(BaseDatabaseService):
                 sql_query = (
                     "SELECT * FROM llm_models WHERE llm_provider = :llm_provider"
                 )
-                params: Dict[str, Any] = {"llm_provider": llm_provider}
+                params: dict[str, Any] = {"llm_provider": llm_provider}
 
                 if active_only is not None:
                     sql_query += " AND is_active_status = :is_active_status"
@@ -342,7 +346,7 @@ class LLMModelsService(BaseDatabaseService):
         llm_provider: str,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Retrieve all active LLM models for a specific provider.
 
@@ -359,6 +363,7 @@ class LLMModelsService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
             ValueError: On invalid llm_provider or pagination parameters.
+
         """
         return await self.get_llm_models_by_provider(
             llm_provider=llm_provider,
@@ -367,7 +372,9 @@ class LLMModelsService(BaseDatabaseService):
             offset=offset,
         )
 
-    async def count_llm_models_by_provider(self, llm_provider: str) -> int:
+    async def count_llm_models_by_provider(
+        self, llm_provider: str, active_only: bool | None = None
+    ) -> int:
         """
         Count the number of LLM models for a specific provider.
 
@@ -382,6 +389,7 @@ class LLMModelsService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
             ValueError: If llm_provider is invalid.
+
         """
         self.validate_llm_provider(llm_provider)
 
@@ -391,9 +399,12 @@ class LLMModelsService(BaseDatabaseService):
                     SELECT COUNT(*) FROM llm_models
                     WHERE llm_provider = :llm_provider
                 """
-                result = await session.execute(
-                    text(sql_query), {"llm_provider": llm_provider}
-                )
+                params: dict[str, Any] = {"llm_provider": llm_provider}
+                if active_only is not None:
+                    sql_query += " AND is_active_status = :is_active_status"
+                    params["is_active_status"] = str(active_only)
+
+                result = await session.execute(text(sql_query), params)
                 return result.scalar_one_or_none() or 0
         except Exception as e:
             logger.error(f"Error counting models for provider {llm_provider}: {e}")
@@ -407,22 +418,22 @@ class LLMModelsService(BaseDatabaseService):
         self,
         llm_provider: str,
         llm_model_name: str,
-        llm_model_version: Optional[str] = None,
-        new_llm_provider: Optional[str] = None,
-        new_llm_model_name: Optional[str] = None,
-        deployment_name: Optional[str] = None,
-        api_key_variable_name: Optional[str] = None,
-        api_endpoint_url: Optional[str] = None,
-        new_llm_model_version: Optional[str] = None,
-        max_tokens: Optional[int] = None,
-        tokens_per_minute_limit: Optional[int] = None,
-        requests_per_minute_limit: Optional[int] = None,
-        is_active_status: Optional[bool] = None,
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        random_seed: Optional[int] = None,
-        deployment_region: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        llm_model_version: str | None = None,
+        new_llm_provider: str | None = None,
+        new_llm_model_name: str | None = None,
+        deployment_name: str | None = None,
+        api_key_variable_name: str | None = None,
+        api_endpoint_url: str | None = None,
+        new_llm_model_version: str | None = None,
+        max_tokens: int | None = None,
+        tokens_per_minute_limit: int | None = None,
+        requests_per_minute_limit: int | None = None,
+        is_active_status: bool | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        random_seed: int | None = None,
+        deployment_region: str | None = None,
+    ) -> dict[str, Any] | None:
         """
         Update an LLM model configuration with dynamic field updates.
 
@@ -457,6 +468,7 @@ class LLMModelsService(BaseDatabaseService):
             sqlalchemy.exc.IntegrityError: If the update violates constraints (e.g., duplicate composite key).
             sqlalchemy.exc.SQLAlchemyError: On other database errors.
             ValueError: On invalid input parameters (e.g., invalid provider name).
+
         """
         # Validate composite key inputs
         if not llm_provider or not llm_model_name:
@@ -469,7 +481,7 @@ class LLMModelsService(BaseDatabaseService):
             self.validate_llm_provider(new_llm_provider)
 
         # Build update fields dictionary
-        update_fields_dict: Dict[str, Any] = {}
+        update_fields_dict: dict[str, Any] = {}
         if new_llm_provider is not None:
             update_fields_dict["llm_provider"] = new_llm_provider
         if new_llm_model_name is not None:
@@ -556,9 +568,9 @@ class LLMModelsService(BaseDatabaseService):
         self,
         llm_provider: str,
         llm_model_name: str,
-        llm_model_version: Optional[str] = None,
+        llm_model_version: str | None = None,
         is_active_status: bool = True,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Update a model's active status.
 
@@ -574,6 +586,7 @@ class LLMModelsService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
             ValueError: If llm_provider or llm_model_name is empty.
+
         """
         if not llm_provider or not llm_model_name:
             raise ValueError(
@@ -591,8 +604,8 @@ class LLMModelsService(BaseDatabaseService):
         self,
         llm_provider: str,
         llm_model_name: str,
-        llm_model_version: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        llm_model_version: str | None = None,
+    ) -> dict[str, Any] | None:
         """
         Activate a model by setting its active status to True.
 
@@ -607,6 +620,7 @@ class LLMModelsService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
             ValueError: If llm_provider or llm_model_name is empty.
+
         """
         return await self.update_llm_model_status(
             llm_provider=llm_provider,
@@ -619,8 +633,8 @@ class LLMModelsService(BaseDatabaseService):
         self,
         llm_provider: str,
         llm_model_name: str,
-        llm_model_version: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        llm_model_version: str | None = None,
+    ) -> dict[str, Any] | None:
         """
         Deactivate a model by setting its active status to False.
 
@@ -635,6 +649,7 @@ class LLMModelsService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
             ValueError: If llm_provider or llm_model_name is empty.
+
         """
         return await self.update_llm_model_status(
             llm_provider=llm_provider,
@@ -651,7 +666,7 @@ class LLMModelsService(BaseDatabaseService):
         self,
         llm_provider: str,
         llm_model_name: str,
-        llm_model_version: Optional[str] = None,
+        llm_model_version: str | None = None,
     ) -> bool:
         """
         Delete an LLM model configuration from the database.
@@ -670,6 +685,7 @@ class LLMModelsService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
             ValueError: If llm_provider or llm_model_name is empty.
+
         """
         if not llm_provider or not llm_model_name:
             raise ValueError(
@@ -735,6 +751,7 @@ class LLMModelsService(BaseDatabaseService):
         Raises:
             sqlalchemy.exc.SQLAlchemyError: On database errors.
             ValueError: If llm_provider is invalid.
+
         """
         self.validate_llm_provider(llm_provider)
 

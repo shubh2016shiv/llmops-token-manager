@@ -5,13 +5,14 @@ This module tests the validation rules for LLM model and user entitlement
 request models to ensure proper credential combinations are enforced.
 """
 
-import pytest
 from pydantic import ValidationError
+import pytest
+
 from app.models.request_models import (
-    LLMModelCreateRequest,
-    UserEntitlementCreateRequest,
-    LLMProvider,
     CloudProvider,
+    LLMModelCreateRequest,
+    LLMProvider,
+    UserEntitlementCreateRequest,
 )
 
 

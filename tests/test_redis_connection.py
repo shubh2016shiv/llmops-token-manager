@@ -1,8 +1,10 @@
-import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
 from loguru import logger
-from app.core.redis_connection import RedisManager
+import pytest
+
 from app.core.config_manager import settings
+from app.core.redis_connection import RedisManager
 
 
 class TestRedisConnection:

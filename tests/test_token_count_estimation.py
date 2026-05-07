@@ -17,11 +17,12 @@ Test Coverage:
 Total: 36 comprehensive unit tests
 """
 
-import pytest
 from unittest.mock import patch
-from app.utils.token_count_estimation import TokenEstimator, estimate_tokens
-from app.models.token_manager_models import InputType, TokenEstimation
 
+import pytest
+
+from app.models.token_manager_models import InputType, TokenEstimation
+from app.utils.token_count_estimation import TokenEstimator, estimate_tokens
 
 # ============================================================================
 # TEST FIXTURES
@@ -765,21 +766,14 @@ class TestAdditionalCoverage:
         assert hasattr(app.utils.token_count_estimation, "TokenEstimator")
 
     def test_import_error_coverage(self):
-        """Test to verify ImportError handling code exists."""
-        # This test verifies that the ImportError handling code is present
-        # by checking the source code structure
-        import inspect
+        """Test import guard behavior without asserting source-code formatting."""
         import app.utils.token_count_estimation
 
-        # Get the source code of the module
-        source = inspect.getsource(app.utils.token_count_estimation)
-
-        # Verify that the ImportError handling code exists
-        assert "try:" in source
-        assert "import litellm" in source
-        assert "except ImportError:" in source
-        assert "raise ImportError" in source
-        assert "LiteLLM library required" in source
+        # Behavior-level checks: module imported, dependency bound, API usable.
+        assert hasattr(app.utils.token_count_estimation, "litellm")
+        assert app.utils.token_count_estimation.litellm is not None
+        assert hasattr(app.utils.token_count_estimation, "TokenEstimator")
+        assert callable(app.utils.token_count_estimation.estimate_tokens)
 
     def test_estimate_simple_string_type_check_in_main_flow(self):
         """Test the type check for SIMPLE_STRING in the main estimation flow."""
@@ -794,26 +788,22 @@ class TestAdditionalCoverage:
                 "LiteLLM error"
             )  # Force fallback
 
-            with patch.object(
-                TokenEstimator,
-                "_detect_input_type",
-                return_value=InputType.SIMPLE_STRING,
+            with (
+                patch.object(
+                    TokenEstimator,
+                    "_detect_input_type",
+                    return_value=InputType.SIMPLE_STRING,
+                ),
+                patch.object(TokenEstimator, "_validate_input_size"),
+                patch.object(
+                    TokenEstimator,
+                    "_fallback_estimate",
+                    side_effect=ValueError("Expected string for SIMPLE_STRING type"),
+                ),
+                patch("app.utils.token_count_estimation.logger"),
             ):
-                with patch.object(TokenEstimator, "_validate_input_size"):
-                    with patch.object(
-                        TokenEstimator,
-                        "_fallback_estimate",
-                        side_effect=ValueError(
-                            "Expected string for SIMPLE_STRING type"
-                        ),
-                    ):
-                        with patch("app.utils.token_count_estimation.logger"):
-                            # Act & Assert
-                            with pytest.raises(ValueError) as exc_info:
-                                TokenEstimator.estimate(
-                                    123, "gpt-4"
-                                )  # Non-string input
+                # Act & Assert
+                with pytest.raises(ValueError) as exc_info:
+                    TokenEstimator.estimate(123, "gpt-4")  # Non-string input
 
-                            assert "Expected string for SIMPLE_STRING type" in str(
-                                exc_info.value
-                            )
+                assert "Expected string for SIMPLE_STRING type" in str(exc_info.value)

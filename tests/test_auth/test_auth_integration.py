@@ -4,9 +4,14 @@ Auth Integration Tests
 End-to-end tests for JWT authentication integration with FastAPI endpoints.
 """
 
-from fastapi.testclient import TestClient
+import os
 from unittest.mock import patch
 from uuid import uuid4
+
+from fastapi.testclient import TestClient
+
+# Ensure rate limiter uses in-memory backend during tests.
+os.environ.setdefault("RATE_LIMIT_STORAGE", "memory")
 
 from app.app import app
 from app.auth.jwt_auth_token_service import create_access_token
@@ -23,17 +28,49 @@ class TestAuthIntegration:
         self.test_admin_id = uuid4()
 
     def test_auth_endpoints_accessible(self):
-        """Test that auth endpoints are accessible."""
+        """Test token generation endpoint with admin authentication in non-prod."""
+        token = create_access_token(self.test_admin_id, "admin")
+
         # Test token generation endpoint
         response = self.client.post(
             "/api/v1/auth/token/generate",
             json={"user_id": str(self.test_user_id), "role": "developer"},
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
         data = response.json()
         assert "access_token" in data
         assert data["token_type"] == "bearer"
         assert "expires_in" in data
+
+    def test_token_generate_requires_auth(self):
+        """Token generation must require admin/owner auth."""
+        response = self.client.post(
+            "/api/v1/auth/token/generate",
+            json={"user_id": str(self.test_user_id), "role": "developer"},
+        )
+        assert response.status_code == 401
+
+    def test_token_generate_developer_forbidden(self):
+        """Developer role must not access token generation endpoint."""
+        token = create_access_token(self.test_user_id, "developer")
+        response = self.client.post(
+            "/api/v1/auth/token/generate",
+            json={"user_id": str(self.test_user_id), "role": "developer"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+
+    def test_token_generate_blocked_in_production(self):
+        """Token generation endpoint must be disabled in production."""
+        token = create_access_token(self.test_admin_id, "admin")
+        with patch("app.api.auth_endpoints.settings.app_environment", "production"):
+            response = self.client.post(
+                "/api/v1/auth/token/generate",
+                json={"user_id": str(self.test_user_id), "role": "developer"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert response.status_code == 403
 
     def test_token_validation_endpoint(self):
         """Test token validation endpoint."""
@@ -182,8 +219,8 @@ class TestAuthIntegration:
         response = self.client.get("/api/v1/health")
         assert response.status_code == 200
 
-    def test_user_registration_no_auth(self):
-        """Test that user registration doesn't require authentication."""
+    def test_user_registration_requires_auth(self):
+        """User creation endpoint should require admin authentication."""
         response = self.client.post(
             "/api/v1/users/",
             json={
@@ -194,8 +231,7 @@ class TestAuthIntegration:
                 "password": "SecurePass123",
             },
         )
-        # Should not be 401 (unauthorized) - might be 400 if validation fails, but not 401
-        assert response.status_code != 401
+        assert response.status_code == 401
 
     def test_cors_headers_present(self):
         """Test that CORS headers are present in responses."""

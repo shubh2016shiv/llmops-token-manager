@@ -15,15 +15,15 @@ Test Coverage:
 Total: 37 comprehensive unit tests
 """
 
-import pytest
-from unittest.mock import AsyncMock, patch
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, patch
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 from app.api.llm_configuration_endpoints import router
-from app.models.response_models import LLMModelResponse, LLMModelListResponse
-
+from app.models.response_models import LLMModelListResponse, LLMModelResponse
 
 # ============================================================================
 # TEST SETUP
@@ -224,7 +224,7 @@ class TestCreateLLMModel:
         assert response.status_code == 400  # Business logic error
         data = response.json()
         # The service error should be in the response detail
-        assert "Model 'gpt-4o' for provider 'openai' already exists" == data["detail"]
+        assert data["detail"] == "Model 'gpt-4o' for provider 'openai' already exists"
 
         # Cleanup
         app.dependency_overrides.clear()
@@ -253,7 +253,7 @@ class TestCreateLLMModel:
         assert response.status_code == 400  # Business logic error
         data = response.json()
         # The service error should be in the response detail
-        assert "Invalid provider name 'invalid_provider'" == data["detail"]
+        assert data["detail"] == "Invalid provider name 'invalid_provider'"
 
         # Cleanup
         app.dependency_overrides.clear()
@@ -411,6 +411,7 @@ class TestListLLMModelsByProvider:
         mock_service_instance.get_llm_models_by_provider.return_value = [
             sample_llm_model_data
         ]
+        mock_service_instance.count_llm_models_by_provider.return_value = 1
         mock_llm_service.return_value = mock_service_instance
 
         # Act
@@ -440,6 +441,9 @@ class TestListLLMModelsByProvider:
         mock_service_instance.get_llm_models_by_provider.assert_called_once_with(
             llm_provider="openai", active_only=None, limit=100, offset=0
         )
+        mock_service_instance.count_llm_models_by_provider.assert_called_once_with(
+            llm_provider="openai", active_only=None
+        )
 
         # Cleanup
         app.dependency_overrides.clear()
@@ -459,6 +463,7 @@ class TestListLLMModelsByProvider:
         mock_service_instance.get_llm_models_by_provider.return_value = [
             sample_llm_model_data
         ]
+        mock_service_instance.count_llm_models_by_provider.return_value = 1
         mock_llm_service.return_value = mock_service_instance
 
         # Act
@@ -475,6 +480,9 @@ class TestListLLMModelsByProvider:
         # Verify service was called with active_only filter
         mock_service_instance.get_llm_models_by_provider.assert_called_once_with(
             llm_provider="openai", active_only=True, limit=100, offset=0
+        )
+        mock_service_instance.count_llm_models_by_provider.assert_called_once_with(
+            llm_provider="openai", active_only=True
         )
 
         # Cleanup
@@ -495,6 +503,7 @@ class TestListLLMModelsByProvider:
         mock_service_instance.get_llm_models_by_provider.return_value = [
             sample_llm_model_data
         ]
+        mock_service_instance.count_llm_models_by_provider.return_value = 100
         mock_llm_service.return_value = mock_service_instance
 
         # Act
@@ -513,8 +522,136 @@ class TestListLLMModelsByProvider:
         mock_service_instance.get_llm_models_by_provider.assert_called_once_with(
             llm_provider="openai", active_only=None, limit=50, offset=10
         )
+        mock_service_instance.count_llm_models_by_provider.assert_called_once_with(
+            llm_provider="openai", active_only=None
+        )
 
         # Cleanup
+        app.dependency_overrides.clear()
+
+    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    def test_list_llm_models_by_provider_with_page_params(
+        self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
+    ):
+        """Test listing with page/page_size maps to limit/offset correctly."""
+        from app.auth.auth_dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
+        mock_service_instance = AsyncMock()
+        mock_service_instance.get_llm_models_by_provider.return_value = [
+            sample_llm_model_data
+        ]
+        mock_service_instance.count_llm_models_by_provider.return_value = 100
+        mock_llm_service.return_value = mock_service_instance
+
+        response = client.get("/api/v1/llm-models/provider/openai?page=2&page_size=25")
+
+        assert response.status_code in [200, 422]
+        data = response.json()
+        assert data["page"] == 2
+        assert data["page_size"] == 25
+
+        mock_service_instance.get_llm_models_by_provider.assert_called_once_with(
+            llm_provider="openai",
+            active_only=None,
+            limit=25,
+            offset=25,
+        )
+        mock_service_instance.count_llm_models_by_provider.assert_called_once_with(
+            llm_provider="openai", active_only=None
+        )
+
+        app.dependency_overrides.clear()
+
+    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    def test_list_llm_models_by_provider_page_params_take_precedence(
+        self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
+    ):
+        """If both styles are provided, page/page_size should win."""
+        from app.auth.auth_dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
+        mock_service_instance = AsyncMock()
+        mock_service_instance.get_llm_models_by_provider.return_value = [
+            sample_llm_model_data
+        ]
+        mock_service_instance.count_llm_models_by_provider.return_value = 100
+        mock_llm_service.return_value = mock_service_instance
+
+        response = client.get(
+            "/api/v1/llm-models/provider/openai?page=3&page_size=20&limit=50&offset=10"
+        )
+
+        assert response.status_code in [200, 422]
+        data = response.json()
+        assert data["page"] == 3
+        assert data["page_size"] == 20
+
+        mock_service_instance.get_llm_models_by_provider.assert_called_once_with(
+            llm_provider="openai",
+            active_only=None,
+            limit=20,
+            offset=40,
+        )
+        mock_service_instance.count_llm_models_by_provider.assert_called_once_with(
+            llm_provider="openai", active_only=None
+        )
+
+        app.dependency_overrides.clear()
+
+    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    def test_list_llm_models_by_provider_has_next_from_db_count(
+        self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
+    ):
+        """Pagination metadata should use DB total count, not current page length."""
+        from app.auth.auth_dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
+        mock_service_instance = AsyncMock()
+        mock_service_instance.get_llm_models_by_provider.return_value = [
+            sample_llm_model_data
+        ]
+        mock_service_instance.count_llm_models_by_provider.return_value = 101
+        mock_llm_service.return_value = mock_service_instance
+
+        response = client.get("/api/v1/llm-models/provider/openai?limit=100&offset=0")
+
+        assert response.status_code in [200, 422]
+        data = response.json()
+        assert data["total_count"] == 101
+        assert data["has_next"] is True
+
+        app.dependency_overrides.clear()
+
+    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    def test_provider_route_does_not_hit_generic_get_model_route(
+        self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
+    ):
+        """
+        Ensure `/provider/{llm_provider}` is never handled by the generic
+        `/{llm_provider}/{model_name}` route (reserved segment safety).
+        """
+        from app.auth.auth_dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
+        mock_service_instance = AsyncMock()
+        mock_service_instance.get_llm_models_by_provider.return_value = [
+            sample_llm_model_data
+        ]
+        mock_service_instance.count_llm_models_by_provider.return_value = 1
+        mock_service_instance.get_llm_model_by_provider_and_model.return_value = None
+        mock_llm_service.return_value = mock_service_instance
+
+        response = client.get("/api/v1/llm-models/provider/openai")
+        assert response.status_code in [200, 422]
+
+        mock_service_instance.get_llm_models_by_provider.assert_called_once()
+        mock_service_instance.get_llm_model_by_provider_and_model.assert_not_called()
+
         app.dependency_overrides.clear()
 
     @patch("app.api.llm_configuration_endpoints.LLMModelsService")
@@ -591,6 +728,7 @@ class TestListLLMModelsByProvider:
         mock_service_instance.get_llm_models_by_provider.return_value = [
             sample_llm_model_data
         ]
+        mock_service_instance.count_llm_models_by_provider.return_value = 1
         mock_llm_service.return_value = mock_service_instance
 
         # Act

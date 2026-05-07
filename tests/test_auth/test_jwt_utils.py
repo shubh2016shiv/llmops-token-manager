@@ -4,21 +4,22 @@ JWT Utilities Tests
 Test JWT token generation, decoding, and validation functions.
 """
 
-import pytest
 from datetime import datetime, timedelta
 from uuid import uuid4
+
 from jose import JWTError
+import pytest
 
 from app.auth.jwt_auth_token_service import (
     create_access_token,
     create_refresh_token,
     decode_token,
-    verify_token_type,
     get_token_expiration_seconds,
     is_refresh_enabled,
+    verify_token_type,
 )
-from app.models.auth_models import AuthTokenPayload
 from app.core.config_manager import settings
+from app.models.auth_models import AuthTokenPayload
 
 
 class TestJWTUtils:

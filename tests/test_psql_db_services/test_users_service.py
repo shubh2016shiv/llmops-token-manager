@@ -15,15 +15,16 @@ Test Coverage:
 Total: 55 comprehensive unit tests
 """
 
-import pytest
+from contextlib import asynccontextmanager
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
-from datetime import datetime
-from contextlib import asynccontextmanager
 
-from app.psql_db_services.users_service import UsersService
+import pytest
+
 from app.core.database_connection import DatabaseManager
 from app.models.response_models import UserResponse
+from app.psql_db_services.users_service import UsersService
 
 
 def setup_mock_sqlalchemy_session(mock_db_manager, mock_result_data=None, rowcount=1):
@@ -34,6 +35,7 @@ def setup_mock_sqlalchemy_session(mock_db_manager, mock_result_data=None, rowcou
         mock_db_manager: The mock database manager
         mock_result_data: Optional data to return from result operations
         rowcount: Number of rows affected for update/delete operations
+
     """
     # Create mock result object with SQLAlchemy methods
     mock_result = MagicMock()

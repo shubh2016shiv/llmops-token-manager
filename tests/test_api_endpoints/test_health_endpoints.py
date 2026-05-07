@@ -11,15 +11,15 @@ Test Coverage:
 Total: 8 comprehensive unit tests
 """
 
-import pytest
-from unittest.mock import patch
 from datetime import datetime, timezone
+from unittest.mock import patch
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 from app.api.health_endpoints import router
-from app.models.response_models import HealthStatus, DependencyHealth
-
+from app.models.response_models import DependencyHealth, HealthStatus
 
 # ============================================================================
 # TEST SETUP

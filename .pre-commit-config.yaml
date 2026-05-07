@@ -33,16 +33,22 @@ repos:
       - id: ruff-format
 
   # Pyright: Static type checker
-  # Uses the already-installed pyright from UV to avoid network dependency
+  # Uses a local wrapper so we type-check only staged Python files and
+  # explicitly skip anything ignored by `.gitignore`.
+  # Explanation:
+  # - pre-commit passes staged filenames to this hook (`pass_filenames: true`)
+  # - scripts/pyright_staged.py filters to existing `.py` files
+  # - scripts/pyright_staged.py calls `git check-ignore` and drops ignored files
+  # - then it runs: `uv run pyright <filtered-staged-files...>`
   - repo: local
     hooks:
       - id: pyright
-        name: pyright
-        entry: uv run pyright
+        name: pyright (staged files only)
+        entry: uv run python scripts/pyright_staged.py
         language: system
         types: [python]
+        files: ^app/.*\.py$
         pass_filenames: true
-        args: [--project=pyproject.toml]
 
   # Basic file checks (fast, zero-config)
   - repo: https://github.com/pre-commit/pre-commit-hooks

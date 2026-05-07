@@ -14,7 +14,7 @@ Total: 12 comprehensive unit tests
 """
 
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from app.core.logger_setup import configure_logger
 

@@ -1,10 +1,22 @@
 """Password hashing utilities using bcrypt."""
 
+import hashlib
+
 import bcrypt
 
 
 class PasswordHasher:
     """Simple password hashing utility."""
+
+    @staticmethod
+    def _normalize_password(password: str) -> bytes:
+        """
+        Normalize password input before bcrypt.
+
+        bcrypt only accepts up to 72 bytes. We pre-hash using SHA-256 so the
+        verifier works consistently for arbitrary-length passwords.
+        """
+        return hashlib.sha256(password.encode("utf-8")).digest()
 
     @staticmethod
     def hash_password(password: str) -> str:
@@ -19,7 +31,8 @@ class PasswordHasher:
 
         """
         salt = bcrypt.gensalt()
-        hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
+        normalized = PasswordHasher._normalize_password(password)
+        hashed = bcrypt.hashpw(normalized, salt)
         return hashed.decode("utf-8")
 
     @staticmethod
@@ -36,9 +49,8 @@ class PasswordHasher:
 
         """
         try:
-            return bcrypt.checkpw(
-                password.encode("utf-8"), hashed_password.encode("utf-8")
-            )
+            normalized = PasswordHasher._normalize_password(password)
+            return bcrypt.checkpw(normalized, hashed_password.encode("utf-8"))
         except (ValueError, TypeError):
             # Return False for invalid hash formats instead of raising exception
             return False

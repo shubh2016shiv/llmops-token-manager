@@ -18,11 +18,10 @@ from loguru import logger
 from sqlalchemy import text
 
 from app.core.database_connection import DatabaseManager
-from app.models.response_models import UserResponse
-from app.psql_db_services.base_service import BaseDatabaseService
+from app.persistence.base import BasePersistence
 
 
-class UsersService(BaseDatabaseService):
+class UserPersistence(BasePersistence):
     """
     Production-ready service for user database operations.
 
@@ -165,9 +164,18 @@ class UsersService(BaseDatabaseService):
             sqlalchemy.exc.SQLAlchemyError: On database errors
 
         """
+        self.validate_uuid(user_id, "user_id")
+        self.validate_string_not_empty(username, "username")
+        normalized_email = self.validate_email_address(email)
+        self.validate_string_not_empty(first_name, "first_name")
+        self.validate_string_not_empty(last_name, "last_name")
+        self.validate_string_not_empty(password_hash, "password_hash")
+        self.validate_user_role(user_role)
+        self.validate_user_status(user_status)
+
         # Check uniqueness
-        if await self.check_email_exists(email):
-            raise ValueError(f"Email '{email}' already exists")
+        if await self.check_email_exists(normalized_email):
+            raise ValueError(f"Email '{normalized_email}' already exists")
 
         if await self.check_username_exists(username):
             raise ValueError(f"Username '{username}' already exists")
@@ -194,7 +202,7 @@ class UsersService(BaseDatabaseService):
                 params = {
                     "user_id": user_id,
                     "username": username,
-                    "email": email,
+                    "email": normalized_email,
                     "first_name": first_name,
                     "last_name": last_name,
                     "password_hash": password_hash,
@@ -210,19 +218,18 @@ class UsersService(BaseDatabaseService):
                 if not created_user:
                     raise RuntimeError("Failed to create user record")
 
-                await session.commit()
-                logger.info(f"User created successfully: {email}")
+                logger.info(f"User created successfully: {normalized_email}")
                 return dict(created_user)
 
         except Exception as e:
-            logger.error(f"Error creating user {email}: {e}")
+            logger.error(f"Error creating user {normalized_email}: {e}")
             raise
 
     # ========================================================================
     # READ OPERATIONS
     # ========================================================================
 
-    async def get_user_by_id(self, user_id: str | UUID) -> UserResponse | None:
+    async def get_user_by_id(self, user_id: str | UUID) -> dict[str, Any] | None:
         """
         Retrieve a user by their unique identifier.
 
@@ -246,18 +253,6 @@ class UsersService(BaseDatabaseService):
 
         self.validate_uuid(user_id, "user_id")
 
-        default_user = UserResponse(
-            user_id=user_id,
-            username="",
-            email="",
-            first_name="",
-            last_name="",
-            role="",
-            status="",
-            created_at=None,
-            updated_at=None,
-        )
-
         try:
             async with self.get_session() as session:
                 sql_query = """
@@ -266,23 +261,10 @@ class UsersService(BaseDatabaseService):
                 """
                 result = await session.execute(text(sql_query), {"user_id": user_id})
                 user_record = result.mappings().one_or_none()
-                if user_record:
-                    return UserResponse(
-                        user_id=user_record["user_id"],
-                        username=user_record["username"],
-                        email=user_record["email"],
-                        first_name=user_record["first_name"],
-                        last_name=user_record["last_name"],
-                        role=user_record["role"],
-                        status=user_record["status"],
-                        created_at=user_record["created_at"],
-                        updated_at=user_record["updated_at"],
-                    )
-                else:
-                    return default_user
+                return dict(user_record) if user_record else None
         except Exception as e:
             logger.error(f"Error fetching user {user_id}: {e}")
-            return default_user
+            raise
 
     async def get_user_by_email(self, email_address: str) -> dict[str, Any] | None:
         """
@@ -485,7 +467,7 @@ class UsersService(BaseDatabaseService):
         email_address: str | None = None,
         user_role: str | None = None,
         user_status: str | None = None,
-    ) -> UserResponse | None:
+    ) -> dict[str, Any] | None:
         """
         Update user information with dynamic field updates.
 
@@ -544,17 +526,7 @@ class UsersService(BaseDatabaseService):
 
                 if updated_user:
                     self.log_operation("UPDATE", user_id, success=True)
-                    return UserResponse(
-                        user_id=updated_user["user_id"],
-                        username=updated_user["username"],
-                        email=updated_user["email"],
-                        first_name=updated_user["first_name"],
-                        last_name=updated_user["last_name"],
-                        role=updated_user["role"],
-                        status=updated_user["status"],
-                        created_at=updated_user["created_at"],
-                        updated_at=updated_user["updated_at"],
-                    )
+                    return dict(updated_user)
 
                 logger.warning(f"User {user_id} not found for update")
                 return None
@@ -564,7 +536,7 @@ class UsersService(BaseDatabaseService):
 
     async def update_user_role(
         self, user_id: UUID, new_user_role: str
-    ) -> UserResponse | None:
+    ) -> dict[str, Any] | None:
         """
         Update a user's role.
 
@@ -584,7 +556,7 @@ class UsersService(BaseDatabaseService):
 
     async def update_user_status(
         self, user_id: UUID, new_user_status: str
-    ) -> UserResponse | None:
+    ) -> dict[str, Any] | None:
         """
         Update a user's status.
 
@@ -602,7 +574,7 @@ class UsersService(BaseDatabaseService):
         """
         return await self.update_user(user_id=user_id, user_status=new_user_status)
 
-    async def suspend_user(self, user_id: UUID) -> UserResponse | None:
+    async def suspend_user(self, user_id: UUID) -> dict[str, Any] | None:
         """
         Suspend a user account by setting status to 'suspended'.
 
@@ -621,7 +593,7 @@ class UsersService(BaseDatabaseService):
             user_id=user_id, new_user_status="suspended"
         )
 
-    async def activate_user(self, user_id: UUID) -> UserResponse | None:
+    async def activate_user(self, user_id: UUID) -> dict[str, Any] | None:
         """
         Activate a user account by setting status to 'active'.
 

@@ -20,7 +20,7 @@ from loguru import logger
 from app.auth import AuthTokenPayload, require_admin, require_developer
 from app.models.request_models import LLMModelCreateRequest, LLMModelUpdateRequest
 from app.models.response_models import LLMModelListResponse, LLMModelResponse
-from app.psql_db_services.llm_models_service import LLMModelsService
+from app.persistence.llm_models import LLMModelPersistence
 from app.utils.pagination import (
     compute_pagination,
     compute_pagination_from_limit_offset,
@@ -105,7 +105,7 @@ async def create_llm_model(
     logger.info(
         f"Creating LLM model: provider={request.llm_provider}, model={request.llm_model_name}"
     )
-    llm_service = LLMModelsService()
+    llm_service = LLMModelPersistence()
 
     try:
         # Create model in database
@@ -215,7 +215,7 @@ async def list_llm_models_by_provider(
     logger.debug(
         f"Listing LLM models: provider={llm_provider}, active_only={active_only}, limit={limit}, offset={offset}"
     )
-    llm_service = LLMModelsService()
+    llm_service = LLMModelPersistence()
 
     try:
         # --------------------------------------------------------------------
@@ -331,7 +331,7 @@ async def get_llm_model(
     logger.debug(
         f"Fetching LLM model: provider={llm_provider}, model={model_name}, version={version}"
     )
-    llm_service = LLMModelsService()
+    llm_service = LLMModelPersistence()
 
     try:
         model = await llm_service.get_llm_model_by_provider_and_model(
@@ -404,7 +404,7 @@ async def update_llm_model(
 
     """
     logger.info(f"Updating LLM model: provider={llm_provider}, model={model_name}")
-    llm_service = LLMModelsService()
+    llm_service = LLMModelPersistence()
 
     try:
         updated_model = await llm_service.update_llm_model(
@@ -500,7 +500,7 @@ async def activate_llm_model(
 
     """
     logger.info(f"Activating LLM model: provider={llm_provider}, model={model_name}")
-    llm_service = LLMModelsService()
+    llm_service = LLMModelPersistence()
 
     try:
         activated_model = await llm_service.activate_llm_model(
@@ -563,7 +563,7 @@ async def deactivate_llm_model(
 
     """
     logger.info(f"Deactivating LLM model: provider={llm_provider}, model={model_name}")
-    llm_service = LLMModelsService()
+    llm_service = LLMModelPersistence()
 
     try:
         deactivated_model = await llm_service.deactivate_llm_model(

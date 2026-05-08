@@ -32,8 +32,8 @@ from app.models.response_models import (
     UserEntitlementListResponse,
     UserEntitlementResponse,
 )
-from app.psql_db_services.user_entitlements_service import UserEntitlementsService
-from app.psql_db_services.users_service import UsersService
+from app.persistence.user_entitlements import UserEntitlementPersistence
+from app.persistence.users import UserPersistence
 from app.utils.pagination import compute_offset
 from app.utils.passwrd_hashing import PasswordHasher
 
@@ -97,7 +97,7 @@ async def create_user_entitlement(
     logger.info(
         f"Creating entitlement: target_user={user_id}, provider={request.llm_provider.value}, model={request.llm_model_name}"
     )
-    entitlements_service = UserEntitlementsService()
+    entitlements_service = UserEntitlementPersistence()
 
     try:
         # Encrypt API key using bcrypt
@@ -127,7 +127,7 @@ async def create_user_entitlement(
         logger.warning(f"Validation error creating entitlement: {error_msg}")
 
         # Enhance error message for missing provider/model with specific guidance
-        if "does not exist in llm_models table" in error_msg:
+        if "LLM model configuration" in error_msg and "does not exist" in error_msg:
             enhanced_error = (
                 f"{error_msg} "
                 f"Please create the LLM model configuration first using: "
@@ -191,8 +191,8 @@ async def list_user_entitlements(
     logger.debug(
         f"Listing entitlements for user {user_id}: page={page}, size={page_size}"
     )
-    users_service = UsersService()
-    entitlements_service = UserEntitlementsService()
+    users_service = UserPersistence()
+    entitlements_service = UserEntitlementPersistence()
 
     try:
         # Verify user exists
@@ -280,8 +280,8 @@ async def delete_entitlement(
     logger.info(
         f"Deleting entitlement: user={user_id}, entitlement_id={entitlement_id}"
     )
-    entitlements_service = UserEntitlementsService()
-    users_service = UsersService()
+    entitlements_service = UserEntitlementPersistence()
+    users_service = UserPersistence()
 
     try:
         # Verify entitlement exists and belongs to user
@@ -326,8 +326,8 @@ async def delete_entitlement(
             "entitlement_id": entitlement_id,
             "user_details": {
                 "user_id": str(user_id),
-                "username": user_details.username if user_details else "N/A",
-                "email": user_details.email if user_details else "N/A",
+                "username": user_details["username"] if user_details else "N/A",
+                "email": user_details["email"] if user_details else "N/A",
             },
             "entitlement_details": {
                 "llm_provider": existing_entitlement.get("llm_provider", "N/A"),
@@ -337,11 +337,16 @@ async def delete_entitlement(
             },
             "deleted_by": {
                 "admin_user_id": str(current_user.user_id),
-                "admin_username": current_user_details.username
+                "admin_username": current_user_details["username"]
                 if current_user_details
                 else "N/A",
             },
-            "message": f"Entitlement for {user_details.username if user_details else 'user'} ({user_details.email if user_details else 'N/A'}) has been successfully deleted",
+            "message": (
+                f"Entitlement for "
+                f"{user_details['username'] if user_details else 'user'} "
+                f"({user_details['email'] if user_details else 'N/A'}) "
+                f"has been successfully deleted"
+            ),
         }
 
         logger.info(
@@ -358,8 +363,8 @@ async def delete_entitlement(
         # Try to get user details for error response
         try:
             user_details = await users_service.get_user_by_id(user_id)
-            username = user_details.username if user_details else "N/A"
-            email = user_details.email if user_details else "N/A"
+            username = user_details["username"] if user_details else "N/A"
+            email = user_details["email"] if user_details else "N/A"
         except Exception:
             username = "N/A"
             email = "N/A"

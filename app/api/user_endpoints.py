@@ -14,7 +14,7 @@ from loguru import logger
 from app.auth import AuthTokenPayload, require_admin, require_developer
 from app.models.request_models import UserCreateRequest, UserRole, UserUpdateRequest
 from app.models.response_models import UserResponse
-from app.psql_db_services.users_service import UsersService
+from app.persistence.users import UserPersistence
 from app.utils.passwrd_hashing import PasswordHasher
 
 # ============================================================================
@@ -84,7 +84,7 @@ async def create_user(
         f"Creating user: username={request.username}, email={request.email}, role={request.role}"
     )
     logger.debug(f"User creation requested by admin user_id={current_user.user_id}")
-    users_service = UsersService()
+    users_service = UserPersistence()
 
     try:
         # Generate unique user ID
@@ -159,7 +159,7 @@ async def get_user(
 
     """
     logger.debug(f"Fetching user: user_id={user_id}")
-    users_service = UsersService()
+    users_service = UserPersistence()
 
     try:
         user = await users_service.get_user_by_id(user_id)
@@ -171,7 +171,7 @@ async def get_user(
                 detail=f"User with ID '{user_id}' not found",
             )
 
-        return user
+        return UserResponse(**user)
 
     except HTTPException:
         raise
@@ -213,7 +213,7 @@ async def get_user_by_email(
     """
     masked_email = _mask_email(email)
     logger.debug(f"Fetching user by email: email={masked_email}")
-    users_service = UsersService()
+    users_service = UserPersistence()
 
     try:
         user = await users_service.get_user_by_email(email)
@@ -338,7 +338,7 @@ async def update_user(
 
     """
     logger.info(f"Updating user: user_id={user_id}")
-    users_service = UsersService()
+    users_service = UserPersistence()
 
     try:
         updated_user = await users_service.update_user(
@@ -356,7 +356,7 @@ async def update_user(
             )
 
         logger.info(f"User updated successfully: user_id={user_id}")
-        return updated_user
+        return UserResponse(**updated_user)
 
     except HTTPException:
         raise
@@ -407,7 +407,7 @@ async def suspend_user(
 
     """
     logger.info(f"Suspending user: user_id={user_id}")
-    users_service = UsersService()
+    users_service = UserPersistence()
 
     try:
         suspended_user = await users_service.suspend_user(user_id)
@@ -457,7 +457,7 @@ async def activate_user(
 
     """
     logger.info(f"Activating user: user_id={user_id}")
-    users_service = UsersService()
+    users_service = UserPersistence()
 
     try:
         activated_user = await users_service.activate_user(user_id)

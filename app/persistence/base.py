@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database_connection import DatabaseManager
 
 
-class BaseDatabaseService:
+class BasePersistence:
     """
     Base class for all database service classes.
 

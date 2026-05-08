@@ -15,10 +15,10 @@ from loguru import logger
 from sqlalchemy import text
 
 from app.core.database_connection import DatabaseManager
-from app.psql_db_services.base_service import BaseDatabaseService
+from app.persistence.base import BasePersistence
 
 
-class LLMModelsService(BaseDatabaseService):
+class LLMModelPersistence(BasePersistence):
     """
     Production-ready service for LLM model database operations.
 
@@ -171,7 +171,10 @@ class LLMModelsService(BaseDatabaseService):
             ValueError: On invalid input parameters
 
         """
-        self.validate_string_not_empty(llm_model_name, "model_name")
+        self.validate_llm_provider(llm_provider)
+        self.validate_string_not_empty(llm_model_name, "llm_model_name")
+        self.validate_string_not_empty(api_key_variable_name, "api_key_variable_name")
+        self.validate_string_not_empty(api_endpoint_url, "api_endpoint_url")
         self.validate_llm_model_numerical_parameters(
             maximum_tokens=max_tokens,
             tokens_per_minute_limit=tokens_per_minute_limit,

@@ -23,7 +23,7 @@ from loguru import logger
 
 from app.core.config_manager import settings
 from app.models.auth_models import AuthTokenPayload
-from app.psql_db_services.users_service import UsersService
+from app.persistence.users import UserPersistence
 from app.utils.passwrd_hashing import PasswordHasher
 
 
@@ -252,7 +252,7 @@ async def authenticate_user(username: str, password: str) -> dict[str, Any] | No
     """
     try:
         # Get user by username
-        users_service = UsersService()
+        users_service = UserPersistence()
         user = await users_service.get_user_by_username(username)
 
         if not user:

@@ -27,11 +27,10 @@ from jose import JWTError
 from loguru import logger
 
 from app.auth.jwt_auth_token_service import decode_token, verify_token_type
-from app.psql_db_services.users_service import UsersService
+from app.persistence.users import UserPersistence
 
 if TYPE_CHECKING:
     from app.models.auth_models import AuthTokenPayload
-    from app.models.response_models import UserResponse
 
 # OAuth2 scheme for extracting Bearer tokens from Authorization header
 oauth2_scheme = OAuth2PasswordBearer(
@@ -122,8 +121,8 @@ async def get_active_user(
     """
     try:
         # Query database to verify user exists and is active
-        users_service = UsersService()
-        user: UserResponse | None = await users_service.get_user_by_id(payload.user_id)
+        users_service = UserPersistence()
+        user = await users_service.get_user_by_id(payload.user_id)
 
         if not user:
             logger.warning(f"User not found: {payload.user_id}")
@@ -131,8 +130,10 @@ async def get_active_user(
                 status_code=status.HTTP_403_FORBIDDEN, detail="User not found"
             )
 
-        if user.status != "active":
-            logger.warning(f"User not active: {payload.user_id}, status: {user.status}")
+        if user["status"] != "active":
+            logger.warning(
+                f"User not active: {payload.user_id}, status: {user['status']}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="User account is not active",

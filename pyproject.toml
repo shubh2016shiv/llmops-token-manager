@@ -180,6 +180,14 @@ force-sort-within-sections = true
     "D417",
     "E501",
 ]
+"app/persistence/*.py" = [
+    "D200",
+    "D205",
+    "D400",
+    "D415",
+    "D417",
+    "E501",
+]
 "tests/**/*.py" = [
     "D101",
     "D102",

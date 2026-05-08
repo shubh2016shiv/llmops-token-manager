@@ -26,10 +26,9 @@ from app.models.request_models import (
 from app.models.response_models import (
     TokenAllocationResponse,
     TokenReleaseResponse,
-    UserResponse,
 )
-from app.psql_db_services.token_allocation_manager import TokenAllocationService
-from app.psql_db_services.users_service import UsersService
+from app.persistence.llm_token_allocations import LLMTokenAllocationPersistence
+from app.persistence.users import UserPersistence
 
 # Services
 from app.utils.token_count_estimation import estimate_tokens
@@ -72,12 +71,12 @@ router = APIRouter(prefix="/api/v1/tokens", tags=["Token Management"])
 # users_service = UsersService()  # ❌ Avoid: module-level singleton service instance
 
 
-def get_users_service() -> UsersService:
+def get_users_service() -> UserPersistence:
     """FastAPI dependency provider for `UsersService` instances."""
-    return UsersService()
+    return UserPersistence()
 
 
-def _users_service_dependency() -> UsersService:
+def _users_service_dependency() -> UserPersistence:
     """
     Indirection wrapper for dependency injection.
 
@@ -126,7 +125,7 @@ def _is_authorized_for_token_request(
 async def acquire_tokens(
     request: TokenAllocationClientRequest,
     current_user: AuthTokenPayload = Depends(require_developer),
-    users_service: UsersService = Depends(_users_service_dependency),
+    users_service: UserPersistence = Depends(_users_service_dependency),
 ):
     """
     Acquire tokens for LLM usage.
@@ -154,12 +153,12 @@ async def acquire_tokens(
     user_id_uuid = current_user.user_id
 
     # 2. validate if user is active (optional - for extra security)
-    user: UserResponse | None = await users_service.get_user_by_id(user_id_uuid)
+    user = await users_service.get_user_by_id(user_id_uuid)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
-    if user.status != "active":
+    if user["status"] != "active":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="User is not active"
         )
@@ -171,7 +170,7 @@ async def acquire_tokens(
     logger.info(
         f"Acquiring tokens: user={user_id_uuid}, provider={request.llm_provider}, model={request.llm_model_name}, tokens={estimated_token_count}"
     )
-    allocation_service = TokenAllocationService()
+    allocation_service = LLMTokenAllocationPersistence()
 
     try:
         # Acquire tokens
@@ -250,7 +249,7 @@ async def retry_acquire_tokens(
 
     """
     logger.info(f"Retrying token acquisition: {request.token_request_id}")
-    allocation_service = TokenAllocationService()
+    allocation_service = LLMTokenAllocationPersistence()
 
     try:
         # Retry acquiring tokens
@@ -365,7 +364,7 @@ async def release_tokens(
 
     """
     logger.info(f"Releasing tokens: {request.token_request_id}")
-    allocation_service = TokenAllocationService()
+    allocation_service = LLMTokenAllocationPersistence()
 
     try:
         # Check if allocation exists
@@ -442,7 +441,7 @@ async def release_tokens(
 async def pause_deployment(
     request: PauseDeploymentRequest,
     current_user: AuthTokenPayload = Depends(require_operator),
-    users_service: UsersService = Depends(_users_service_dependency),
+    users_service: UserPersistence = Depends(_users_service_dependency),
 ):
     """
     Pause a failing deployment for emergency failover and capacity management.
@@ -482,19 +481,19 @@ async def pause_deployment(
     logger.info(
         f"Pausing deployment: provider={request.llm_provider}, model={request.llm_model_name}, endpoint={request.api_endpoint_url}, reason={request.pause_reason}"
     )
-    allocation_service = TokenAllocationService()
+    allocation_service = LLMTokenAllocationPersistence()
 
     try:
         # 1. Get user_id from JWT token
         user_id_uuid = current_user.user_id
 
         # 2. validate if user is active (optional - for extra security)
-        user: UserResponse | None = await users_service.get_user_by_id(user_id_uuid)
+        user = await users_service.get_user_by_id(user_id_uuid)
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
             )
-        if user.status != "active":
+        if user["status"] != "active":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="User is not active",

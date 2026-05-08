@@ -16,10 +16,10 @@ from loguru import logger
 from sqlalchemy import text
 
 from app.core.database_connection import DatabaseManager
-from app.psql_db_services.base_service import BaseDatabaseService
+from app.persistence.base import BasePersistence
 
 
-class UserEntitlementsService(BaseDatabaseService):
+class UserEntitlementPersistence(BasePersistence):
     """
     Production-ready service for user LLM entitlements database operations.
 
@@ -204,18 +204,21 @@ class UserEntitlementsService(BaseDatabaseService):
             Exception: On database errors
 
         """
+        self.validate_uuid(user_id, "user_id")
+        self.validate_uuid(created_by_user_id, "created_by_user_id")
+        self.validate_string_not_empty(llm_provider, "llm_provider")
+        self.validate_string_not_empty(llm_model_name, "llm_model_name")
+        self.validate_string_not_empty(encrypted_api_key, "encrypted_api_key")
+        self.validate_string_not_empty(api_endpoint_url, "api_endpoint_url")
+
         # Validation 1: Check user exists
         if not await self.validate_user_exists(user_id):
-            raise ValueError(f"User with ID '{user_id}' does not exist")
+            raise ValueError(f"User '{user_id}' does not exist")
 
         # Validation 2: Check provider/model exists
         if not await self.validate_provider_model_exists(llm_provider, llm_model_name):
             raise ValueError(
-                f"Provider/model combination '{llm_provider}/{llm_model_name}' does not exist in llm_models table. "
-                f"To create this model configuration, use the LLM Configuration API: "
-                f"POST /api/v1/llm-models/ with the required model details including provider, model name, "
-                f"rate limits, and API key variable name. See the LLM Configuration endpoints documentation "
-                f"for the complete request schema."
+                f"LLM model configuration '{llm_provider}/{llm_model_name}' does not exist"
             )
 
         # Validation 3: Check for duplicates
@@ -267,7 +270,6 @@ class UserEntitlementsService(BaseDatabaseService):
                 if not created_entitlement:
                     raise RuntimeError("Failed to create entitlement record")
 
-                await session.commit()
                 logger.info(
                     f"Entitlement created successfully for user {user_id}: {llm_provider}/{llm_model_name}"
                 )
@@ -474,7 +476,6 @@ class UserEntitlementsService(BaseDatabaseService):
                 updated_entitlement = result.mappings().one_or_none()
 
                 if updated_entitlement:
-                    await session.commit()
                     self.log_operation("UPDATE", entitlement_id, success=True)
                     return dict(updated_entitlement)
 
@@ -517,7 +518,6 @@ class UserEntitlementsService(BaseDatabaseService):
                 was_deleted = getattr(result, "rowcount", 0) > 0
 
                 if was_deleted:
-                    await session.commit()
                     self.log_operation("DELETE", entitlement_id, success=True)
                 else:
                     logger.debug(

@@ -19,10 +19,10 @@ from loguru import logger
 from sqlalchemy import text
 
 from app.core.database_connection import DatabaseManager
-from app.psql_db_services.base_service import BaseDatabaseService
+from app.persistence.base import BasePersistence
 
 
-class TokenAllocationService(BaseDatabaseService):
+class LLMTokenAllocationPersistence(BasePersistence):
     """
     Production-ready service for token allocation database operations.
 
@@ -1365,7 +1365,7 @@ class TokenAllocationService(BaseDatabaseService):
 
 def get_token_allocation_repository(
     db_manager: DatabaseManager | None = None,
-) -> TokenAllocationService:
+) -> LLMTokenAllocationPersistence:
     """
     Factory function to get a TokenAllocationRepository instance
 
@@ -1387,4 +1387,4 @@ def get_token_allocation_repository(
         ... )
 
     """
-    return TokenAllocationService(db_manager)
+    return LLMTokenAllocationPersistence(db_manager)

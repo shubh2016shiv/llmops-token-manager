@@ -17,7 +17,7 @@ def run_server() -> None:
     """Start the FastAPI app with Uvicorn."""
     import uvicorn
 
-    from app.core.config_manager import settings
+    from app.core.config import settings
 
     # Bind to 0.0.0.0 for external access, but display localhost URLs for local access
     # This ensures the server accepts connections from all interfaces while showing

@@ -22,8 +22,8 @@ import psycopg
 from psycopg import IntegrityError
 import pytest
 
-from app.core.database_connection import DatabaseManager
-from app.psql_db_services.llm_models_service import LLMModelsService
+from app.core.database import DatabaseSessionManager
+from app.persistence.llm_models import LLMModelPersistence
 
 
 def setup_mock_database_connection(mock_db_manager, mock_cursor_data=None):
@@ -107,7 +107,7 @@ class TestLLMModelsServiceValidation:
     @pytest.fixture
     def llm_models_service(self):
         """Create LLMModelsService instance for testing."""
-        return LLMModelsService()
+        return LLMModelPersistence()
 
     # Positive validation tests
     @pytest.mark.parametrize("valid_provider", ["openai", "gemini", "anthropic"])
@@ -208,13 +208,13 @@ class TestLLMModelsServiceCreate:
     @pytest.fixture
     def mock_db_manager(self):
         """Mock database manager for testing."""
-        mock_manager = AsyncMock(spec=DatabaseManager)
+        mock_manager = AsyncMock(spec=DatabaseSessionManager)
         return mock_manager
 
     @pytest.fixture
     def llm_models_service(self, mock_db_manager):
         """LLMModelsService instance with mocked database manager."""
-        return LLMModelsService(database_manager=mock_db_manager)
+        return LLMModelPersistence(database_manager=mock_db_manager)
 
     @pytest.fixture
     def sample_model_data(self):
@@ -343,14 +343,14 @@ class TestLLMModelsServiceCreate:
     async def test_create_llm_model_invalid_provider(
         self, llm_models_service, mock_db_manager
     ):
-        """Test that invalid provider causes database error."""
+        """Test that invalid provider is rejected by validation."""
         # Arrange
         mock_session, mock_result = setup_mock_database_connection(
             mock_db_manager, None
         )
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match="Failed to create model record"):
+        with pytest.raises(ValueError, match="Invalid LLM provider"):
             await llm_models_service.create_llm_model(
                 llm_provider="invalid",
                 llm_model_name="gpt-4",
@@ -410,13 +410,13 @@ class TestLLMModelsServiceReadSingle:
     @pytest.fixture
     def mock_db_manager(self):
         """Mock database manager for testing."""
-        mock_manager = AsyncMock(spec=DatabaseManager)
+        mock_manager = AsyncMock(spec=DatabaseSessionManager)
         return mock_manager
 
     @pytest.fixture
     def llm_models_service(self, mock_db_manager):
         """LLMModelsService instance with mocked database manager."""
-        return LLMModelsService(database_manager=mock_db_manager)
+        return LLMModelPersistence(database_manager=mock_db_manager)
 
     @pytest.fixture
     def sample_model_data(self):
@@ -823,13 +823,13 @@ class TestLLMModelsServiceUpdate:
     @pytest.fixture
     def mock_db_manager(self):
         """Mock database manager for testing."""
-        mock_manager = AsyncMock(spec=DatabaseManager)
+        mock_manager = AsyncMock(spec=DatabaseSessionManager)
         return mock_manager
 
     @pytest.fixture
     def llm_models_service(self, mock_db_manager):
         """LLMModelsService instance with mocked database manager."""
-        return LLMModelsService(database_manager=mock_db_manager)
+        return LLMModelPersistence(database_manager=mock_db_manager)
 
     @pytest.fixture
     def sample_model_data(self):
@@ -1199,13 +1199,13 @@ class TestLLMModelsServiceDelete:
     @pytest.fixture
     def mock_db_manager(self):
         """Mock database manager for testing."""
-        mock_manager = AsyncMock(spec=DatabaseManager)
+        mock_manager = AsyncMock(spec=DatabaseSessionManager)
         return mock_manager
 
     @pytest.fixture
     def llm_models_service(self, mock_db_manager):
         """LLMModelsService instance with mocked database manager."""
-        return LLMModelsService(database_manager=mock_db_manager)
+        return LLMModelPersistence(database_manager=mock_db_manager)
 
     @pytest.fixture
     def sample_model_data(self):
@@ -1394,4 +1394,4 @@ class TestLLMModelsServiceDelete:
             await llm_models_service.delete_llm_models_by_provider("invalid_provider")
 
 
-# Run with: pytest tests/test_psql_db_services/test_llm_models_service.py -v
+# Run with: pytest tests/test_persistence/test_llm_models_service.py -v

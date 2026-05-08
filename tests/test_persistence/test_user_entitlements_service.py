@@ -21,8 +21,8 @@ from uuid import uuid4
 
 import pytest
 
-from app.core.database_connection import DatabaseManager
-from app.psql_db_services.user_entitlements_service import UserEntitlementsService
+from app.core.database import DatabaseSessionManager
+from app.persistence.user_entitlements import UserEntitlementPersistence
 
 
 def setup_mock_sqlalchemy_session(mock_db_manager, mock_result_data=None, rowcount=1):
@@ -191,13 +191,13 @@ def setup_mock_sqlalchemy_session_sequence(mock_db_manager, result_sequence):
 @pytest.fixture
 def mock_db_manager():
     """Create mock database manager for testing."""
-    return MagicMock(spec=DatabaseManager)
+    return MagicMock(spec=DatabaseSessionManager)
 
 
 @pytest.fixture
 def entitlements_service(mock_db_manager):
     """Create UserEntitlementsService with mocked database manager."""
-    return UserEntitlementsService(database_manager=mock_db_manager)
+    return UserEntitlementPersistence(database_manager=mock_db_manager)
 
 
 @pytest.fixture
@@ -647,7 +647,7 @@ class TestCreateEntitlement:
             mock_db_manager, mock_result_data=None
         )  # validate_user_exists
 
-        with pytest.raises(ValueError, match="User with ID .* does not exist"):
+        with pytest.raises(ValueError, match="User '.*' does not exist"):
             await entitlements_service.create_entitlement(
                 user_id=sample_user_id,
                 llm_provider="openai",
@@ -676,7 +676,7 @@ class TestCreateEntitlement:
 
         with pytest.raises(
             ValueError,
-            match="Provider/model combination 'openai/gpt-4o' does not exist in llm_models table",
+            match="LLM model configuration 'openai/gpt-4o' does not exist",
         ):
             await entitlements_service.create_entitlement(
                 user_id=sample_user_id,
@@ -907,7 +907,7 @@ class TestCreateEntitlement:
 
         with pytest.raises(
             Exception,
-            match="(Database connection failed|UserEntitlementsService.*missing.*api_endpoint_url)",
+            match="Database connection failed",
         ):
             await entitlements_service.create_entitlement(
                 user_id=sample_user_id,
@@ -960,7 +960,7 @@ class TestCreateEntitlement:
 
         with pytest.raises(
             Exception,
-            match="(Commit failed|UserEntitlementsService.*missing.*api_endpoint_url)",
+            match="Commit failed",
         ):
             await entitlements_service.create_entitlement(
                 user_id=sample_user_id,

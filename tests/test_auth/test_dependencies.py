@@ -20,7 +20,6 @@ from app.auth.auth_dependencies import (
     require_owner,
 )
 from app.models.auth_models import AuthTokenPayload
-from app.models.response_models import UserResponse
 
 
 class TestAuthDependencies:
@@ -93,19 +92,19 @@ class TestAuthDependencies:
     @pytest.mark.asyncio
     async def test_get_active_user_success(self):
         """Test successful active user validation."""
-        active_user = UserResponse(
-            user_id=self.test_user_id,
-            username="testuser",
-            email="test@example.com",
-            first_name="Test",
-            last_name="User",
-            role="developer",
-            status="active",
-            created_at=None,
-            updated_at=None,
-        )
+        active_user = {
+            "user_id": self.test_user_id,
+            "username": "testuser",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "developer",
+            "status": "active",
+            "created_at": None,
+            "updated_at": None,
+        }
 
-        with patch("app.auth.auth_dependencies.UsersService") as mock_service_class:
+        with patch("app.auth.auth_dependencies.UserPersistence") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_user_by_id.return_value = active_user
             mock_service_class.return_value = mock_service
@@ -118,7 +117,7 @@ class TestAuthDependencies:
     @pytest.mark.asyncio
     async def test_get_active_user_not_found(self):
         """Test active user validation with user not found."""
-        with patch("app.auth.auth_dependencies.UsersService") as mock_service_class:
+        with patch("app.auth.auth_dependencies.UserPersistence") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_user_by_id.return_value = None
             mock_service_class.return_value = mock_service
@@ -132,19 +131,19 @@ class TestAuthDependencies:
     @pytest.mark.asyncio
     async def test_get_active_user_inactive(self):
         """Test active user validation with inactive user."""
-        inactive_user = UserResponse(
-            user_id=self.test_user_id,
-            username="testuser",
-            email="test@example.com",
-            first_name="Test",
-            last_name="User",
-            role="developer",
-            status="suspended",
-            created_at=None,
-            updated_at=None,
-        )
+        inactive_user = {
+            "user_id": self.test_user_id,
+            "username": "testuser",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "developer",
+            "status": "suspended",
+            "created_at": None,
+            "updated_at": None,
+        }
 
-        with patch("app.auth.auth_dependencies.UsersService") as mock_service_class:
+        with patch("app.auth.auth_dependencies.UserPersistence") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_user_by_id.return_value = inactive_user
             mock_service_class.return_value = mock_service

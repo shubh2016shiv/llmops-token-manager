@@ -22,9 +22,8 @@ from uuid import uuid4
 
 import pytest
 
-from app.core.database_connection import DatabaseManager
-from app.models.response_models import UserResponse
-from app.psql_db_services.users_service import UsersService
+from app.core.database import DatabaseSessionManager
+from app.persistence.users import UserPersistence
 
 
 def setup_mock_sqlalchemy_session(mock_db_manager, mock_result_data=None, rowcount=1):
@@ -112,13 +111,13 @@ class TestUsersServiceValidation:
     @pytest.fixture
     def mock_db_manager(self):
         """Mock database manager for testing."""
-        mock_manager = AsyncMock(spec=DatabaseManager)
+        mock_manager = AsyncMock(spec=DatabaseSessionManager)
         return mock_manager
 
     @pytest.fixture
     def users_service(self, mock_db_manager):
         """Create UsersService instance for testing."""
-        return UsersService(database_manager=mock_db_manager)
+        return UserPersistence(database_manager=mock_db_manager)
 
     # Positive validation tests
     @pytest.mark.parametrize("valid_role", ["owner", "admin", "developer", "operator"])
@@ -259,13 +258,13 @@ class TestUsersServiceCreate:
     @pytest.fixture
     def mock_db_manager(self):
         """Mock database manager for testing."""
-        mock_manager = AsyncMock(spec=DatabaseManager)
+        mock_manager = AsyncMock(spec=DatabaseSessionManager)
         return mock_manager
 
     @pytest.fixture
     def users_service(self, mock_db_manager):
         """UsersService instance with mocked database manager."""
-        return UsersService(database_manager=mock_db_manager)
+        return UserPersistence(database_manager=mock_db_manager)
 
     @pytest.fixture
     def sample_user_data(self):
@@ -362,7 +361,7 @@ class TestUsersServiceCreate:
 
     @pytest.mark.asyncio
     async def test_create_user_invalid_role(self, users_service, mock_db_manager):
-        """Test that invalid role is accepted (no validation in create_user method)."""
+        """Test that invalid role is rejected before insert."""
         # Arrange
         sample_user_data = {
             "user_id": uuid4(),
@@ -381,24 +380,20 @@ class TestUsersServiceCreate:
             mock_db_manager, sample_user_data
         )
 
-        # Act
-        result = await users_service.create_user(
-            user_id=sample_user_data["user_id"],
-            username="testuser",
-            email="test@example.com",
-            first_name="Test",
-            last_name="User",
-            password_hash="hashed_password",
-            user_role="invalid_role",
-        )
-
-        # Assert - should succeed because create_user doesn't validate role
-        assert result == sample_user_data
-        # Note: mock_session.execute is a function, not a mock, so we can't assert on it
+        with pytest.raises(ValueError, match="Invalid user role"):
+            await users_service.create_user(
+                user_id=sample_user_data["user_id"],
+                username="testuser",
+                email="test@example.com",
+                first_name="Test",
+                last_name="User",
+                password_hash="hashed_password",
+                user_role="invalid_role",
+            )
 
     @pytest.mark.asyncio
     async def test_create_user_invalid_status(self, users_service, mock_db_manager):
-        """Test that invalid status is accepted (no validation in create_user method)."""
+        """Test that invalid status is rejected before insert."""
         # Arrange
         sample_user_data = {
             "user_id": uuid4(),
@@ -417,20 +412,16 @@ class TestUsersServiceCreate:
             mock_db_manager, sample_user_data
         )
 
-        # Act
-        result = await users_service.create_user(
-            user_id=sample_user_data["user_id"],
-            username="testuser",
-            email="test@example.com",
-            first_name="Test",
-            last_name="User",
-            password_hash="hashed_password",
-            user_status="invalid_status",
-        )
-
-        # Assert - should succeed because create_user doesn't validate status
-        assert result == sample_user_data
-        # Note: mock_session.execute is a function, not a mock, so we can't assert on it
+        with pytest.raises(ValueError, match="Invalid user status"):
+            await users_service.create_user(
+                user_id=sample_user_data["user_id"],
+                username="testuser",
+                email="test@example.com",
+                first_name="Test",
+                last_name="User",
+                password_hash="hashed_password",
+                user_status="invalid_status",
+            )
 
     @pytest.mark.asyncio
     async def test_create_user_database_error(self, users_service, mock_db_manager):
@@ -554,13 +545,13 @@ class TestUsersServiceReadSingle:
     @pytest.fixture
     def mock_db_manager(self):
         """Mock database manager for testing."""
-        mock_manager = AsyncMock(spec=DatabaseManager)
+        mock_manager = AsyncMock(spec=DatabaseSessionManager)
         return mock_manager
 
     @pytest.fixture
     def users_service(self, mock_db_manager):
         """UsersService instance with mocked database manager."""
-        return UsersService(database_manager=mock_db_manager)
+        return UserPersistence(database_manager=mock_db_manager)
 
     @pytest.fixture
     def sample_user_data(self):
@@ -592,16 +583,7 @@ class TestUsersServiceReadSingle:
         result = await users_service.get_user_by_id(user_id)
 
         # Assert
-        assert isinstance(result, UserResponse)
-        assert result.user_id == sample_user_data["user_id"]
-        assert result.username == sample_user_data["username"]
-        assert result.email == sample_user_data["email"]
-        assert result.first_name == sample_user_data["first_name"]
-        assert result.last_name == sample_user_data["last_name"]
-        assert result.role == sample_user_data["role"]
-        assert result.status == sample_user_data["status"]
-        assert result.created_at == sample_user_data["created_at"]
-        assert result.updated_at == sample_user_data["updated_at"]
+        assert result == sample_user_data
         # Note: mock_session.execute is a function, not a mock, so we can't assert on it
 
     @pytest.mark.asyncio
@@ -631,13 +613,7 @@ class TestUsersServiceReadSingle:
         result = await users_service.get_user_by_id(uuid4())
 
         # Assert
-        assert isinstance(result, UserResponse)
-        assert result.username == ""  # default empty response
-        assert result.email == ""
-        assert result.first_name == ""
-        assert result.last_name == ""
-        assert result.role == ""
-        assert result.status == ""
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_get_user_by_email_not_found(self, users_service, mock_db_manager):
@@ -663,17 +639,8 @@ class TestUsersServiceReadSingle:
         # Arrange
         mock_db_manager.get_session.side_effect = Exception("Connection failed")
 
-        # Act
-        result = await users_service.get_user_by_id(uuid4())
-
-        # Assert
-        assert isinstance(result, UserResponse)
-        assert result.username == ""  # Returns default on error
-        assert result.email == ""
-        assert result.first_name == ""
-        assert result.last_name == ""
-        assert result.role == ""
-        assert result.status == ""
+        with pytest.raises(Exception, match="Connection failed"):
+            await users_service.get_user_by_id(uuid4())
 
     @pytest.mark.asyncio
     async def test_get_user_by_email_database_error(
@@ -694,13 +661,13 @@ class TestUsersServiceReadMultiple:
     @pytest.fixture
     def mock_db_manager(self):
         """Mock database manager for testing."""
-        mock_manager = AsyncMock(spec=DatabaseManager)
+        mock_manager = AsyncMock(spec=DatabaseSessionManager)
         return mock_manager
 
     @pytest.fixture
     def users_service(self, mock_db_manager):
         """UsersService instance with mocked database manager."""
-        return UsersService(database_manager=mock_db_manager)
+        return UserPersistence(database_manager=mock_db_manager)
 
     @pytest.fixture
     def sample_users_data(self):
@@ -916,13 +883,13 @@ class TestUsersServiceUpdate:
     @pytest.fixture
     def mock_db_manager(self):
         """Mock database manager for testing."""
-        mock_manager = AsyncMock(spec=DatabaseManager)
+        mock_manager = AsyncMock(spec=DatabaseSessionManager)
         return mock_manager
 
     @pytest.fixture
     def users_service(self, mock_db_manager):
         """UsersService instance with mocked database manager."""
-        return UsersService(database_manager=mock_db_manager)
+        return UserPersistence(database_manager=mock_db_manager)
 
     @pytest.fixture
     def sample_user_data(self):
@@ -958,14 +925,7 @@ class TestUsersServiceUpdate:
         )
 
         # Assert
-        assert isinstance(result, UserResponse)
-        assert result.user_id == updated_data["user_id"]
-        assert result.username == updated_data["username"]
-        assert result.email == updated_data["email"]
-        assert result.first_name == updated_data["first_name"]
-        assert result.last_name == updated_data["last_name"]
-        assert result.role == updated_data["role"]
-        assert result.status == updated_data["status"]
+        assert result == updated_data
         # Note: mock_session.execute is a function, not a mock, so we can't assert on it
 
     @pytest.mark.asyncio
@@ -987,14 +947,7 @@ class TestUsersServiceUpdate:
         )
 
         # Assert
-        assert isinstance(result, UserResponse)
-        assert result.user_id == updated_data["user_id"]
-        assert result.username == updated_data["username"]
-        assert result.email == updated_data["email"]
-        assert result.first_name == updated_data["first_name"]
-        assert result.last_name == updated_data["last_name"]
-        assert result.role == updated_data["role"]
-        assert result.status == updated_data["status"]
+        assert result == updated_data
         # Note: mock_session.execute is a function, not a mock, so we can't assert on it
 
     @pytest.mark.asyncio
@@ -1016,14 +969,7 @@ class TestUsersServiceUpdate:
         )
 
         # Assert
-        assert isinstance(result, UserResponse)
-        assert result.user_id == updated_data["user_id"]
-        assert result.username == updated_data["username"]
-        assert result.email == updated_data["email"]
-        assert result.first_name == updated_data["first_name"]
-        assert result.last_name == updated_data["last_name"]
-        assert result.role == updated_data["role"]
-        assert result.status == updated_data["status"]
+        assert result == updated_data
         # Note: mock_session.execute is a function, not a mock, so we can't assert on it
 
     @pytest.mark.asyncio
@@ -1050,14 +996,7 @@ class TestUsersServiceUpdate:
         )
 
         # Assert
-        assert isinstance(result, UserResponse)
-        assert result.user_id == updated_data["user_id"]
-        assert result.username == updated_data["username"]
-        assert result.email == updated_data["email"]
-        assert result.first_name == updated_data["first_name"]
-        assert result.last_name == updated_data["last_name"]
-        assert result.role == updated_data["role"]
-        assert result.status == updated_data["status"]
+        assert result == updated_data
         # Note: mock_session.execute is a function, not a mock, so we can't assert on it
 
     @pytest.mark.asyncio
@@ -1097,14 +1036,7 @@ class TestUsersServiceUpdate:
         )
 
         # Assert
-        assert isinstance(result, UserResponse)
-        assert result.user_id == updated_data["user_id"]
-        assert result.username == updated_data["username"]
-        assert result.email == updated_data["email"]
-        assert result.first_name == updated_data["first_name"]
-        assert result.last_name == updated_data["last_name"]
-        assert result.role == updated_data["role"]
-        assert result.status == updated_data["status"]
+        assert result == updated_data
 
     @pytest.mark.asyncio
     async def test_update_user_status_method(
@@ -1125,14 +1057,7 @@ class TestUsersServiceUpdate:
         )
 
         # Assert
-        assert isinstance(result, UserResponse)
-        assert result.user_id == updated_data["user_id"]
-        assert result.username == updated_data["username"]
-        assert result.email == updated_data["email"]
-        assert result.first_name == updated_data["first_name"]
-        assert result.last_name == updated_data["last_name"]
-        assert result.role == updated_data["role"]
-        assert result.status == updated_data["status"]
+        assert result == updated_data
 
     @pytest.mark.asyncio
     async def test_suspend_user(self, users_service, mock_db_manager, sample_user_data):
@@ -1149,14 +1074,7 @@ class TestUsersServiceUpdate:
         result = await users_service.suspend_user(user_id=sample_user_data["user_id"])
 
         # Assert
-        assert isinstance(result, UserResponse)
-        assert result.user_id == updated_data["user_id"]
-        assert result.username == updated_data["username"]
-        assert result.email == updated_data["email"]
-        assert result.first_name == updated_data["first_name"]
-        assert result.last_name == updated_data["last_name"]
-        assert result.role == updated_data["role"]
-        assert result.status == updated_data["status"]
+        assert result == updated_data
 
     @pytest.mark.asyncio
     async def test_activate_user(
@@ -1175,14 +1093,7 @@ class TestUsersServiceUpdate:
         result = await users_service.activate_user(user_id=sample_user_data["user_id"])
 
         # Assert
-        assert isinstance(result, UserResponse)
-        assert result.user_id == updated_data["user_id"]
-        assert result.username == updated_data["username"]
-        assert result.email == updated_data["email"]
-        assert result.first_name == updated_data["first_name"]
-        assert result.last_name == updated_data["last_name"]
-        assert result.role == updated_data["role"]
-        assert result.status == updated_data["status"]
+        assert result == updated_data
 
     # Negative test cases
     @pytest.mark.asyncio
@@ -1259,13 +1170,13 @@ class TestUsersServiceDelete:
     @pytest.fixture
     def mock_db_manager(self):
         """Mock database manager for testing."""
-        mock_manager = AsyncMock(spec=DatabaseManager)
+        mock_manager = AsyncMock(spec=DatabaseSessionManager)
         return mock_manager
 
     @pytest.fixture
     def users_service(self, mock_db_manager):
         """UsersService instance with mocked database manager."""
-        return UsersService(database_manager=mock_db_manager)
+        return UserPersistence(database_manager=mock_db_manager)
 
     @pytest.mark.asyncio
     async def test_delete_user_by_id_success(self, users_service, mock_db_manager):
@@ -1357,4 +1268,4 @@ class TestUsersServiceDelete:
             await users_service.delete_user_by_email("test@example.com")
 
 
-# Run with: pytest tests/test_psql_db_services/test_users_service.py -v
+# Run with: pytest tests/test_persistence/test_users_service.py -v

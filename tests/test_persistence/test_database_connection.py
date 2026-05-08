@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database_connection import DatabaseManager
+from app.core.database import DatabaseSessionManager
 
 
 class TestDatabaseManager:
@@ -19,29 +19,29 @@ class TestDatabaseManager:
     async def setup_and_teardown(self):
         """Set up and clean up test fixtures."""
         # Reset the singleton instance before each test
-        DatabaseManager._instance = None
-        DatabaseManager._engine = None
-        DatabaseManager._sessionmaker = None
+        DatabaseSessionManager._instance = None
+        DatabaseSessionManager._engine = None
+        DatabaseSessionManager._sessionmaker = None
         yield
         # Clean up after each test
-        if DatabaseManager._engine is not None:
+        if DatabaseSessionManager._engine is not None:
             with suppress(Exception):
-                await DatabaseManager._engine.dispose()
-        DatabaseManager._instance = None
-        DatabaseManager._engine = None
-        DatabaseManager._sessionmaker = None
+                await DatabaseSessionManager._engine.dispose()
+        DatabaseSessionManager._instance = None
+        DatabaseSessionManager._engine = None
+        DatabaseSessionManager._sessionmaker = None
 
     def test_singleton_pattern(self):
         """Test that DatabaseManager implements singleton pattern."""
         # Act
-        instance1 = DatabaseManager()
-        instance2 = DatabaseManager()
+        instance1 = DatabaseSessionManager()
+        instance2 = DatabaseSessionManager()
 
         # Assert
         assert instance1 is instance2
 
-    @patch("app.core.database_connection.create_async_engine")
-    @patch("app.core.database_connection.async_sessionmaker")
+    @patch("app.core.database.create_async_engine")
+    @patch("app.core.database.async_sessionmaker")
     @pytest.mark.asyncio
     async def test_initialize(self, mock_sessionmaker, mock_create_engine):
         """Test that initialize creates a SQLAlchemy async engine."""
@@ -51,7 +51,7 @@ class TestDatabaseManager:
         mock_session_factory = MagicMock()
         mock_sessionmaker.return_value = mock_session_factory
 
-        db_manager = DatabaseManager()
+        db_manager = DatabaseSessionManager()
 
         # Act
         await db_manager.initialize(
@@ -81,13 +81,13 @@ class TestDatabaseManager:
         assert db_manager._engine is not None
         assert db_manager._sessionmaker is not None
 
-    @patch("app.core.database_connection.create_async_engine")
+    @patch("app.core.database.create_async_engine")
     @pytest.mark.asyncio
     async def test_initialize_with_error(self, mock_create_engine):
         """Test that initialize handles errors."""
         # Arrange
         mock_create_engine.side_effect = SQLAlchemyError("Connection error")
-        db_manager = DatabaseManager()
+        db_manager = DatabaseSessionManager()
 
         # Act & Assert
         with pytest.raises(Exception):
@@ -101,14 +101,14 @@ class TestDatabaseManager:
                 }
             )
 
-    @patch("app.core.database_connection.create_async_engine")
+    @patch("app.core.database.create_async_engine")
     @pytest.mark.asyncio
     async def test_initialize_already_initialized(self, mock_create_engine):
         """Test that initialize warns when already initialized."""
         # Arrange
         mock_engine = AsyncMock()
         mock_create_engine.return_value = mock_engine
-        db_manager = DatabaseManager()
+        db_manager = DatabaseSessionManager()
         db_manager._engine = mock_engine  # Already initialized
 
         # Act
@@ -117,8 +117,8 @@ class TestDatabaseManager:
         # Assert - should not create a new engine
         mock_create_engine.assert_not_called()
 
-    @patch("app.core.database_connection.create_async_engine")
-    @patch("app.core.database_connection.async_sessionmaker")
+    @patch("app.core.database.create_async_engine")
+    @patch("app.core.database.async_sessionmaker")
     @pytest.mark.asyncio
     async def test_close(self, mock_sessionmaker, mock_create_engine):
         """Test that close disposes the engine."""
@@ -128,7 +128,7 @@ class TestDatabaseManager:
         mock_create_engine.return_value = mock_engine
         mock_sessionmaker.return_value = MagicMock()
 
-        db_manager = DatabaseManager()
+        db_manager = DatabaseSessionManager()
         await db_manager.initialize(
             config={
                 "host": "localhost",
@@ -144,14 +144,14 @@ class TestDatabaseManager:
 
         # Assert
         mock_engine.dispose.assert_called_once()
-        assert DatabaseManager._engine is None
-        assert DatabaseManager._sessionmaker is None
+        assert DatabaseSessionManager._engine is None
+        assert DatabaseSessionManager._sessionmaker is None
 
     @pytest.mark.asyncio
     async def test_get_session_not_initialized(self):
         """Test that get_session raises error when not initialized."""
         # Arrange
-        db_manager = DatabaseManager()
+        db_manager = DatabaseSessionManager()
 
         # Act & Assert
         with pytest.raises(RuntimeError) as exc_info:
@@ -160,8 +160,8 @@ class TestDatabaseManager:
 
         assert "not initialized" in str(exc_info.value).lower()
 
-    @patch("app.core.database_connection.create_async_engine")
-    @patch("app.core.database_connection.async_sessionmaker")
+    @patch("app.core.database.create_async_engine")
+    @patch("app.core.database.async_sessionmaker")
     @pytest.mark.asyncio
     async def test_get_session_success(self, mock_sessionmaker, mock_create_engine):
         """Test that get_session returns a session and commits on success."""
@@ -178,7 +178,7 @@ class TestDatabaseManager:
         mock_session_factory.return_value = mock_session
         mock_sessionmaker.return_value = mock_session_factory
 
-        db_manager = DatabaseManager()
+        db_manager = DatabaseSessionManager()
         await db_manager.initialize(
             config={
                 "host": "localhost",
@@ -198,8 +198,8 @@ class TestDatabaseManager:
         mock_session.close.assert_called_once()
         mock_session.rollback.assert_not_called()
 
-    @patch("app.core.database_connection.create_async_engine")
-    @patch("app.core.database_connection.async_sessionmaker")
+    @patch("app.core.database.create_async_engine")
+    @patch("app.core.database.async_sessionmaker")
     @pytest.mark.asyncio
     async def test_get_session_rollback_on_error(
         self, mock_sessionmaker, mock_create_engine
@@ -218,7 +218,7 @@ class TestDatabaseManager:
         mock_session_factory.return_value = mock_session
         mock_sessionmaker.return_value = mock_session_factory
 
-        db_manager = DatabaseManager()
+        db_manager = DatabaseSessionManager()
         await db_manager.initialize(
             config={
                 "host": "localhost",
@@ -246,19 +246,19 @@ class TestDatabaseManagerQueries:
     @pytest.fixture(autouse=True)
     async def setup_and_teardown(self):
         """Set up and clean up test fixtures."""
-        DatabaseManager._instance = None
-        DatabaseManager._engine = None
-        DatabaseManager._sessionmaker = None
+        DatabaseSessionManager._instance = None
+        DatabaseSessionManager._engine = None
+        DatabaseSessionManager._sessionmaker = None
         yield
-        if DatabaseManager._engine is not None:
+        if DatabaseSessionManager._engine is not None:
             with suppress(Exception):
-                await DatabaseManager._engine.dispose()
-        DatabaseManager._instance = None
-        DatabaseManager._engine = None
-        DatabaseManager._sessionmaker = None
+                await DatabaseSessionManager._engine.dispose()
+        DatabaseSessionManager._instance = None
+        DatabaseSessionManager._engine = None
+        DatabaseSessionManager._sessionmaker = None
 
-    @patch("app.core.database_connection.create_async_engine")
-    @patch("app.core.database_connection.async_sessionmaker")
+    @patch("app.core.database.create_async_engine")
+    @patch("app.core.database.async_sessionmaker")
     @pytest.mark.asyncio
     async def test_execute_raw_query_fetch_all(
         self, mock_sessionmaker, mock_create_engine
@@ -286,7 +286,7 @@ class TestDatabaseManagerQueries:
         mock_session_factory.return_value = mock_session
         mock_sessionmaker.return_value = mock_session_factory
 
-        db_manager = DatabaseManager()
+        db_manager = DatabaseSessionManager()
         await db_manager.initialize(
             config={
                 "host": "localhost",
@@ -306,8 +306,8 @@ class TestDatabaseManagerQueries:
         assert result == [mock_row1, mock_row2]
         mock_session.execute.assert_called_once()
 
-    @patch("app.core.database_connection.create_async_engine")
-    @patch("app.core.database_connection.async_sessionmaker")
+    @patch("app.core.database.create_async_engine")
+    @patch("app.core.database.async_sessionmaker")
     @pytest.mark.asyncio
     async def test_execute_raw_query_fetch_one(
         self, mock_sessionmaker, mock_create_engine
@@ -333,7 +333,7 @@ class TestDatabaseManagerQueries:
         mock_session_factory.return_value = mock_session
         mock_sessionmaker.return_value = mock_session_factory
 
-        db_manager = DatabaseManager()
+        db_manager = DatabaseSessionManager()
         await db_manager.initialize(
             config={
                 "host": "localhost",
@@ -355,8 +355,8 @@ class TestDatabaseManagerQueries:
         assert result == mock_row
         mock_session.execute.assert_called_once()
 
-    @patch("app.core.database_connection.create_async_engine")
-    @patch("app.core.database_connection.async_sessionmaker")
+    @patch("app.core.database.create_async_engine")
+    @patch("app.core.database.async_sessionmaker")
     @pytest.mark.asyncio
     async def test_execute_raw_query_fetch_scalar(
         self, mock_sessionmaker, mock_create_engine
@@ -378,7 +378,7 @@ class TestDatabaseManagerQueries:
         mock_session_factory.return_value = mock_session
         mock_sessionmaker.return_value = mock_session_factory
 
-        db_manager = DatabaseManager()
+        db_manager = DatabaseSessionManager()
         await db_manager.initialize(
             config={
                 "host": "localhost",
@@ -398,8 +398,8 @@ class TestDatabaseManagerQueries:
         assert result == 42
         mock_session.execute.assert_called_once()
 
-    @patch("app.core.database_connection.create_async_engine")
-    @patch("app.core.database_connection.async_sessionmaker")
+    @patch("app.core.database.create_async_engine")
+    @patch("app.core.database.async_sessionmaker")
     @pytest.mark.asyncio
     async def test_execute_raw_query_fetch_count(
         self, mock_sessionmaker, mock_create_engine
@@ -421,7 +421,7 @@ class TestDatabaseManagerQueries:
         mock_session_factory.return_value = mock_session
         mock_sessionmaker.return_value = mock_session_factory
 
-        db_manager = DatabaseManager()
+        db_manager = DatabaseSessionManager()
         await db_manager.initialize(
             config={
                 "host": "localhost",
@@ -443,8 +443,8 @@ class TestDatabaseManagerQueries:
         assert result == 5
         mock_session.execute.assert_called_once()
 
-    @patch("app.core.database_connection.create_async_engine")
-    @patch("app.core.database_connection.async_sessionmaker")
+    @patch("app.core.database.create_async_engine")
+    @patch("app.core.database.async_sessionmaker")
     @pytest.mark.asyncio
     async def test_execute_raw_query_no_fetch(
         self, mock_sessionmaker, mock_create_engine
@@ -465,7 +465,7 @@ class TestDatabaseManagerQueries:
         mock_session_factory.return_value = mock_session
         mock_sessionmaker.return_value = mock_session_factory
 
-        db_manager = DatabaseManager()
+        db_manager = DatabaseSessionManager()
         await db_manager.initialize(
             config={
                 "host": "localhost",
@@ -495,19 +495,19 @@ class TestDatabaseManagerTransactions:
     @pytest.fixture(autouse=True)
     async def setup_and_teardown(self):
         """Set up and clean up test fixtures."""
-        DatabaseManager._instance = None
-        DatabaseManager._engine = None
-        DatabaseManager._sessionmaker = None
+        DatabaseSessionManager._instance = None
+        DatabaseSessionManager._engine = None
+        DatabaseSessionManager._sessionmaker = None
         yield
-        if DatabaseManager._engine is not None:
+        if DatabaseSessionManager._engine is not None:
             with suppress(Exception):
-                await DatabaseManager._engine.dispose()
-        DatabaseManager._instance = None
-        DatabaseManager._engine = None
-        DatabaseManager._sessionmaker = None
+                await DatabaseSessionManager._engine.dispose()
+        DatabaseSessionManager._instance = None
+        DatabaseSessionManager._engine = None
+        DatabaseSessionManager._sessionmaker = None
 
-    @patch("app.core.database_connection.create_async_engine")
-    @patch("app.core.database_connection.async_sessionmaker")
+    @patch("app.core.database.create_async_engine")
+    @patch("app.core.database.async_sessionmaker")
     @pytest.mark.asyncio
     async def test_execute_transaction(self, mock_sessionmaker, mock_create_engine):
         """Test successful transaction execution."""
@@ -526,7 +526,7 @@ class TestDatabaseManagerTransactions:
         mock_session_factory.return_value = mock_session
         mock_sessionmaker.return_value = mock_session_factory
 
-        db_manager = DatabaseManager()
+        db_manager = DatabaseSessionManager()
         await db_manager.initialize(
             config={
                 "host": "localhost",
@@ -556,8 +556,8 @@ class TestDatabaseManagerTransactions:
         assert mock_session.execute.call_count == 2
         mock_session.commit.assert_called_once()
 
-    @patch("app.core.database_connection.create_async_engine")
-    @patch("app.core.database_connection.async_sessionmaker")
+    @patch("app.core.database.create_async_engine")
+    @patch("app.core.database.async_sessionmaker")
     @pytest.mark.asyncio
     async def test_execute_transaction_with_error(
         self, mock_sessionmaker, mock_create_engine
@@ -578,7 +578,7 @@ class TestDatabaseManagerTransactions:
         mock_session_factory.return_value = mock_session
         mock_sessionmaker.return_value = mock_session_factory
 
-        db_manager = DatabaseManager()
+        db_manager = DatabaseSessionManager()
         await db_manager.initialize(
             config={
                 "host": "localhost",
@@ -604,4 +604,4 @@ class TestDatabaseManagerTransactions:
         mock_session.rollback.assert_called_once()
 
 
-# Run with: pytest tests/test_psql_db_services/test_database_connection.py -v
+# Run with: pytest tests/test_persistence/test_database_connection.py -v

@@ -15,7 +15,6 @@ os.environ.setdefault("RATE_LIMIT_STORAGE", "memory")
 
 from app.app import app
 from app.auth.jwt_auth_token_service import create_access_token
-from app.models.response_models import UserResponse
 
 
 class TestAuthIntegration:
@@ -109,21 +108,21 @@ class TestAuthIntegration:
         assert "access_token_expire_hours" in data
         assert "refresh_enabled" in data
 
-    @patch("app.psql_db_services.users_service.UsersService.get_user_by_id")
+    @patch("app.persistence.users.UserPersistence.get_user_by_id")
     def test_protected_endpoint_success(self, mock_get_user):
         """Test accessing protected endpoint with valid token."""
         # Mock user service response
-        mock_user = UserResponse(
-            user_id=self.test_user_id,
-            username="testuser",
-            email="test@example.com",
-            first_name="Test",
-            last_name="User",
-            role="developer",
-            status="active",
-            created_at=None,
-            updated_at=None,
-        )
+        mock_user = {
+            "user_id": self.test_user_id,
+            "username": "testuser",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "developer",
+            "status": "active",
+            "created_at": None,
+            "updated_at": None,
+        }
         mock_get_user.return_value = mock_user
 
         # Generate token
@@ -149,21 +148,21 @@ class TestAuthIntegration:
         )
         assert response.status_code == 401
 
-    @patch("app.psql_db_services.users_service.UsersService.get_user_by_id")
+    @patch("app.persistence.users.UserPersistence.get_user_by_id")
     def test_admin_endpoint_developer_fails(self, mock_get_user):
         """Test that developer cannot access admin endpoints."""
         # Mock user service response
-        mock_user = UserResponse(
-            user_id=self.test_user_id,
-            username="testuser",
-            email="test@example.com",
-            first_name="Test",
-            last_name="User",
-            role="developer",
-            status="active",
-            created_at=None,
-            updated_at=None,
-        )
+        mock_user = {
+            "user_id": self.test_user_id,
+            "username": "testuser",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "developer",
+            "status": "active",
+            "created_at": None,
+            "updated_at": None,
+        }
         mock_get_user.return_value = mock_user
 
         # Generate developer token
@@ -177,21 +176,21 @@ class TestAuthIntegration:
         )
         assert response.status_code == 403
 
-    @patch("app.psql_db_services.users_service.UsersService.get_user_by_id")
+    @patch("app.persistence.users.UserPersistence.get_user_by_id")
     def test_admin_endpoint_admin_success(self, mock_get_user):
         """Test that admin can access admin endpoints."""
         # Mock user service response
-        mock_user = UserResponse(
-            user_id=self.test_admin_id,
-            username="admin",
-            email="admin@example.com",
-            first_name="Admin",
-            last_name="User",
-            role="admin",
-            status="active",
-            created_at=None,
-            updated_at=None,
-        )
+        mock_user = {
+            "user_id": self.test_admin_id,
+            "username": "admin",
+            "email": "admin@example.com",
+            "first_name": "Admin",
+            "last_name": "User",
+            "role": "admin",
+            "status": "active",
+            "created_at": None,
+            "updated_at": None,
+        }
         mock_get_user.return_value = mock_user
 
         # Generate admin token

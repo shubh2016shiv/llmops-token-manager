@@ -1,0 +1,75 @@
+# ============================================================
+# .dockerignore — Exclude non-production files from build context
+# ============================================================
+
+# Python cache
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+**/*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+.uv-cache/
+
+# Git
+.git/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+.env.*
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+/tests/
+
+# CI/CD
+.github/
+
+# Documentation
+/documentation/
+*.md
+
+# Logs
+logs/
+*.log
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific (not needed at runtime)
+/examples/
+/infra_automation_scripts/
+/postgres_schema/
+/scripts/
+architecture_diagram.png
+mypy.ini
+.flake8
+.pylintrc
+.pre-commit-config.yaml
+uv.lock
+pyproject.toml
+check_infra_service_health.py
+code_formatter.py
+index.py
+*_OBSELETE*
+*_DELETE*
+sitecustomize_OBSELETE.py
+test_startup_fix_OBSELETE.py

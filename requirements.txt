@@ -1,99 +1,46 @@
 ############################################################
-# CORE FRAMEWORK & SERVER
+# PRODUCTION DEPENDENCIES
+# Used by: Docker multi-stage build (builder stage)
 ############################################################
+
+# --- CORE FRAMEWORK & SERVER ---
 fastapi==0.117.1                  # Modern web framework for building APIs
 uvicorn[standard]==0.37.0         # ASGI server for FastAPI
 
-
-############################################################
-# ASYNC TASKS & MESSAGE BROKER
-############################################################
+# --- ASYNC TASKS & MESSAGE BROKER ---
 celery==5.5.3                     # Distributed task queue for background jobs
 redis==5.2.0                      # Redis client for Celery broker/result backend
 hiredis==3.0.0                    # High-performance Redis protocol parser
 
-
-############################################################
-# DATABASE & PERSISTENCE
-############################################################
+# --- DATABASE & PERSISTENCE ---
 psycopg[binary,pool]==3.2.1       # PostgreSQL database adapter with async support
 psycopg2-binary==2.9.9            # PostgreSQL adapter for health checks
 sqlalchemy==2.0.44                # SQLAlchemy for database ORM
 asyncpg==0.29.0                   # High-performance PostgreSQL client for asyncio
 
-
-############################################################
-# LLM PROVIDERS & AI SDKs
-############################################################
-#openai==1.55.3                    # OpenAI Python SDK
-#google-generativeai==0.8.5        # Google Generative AI SDK (Gemini models)
-# google-genai==0.x.x             # (Future replacement for google-generativeai)
-# anthropic==0.39.0               # Anthropic Claude SDK (optional)
+# --- LLM PROVIDERS & AI SDKs ---
 tiktoken==0.8.0                   # Token counting utilities
 litellm==1.55.0                   # Unified LLM API with token counting support
 
-############################################################
-# CONFIGURATION & DATA VALIDATION
-############################################################
+# --- CONFIGURATION & DATA VALIDATION ---
 pydantic==2.9.2                   # Data validation & serialization library
 pydantic-settings==2.6.1          # Environment-based settings management
 pydantic[email]==2.9.2            # Email validation
 
-
-############################################################
-# LOGGING & MONITORING
-############################################################
+# --- LOGGING & MONITORING ---
 loguru==0.7.2                     # Elegant logging utility
 
-
-############################################################
-# UTILITIES & NETWORKING
-############################################################
+# --- UTILITIES & NETWORKING ---
 python-dotenv==1.0.1              # Loads environment variables from .env files
 httpx==0.27.2                     # Async HTTP client (used by OpenAI & APIs)
 tenacity==9.0.0                   # Retry logic with exponential backoff
 
-
-############################################################
-# TESTING & QA (Code Quality Essentials)
-############################################################
-pytest==7.4.3                     # Industry-standard testing framework
-pytest-asyncio==0.21.1            # Async tests for FastAPI & Celery
-pytest-cov==4.1.0                 # Coverage reporting
-pytest-mock==3.12.0               # Mock utilities for pytest
-requests-mock==1.12.1             # Mock external HTTP calls
-
-# Static analysis & style
-black                             # Opinionated code formatter
-isort                             # Import sorting & consistency
-flake8                            # Core linter (PEP8 compliance)
-mypy                              # Static type checker for Python
-pylint                            # Advanced linter for style and complexity
-bandit                            # Security analyzer for Python code
-safety                            # Dependency vulnerability scanner
-autoflake                         # Remove unused imports
-reorder-python-imports            # Reorder imports to top of file
-ruff                              # Linter for Python code
-
-# Dev automation & hooks
-pre-commit                        # Pre-commit hook manager
-commitizen                        # Enforce conventional commits and versioning
-
-
-############################################################
-# OPTIONAL DEV TOOLS
-############################################################
-rich                              # Beautiful console output for debugging/logs
-ipython                           # Enhanced interactive shell
-
-
-############################################################
-# PASSWORD HASHING
-############################################################
+# --- PASSWORD HASHING ---
 bcrypt==4.3.0                     # Password hashing library
 passlib[bcrypt]==1.7.4            # Password hashing utilities with bcrypt support
 
-############################################################
-# JWT AUTHENTICATION
-############################################################
+# --- JWT AUTHENTICATION ---
 python-jose[cryptography]==3.3.0  # JWT token generation and validation
+
+# --- RATE LIMITING ---
+limits==5.8.0                     # Rate limiting library

@@ -1,0 +1,18 @@
+############################################################
+# DEVELOPMENT DEPENDENCIES
+# Usage: pip install -r requirements-dev.txt
+# NOT installed in Docker production image
+############################################################
+
+# Inherit all production dependencies
+-r requirements.txt
+
+# --- TESTING ---
+pytest==7.4.3                     # Industry-standard testing framework
+pytest-asyncio==0.21.1            # Async tests for FastAPI & Celery
+pytest-cov==4.1.0                 # Coverage reporting
+pytest-mock==3.12.0               # Mock utilities for pytest
+requests-mock==1.12.1             # Mock external HTTP calls
+
+# --- LINTING & FORMATTING (ruff replaces black, isort, flake8, etc.) ---
+ruff==0.14.0                      # Fast linter + formatter (all-in-one)

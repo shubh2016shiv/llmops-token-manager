@@ -604,4 +604,4 @@ class TestDatabaseManagerTransactions:
         mock_session.rollback.assert_called_once()
 
 
-# Run with: pytest tests/test_persistence/test_database_connection.py -v
+# Run with: pytest tests/test_persistence/test_database.py -v

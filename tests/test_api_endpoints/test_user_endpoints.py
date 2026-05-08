@@ -115,7 +115,7 @@ class TestCreateUser:
         yield
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     @patch("app.api.user_endpoints.PasswordHasher")
     def test_create_user_success(
         self,
@@ -161,7 +161,7 @@ class TestCreateUser:
         )  # Default role when not provided
         assert call_args[1]["user_status"] == "active"
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     @patch("app.api.user_endpoints.PasswordHasher")
     def test_create_user_duplicate_email(
         self, mock_password_hasher, mock_users_service, client, sample_create_request
@@ -183,7 +183,7 @@ class TestCreateUser:
         data = response.json()
         assert "Email 'john.doe@example.com' already exists" in data["detail"]
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     @patch("app.api.user_endpoints.PasswordHasher")
     def test_create_user_duplicate_username(
         self, mock_password_hasher, mock_users_service, client, sample_create_request
@@ -224,7 +224,7 @@ class TestCreateUser:
         assert "detail" in data
         # Should have validation errors for missing fields and invalid email/password
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     @patch("app.api.user_endpoints.PasswordHasher")
     def test_create_user_password_hashing(
         self,
@@ -250,7 +250,7 @@ class TestCreateUser:
             sample_create_request["password"]
         )
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     @patch("app.api.user_endpoints.PasswordHasher")
     def test_create_user_database_error(
         self, mock_password_hasher, mock_users_service, client, sample_create_request
@@ -272,7 +272,7 @@ class TestCreateUser:
         data = response.json()
         assert "Failed to create user. Please try again later." in data["detail"]
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     @patch("app.api.user_endpoints.PasswordHasher")
     def test_create_user_with_explicit_role(
         self,
@@ -314,7 +314,7 @@ class TestCreateUser:
         call_args = mock_service_instance.create_user.call_args
         assert call_args[1]["user_role"] == "admin"
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     @patch("app.api.user_endpoints.PasswordHasher")
     def test_create_user_with_default_role(
         self,
@@ -392,7 +392,7 @@ class TestCreateUser:
 class TestGetUserById:
     """Test cases for get user by ID endpoint."""
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_get_user_by_id_success(
         self, mock_users_service, app, client, mock_developer_user, sample_user_data
     ):
@@ -430,7 +430,7 @@ class TestGetUserById:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_get_user_by_id_not_found(
         self, mock_users_service, app, client, mock_developer_user
     ):
@@ -478,7 +478,7 @@ class TestGetUserById:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_get_user_by_id_value_error(
         self, mock_users_service, app, client, mock_developer_user
     ):
@@ -507,7 +507,7 @@ class TestGetUserById:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_get_user_by_id_database_error(
         self, mock_users_service, app, client, mock_developer_user
     ):
@@ -536,7 +536,7 @@ class TestGetUserById:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_get_user_by_id_response_structure(
         self, mock_users_service, app, client, mock_developer_user, sample_user_data
     ):
@@ -591,7 +591,7 @@ class TestGetUserById:
 class TestGetUserByEmail:
     """Test cases for get user by email endpoint."""
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     @patch("app.api.user_endpoints.logger.debug")
     def test_get_user_by_email_logs_masked_email(
         self,
@@ -622,7 +622,7 @@ class TestGetUserByEmail:
 
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_get_user_by_email_success(
         self, mock_users_service, app, client, mock_developer_user, sample_user_data
     ):
@@ -654,7 +654,7 @@ class TestGetUserByEmail:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     @patch("app.api.user_endpoints.logger.warning")
     def test_get_user_by_email_not_found(
         self, mock_logger_warning, mock_users_service, app, client, mock_developer_user
@@ -686,7 +686,7 @@ class TestGetUserByEmail:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_get_user_by_email_value_error(
         self, mock_users_service, app, client, mock_developer_user
     ):
@@ -715,7 +715,7 @@ class TestGetUserByEmail:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_get_user_by_email_database_error(
         self, mock_users_service, app, client, mock_developer_user
     ):
@@ -744,7 +744,7 @@ class TestGetUserByEmail:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_get_user_by_email_response_structure(
         self, mock_users_service, app, client, mock_developer_user, sample_user_data
     ):
@@ -784,7 +784,7 @@ class TestGetUserByEmail:
 class TestUpdateUser:
     """Test cases for update user endpoint."""
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_update_user_success(
         self,
         mock_users_service,
@@ -829,7 +829,7 @@ class TestUpdateUser:
         assert call_args[1]["user_role"] == sample_update_request["role"]
         assert call_args[1]["user_status"] == sample_update_request["status"]
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_update_user_not_found(
         self, mock_users_service, app, client, mock_admin_user, sample_update_request
     ):
@@ -856,7 +856,7 @@ class TestUpdateUser:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_update_user_duplicate_email(
         self, mock_users_service, app, client, mock_admin_user, sample_update_request
     ):
@@ -933,7 +933,7 @@ class TestUpdateUser:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_update_user_database_error(
         self, mock_users_service, app, client, mock_admin_user, sample_update_request
     ):
@@ -962,7 +962,7 @@ class TestUpdateUser:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_update_user_general_database_error(
         self, mock_users_service, app, client, mock_admin_user, sample_update_request
     ):
@@ -1000,7 +1000,7 @@ class TestUpdateUser:
 class TestSuspendUser:
     """Test cases for suspend user endpoint."""
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_suspend_user_success(
         self, mock_users_service, app, client, mock_admin_user, sample_user_data
     ):
@@ -1033,7 +1033,7 @@ class TestSuspendUser:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_suspend_user_not_found(
         self, mock_users_service, app, client, mock_admin_user
     ):
@@ -1060,7 +1060,7 @@ class TestSuspendUser:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_suspend_user_database_error(
         self, mock_users_service, app, client, mock_admin_user
     ):
@@ -1098,7 +1098,7 @@ class TestSuspendUser:
 class TestActivateUser:
     """Test cases for activate user endpoint."""
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_activate_user_success(
         self, mock_users_service, app, client, mock_admin_user, sample_user_data
     ):
@@ -1131,7 +1131,7 @@ class TestActivateUser:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_activate_user_not_found(
         self, mock_users_service, app, client, mock_admin_user
     ):
@@ -1158,7 +1158,7 @@ class TestActivateUser:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.user_endpoints.UsersService")
+    @patch("app.api.user_endpoints.UserPersistence")
     def test_activate_user_database_error(
         self, mock_users_service, app, client, mock_admin_user
     ):

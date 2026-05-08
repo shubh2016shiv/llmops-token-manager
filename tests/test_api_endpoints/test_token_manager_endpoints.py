@@ -24,7 +24,6 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.api.token_manager_endpoints import router
-from app.models.response_models import UserResponse
 from app.models.token_manager_models import InputType, TokenEstimation
 
 # ============================================================================
@@ -61,17 +60,17 @@ def sample_client_request():
 @pytest.fixture
 def sample_user_response():
     """Sample user response for mocking."""
-    return UserResponse(
-        user_id=UUID("89e0d113-912f-4272-ba13-6b3b6d9677c4"),
-        username="testuser",
-        email="test@example.com",
-        first_name="Test",
-        last_name="User",
-        role="developer",
-        status="active",
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
-    )
+    return {
+        "user_id": UUID("89e0d113-912f-4272-ba13-6b3b6d9677c4"),
+        "username": "testuser",
+        "email": "test@example.com",
+        "first_name": "Test",
+        "last_name": "User",
+        "role": "developer",
+        "status": "active",
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    }
 
 
 @pytest.fixture
@@ -123,7 +122,7 @@ class TestAcquireTokens:
 
     # Group 1: Success Scenarios (3 tests)
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     @patch("app.api.token_manager_endpoints.estimate_tokens")
     @patch("app.api.token_manager_endpoints.get_users_service")
     def test_acquire_tokens_success_immediate_allocation(
@@ -184,7 +183,7 @@ class TestAcquireTokens:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     @patch("app.api.token_manager_endpoints.estimate_tokens")
     @patch("app.api.token_manager_endpoints.get_users_service")
     def test_acquire_tokens_success_acquired_status(
@@ -246,7 +245,7 @@ class TestAcquireTokens:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     @patch("app.api.token_manager_endpoints.estimate_tokens")
     @patch("app.api.token_manager_endpoints.get_users_service")
     def test_acquire_tokens_success_with_optional_fields(
@@ -353,17 +352,17 @@ class TestAcquireTokens:
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
         # Setup mock - return inactive user
-        inactive_user = UserResponse(
-            user_id=UUID("89e0d113-912f-4272-ba13-6b3b6d9677c4"),
-            username="inactiveuser",
-            email="inactive@example.com",
-            first_name="Inactive",
-            last_name="User",
-            role="developer",
-            status="inactive",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
-        )
+        inactive_user = {
+            "user_id": UUID("89e0d113-912f-4272-ba13-6b3b6d9677c4"),
+            "username": "inactiveuser",
+            "email": "inactive@example.com",
+            "first_name": "Inactive",
+            "last_name": "User",
+            "role": "developer",
+            "status": "inactive",
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        }
         mock_users_service.return_value.get_user_by_id = AsyncMock(
             return_value=inactive_user
         )
@@ -394,17 +393,17 @@ class TestAcquireTokens:
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
         # Setup mock - return suspended user
-        suspended_user = UserResponse(
-            user_id=UUID("89e0d113-912f-4272-ba13-6b3b6d9677c4"),
-            username="suspendeduser",
-            email="suspended@example.com",
-            first_name="Suspended",
-            last_name="User",
-            role="developer",
-            status="suspended",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
-        )
+        suspended_user = {
+            "user_id": UUID("89e0d113-912f-4272-ba13-6b3b6d9677c4"),
+            "username": "suspendeduser",
+            "email": "suspended@example.com",
+            "first_name": "Suspended",
+            "last_name": "User",
+            "role": "developer",
+            "status": "suspended",
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        }
         mock_users_service.return_value.get_user_by_id = AsyncMock(
             return_value=suspended_user
         )
@@ -486,7 +485,7 @@ class TestAcquireTokens:
 
     # Group 4: Allocation Service Errors (4 tests)
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     @patch("app.api.token_manager_endpoints.estimate_tokens")
     @patch("app.api.token_manager_endpoints.get_users_service")
     def test_acquire_tokens_allocation_error_response(
@@ -529,7 +528,7 @@ class TestAcquireTokens:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     @patch("app.api.token_manager_endpoints.estimate_tokens")
     @patch("app.api.token_manager_endpoints.get_users_service")
     def test_acquire_tokens_token_limit_exceeded(
@@ -572,7 +571,7 @@ class TestAcquireTokens:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     @patch("app.api.token_manager_endpoints.estimate_tokens")
     @patch("app.api.token_manager_endpoints.get_users_service")
     def test_acquire_tokens_allocation_value_error(
@@ -615,7 +614,7 @@ class TestAcquireTokens:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     @patch("app.api.token_manager_endpoints.estimate_tokens")
     @patch("app.api.token_manager_endpoints.get_users_service")
     def test_acquire_tokens_allocation_service_exception(
@@ -783,7 +782,7 @@ class TestPauseDeployment:
 
         app.dependency_overrides.clear()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     @patch("app.api.token_manager_endpoints.get_users_service")
     def test_pause_deployment_success(
         self,
@@ -852,7 +851,7 @@ class TestPauseDeployment:
 class TestRetryAcquireTokens:
     """Test cases for retry_acquire_tokens endpoint."""
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     def test_retry_acquire_tokens_still_waiting_returns_202(
         self,
         mock_service_class,
@@ -882,7 +881,7 @@ class TestRetryAcquireTokens:
 
         app.dependency_overrides.clear()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     def test_retry_acquire_tokens_acquired_returns_200(
         self,
         mock_service_class,
@@ -912,7 +911,7 @@ class TestRetryAcquireTokens:
 
         app.dependency_overrides.clear()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     def test_retry_acquire_tokens_not_found_returns_404(
         self,
         mock_service_class,
@@ -936,7 +935,7 @@ class TestRetryAcquireTokens:
 
         app.dependency_overrides.clear()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     def test_retry_acquire_tokens_forbidden_for_non_owner_developer(
         self,
         mock_service_class,
@@ -968,7 +967,7 @@ class TestRetryAcquireTokens:
 
         app.dependency_overrides.clear()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     def test_retry_acquire_tokens_allowed_for_admin_on_other_users_allocation(
         self,
         mock_service_class,
@@ -1028,7 +1027,7 @@ class TestReleaseTokens:
             "expires_at": datetime.utcnow(),
         }
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     def test_release_tokens_success_normal_release(
         self,
         mock_service_class,
@@ -1071,7 +1070,7 @@ class TestReleaseTokens:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     def test_release_tokens_success_already_released(
         self,
         mock_service_class,
@@ -1108,7 +1107,7 @@ class TestReleaseTokens:
         mock_service.get_allocation_by_request_id.assert_called_once_with("req_123abc")
         mock_service.delete_allocation.assert_not_called()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     def test_release_tokens_success_delete_fails_after_check(
         self,
         mock_service_class,
@@ -1148,7 +1147,7 @@ class TestReleaseTokens:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     def test_release_tokens_service_exception(
         self,
         mock_service_class,
@@ -1183,7 +1182,7 @@ class TestReleaseTokens:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     def test_release_tokens_forbidden_for_non_owner_developer(
         self,
         mock_service_class,
@@ -1219,7 +1218,7 @@ class TestReleaseTokens:
 
         app.dependency_overrides.clear()
 
-    @patch("app.api.token_manager_endpoints.TokenAllocationService")
+    @patch("app.api.token_manager_endpoints.LLMTokenAllocationPersistence")
     def test_release_tokens_allowed_for_admin_on_other_users_allocation(
         self,
         mock_service_class,

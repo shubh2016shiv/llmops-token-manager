@@ -140,7 +140,7 @@ def override_auth_dependency(app, user_payload):
 class TestCreateUserEntitlement:
     """Test cases for user entitlement creation endpoint."""
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     @patch("app.api.user_entitlement_endpoints.PasswordHasher")
     def test_create_entitlement_success_as_admin(
         self,
@@ -189,7 +189,7 @@ class TestCreateUserEntitlement:
         call_args = mock_service_instance.create_entitlement.call_args
         assert call_args[1]["encrypted_api_key"] == "hashed_api_key"
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     @patch("app.api.user_entitlement_endpoints.PasswordHasher")
     def test_create_entitlement_success_as_owner(
         self,
@@ -264,7 +264,7 @@ class TestCreateUserEntitlement:
         if response.status_code == 403:
             assert "Required roles: admin, owner" in response.json()["detail"]
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     @patch("app.api.user_entitlement_endpoints.PasswordHasher")
     def test_create_entitlement_user_not_found(
         self,
@@ -295,7 +295,7 @@ class TestCreateUserEntitlement:
         assert response.status_code == 400  # Business logic error
         assert "User with ID" in response.json()["detail"]
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     @patch("app.api.user_entitlement_endpoints.PasswordHasher")
     def test_create_entitlement_api_key_encrypted(
         self,
@@ -340,7 +340,7 @@ class TestCreateUserEntitlement:
         assert call_args[1]["encrypted_api_key"] == "hashed_api_key"
         assert "api_key" not in call_args[1]  # Plain key should not be passed
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     @patch("app.api.user_entitlement_endpoints.PasswordHasher")
     def test_create_entitlement_api_key_not_in_response(
         self,
@@ -377,7 +377,7 @@ class TestCreateUserEntitlement:
         assert "api_key" not in data
         assert "encrypted_api_key" not in data
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     @patch("app.api.user_entitlement_endpoints.PasswordHasher")
     def test_create_entitlement_provider_model_not_found(
         self,
@@ -408,7 +408,7 @@ class TestCreateUserEntitlement:
         assert response.status_code == 400  # Business logic error
         assert "Provider/model combination" in response.json()["detail"]
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     @patch("app.api.user_entitlement_endpoints.PasswordHasher")
     def test_create_entitlement_duplicate_entitlement(
         self,
@@ -493,7 +493,7 @@ class TestCreateUserEntitlement:
             "validation_error",
         ]
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     @patch("app.api.user_entitlement_endpoints.PasswordHasher")
     def test_create_entitlement_with_cloud_provider_fields(
         self,
@@ -535,7 +535,7 @@ class TestCreateUserEntitlement:
         assert call_args[1]["deployment_name"] == "gpt4o-eastus-prod"
         assert call_args[1]["region"] == "eastus"
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     @patch("app.api.user_entitlement_endpoints.PasswordHasher")
     def test_create_entitlement_database_error(
         self,
@@ -606,10 +606,12 @@ class TestCreateUserEntitlement:
 class TestListUserEntitlements:
     """Test cases for listing user entitlements endpoint."""
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     def test_list_entitlements_success(
         self,
         mock_entitlements_service,
+        mock_users_service,
         client,
         app,
         sample_entitlement_list_response,
@@ -617,6 +619,17 @@ class TestListUserEntitlements:
     ):
         """Test successful entitlements listing."""
         # Setup mocks
+        mock_users_service_instance = AsyncMock()
+        mock_users_service.return_value = mock_users_service_instance
+        mock_users_service_instance.get_user_by_id.return_value = {
+            "user_id": uuid4(),
+            "username": "testuser",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "developer",
+            "status": "active",
+        }
         mock_service_instance = AsyncMock()
         mock_entitlements_service.return_value = mock_service_instance
         mock_service_instance.get_user_entitlements.return_value = (
@@ -639,12 +652,29 @@ class TestListUserEntitlements:
         assert data["entitlements"][0]["entitlement_id"] == 1
         assert "api_key" not in data["entitlements"][0]  # API key should be excluded
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     def test_list_entitlements_empty(
-        self, mock_entitlements_service, client, app, mock_admin_user
+        self,
+        mock_entitlements_service,
+        mock_users_service,
+        client,
+        app,
+        mock_admin_user,
     ):
         """Test entitlements listing when user has no entitlements."""
         # Setup mocks
+        mock_users_service_instance = AsyncMock()
+        mock_users_service.return_value = mock_users_service_instance
+        mock_users_service_instance.get_user_by_id.return_value = {
+            "user_id": uuid4(),
+            "username": "testuser",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "developer",
+            "status": "active",
+        }
         mock_service_instance = AsyncMock()
         mock_entitlements_service.return_value = mock_service_instance
         mock_service_instance.get_user_entitlements.return_value = []
@@ -661,10 +691,12 @@ class TestListUserEntitlements:
         assert data["total_count"] == 0
         assert data["entitlements"] == []
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     def test_list_entitlements_pagination_page_1(
         self,
         mock_entitlements_service,
+        mock_users_service,
         client,
         app,
         sample_entitlement_list_response,
@@ -672,6 +704,17 @@ class TestListUserEntitlements:
     ):
         """Test entitlements listing with pagination page 1."""
         # Setup mocks
+        mock_users_service_instance = AsyncMock()
+        mock_users_service.return_value = mock_users_service_instance
+        mock_users_service_instance.get_user_by_id.return_value = {
+            "user_id": uuid4(),
+            "username": "testuser",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "developer",
+            "status": "active",
+        }
         mock_service_instance = AsyncMock()
         mock_entitlements_service.return_value = mock_service_instance
         mock_service_instance.get_user_entitlements.return_value = (
@@ -694,10 +737,12 @@ class TestListUserEntitlements:
         assert data["page"] == 1
         assert data["page_size"] == 10
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     def test_list_entitlements_pagination_page_2(
         self,
         mock_entitlements_service,
+        mock_users_service,
         client,
         app,
         sample_entitlement_list_response,
@@ -705,6 +750,17 @@ class TestListUserEntitlements:
     ):
         """Test entitlements listing with pagination page 2."""
         # Setup mocks
+        mock_users_service_instance = AsyncMock()
+        mock_users_service.return_value = mock_users_service_instance
+        mock_users_service_instance.get_user_by_id.return_value = {
+            "user_id": uuid4(),
+            "username": "testuser",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "developer",
+            "status": "active",
+        }
         mock_service_instance = AsyncMock()
         mock_entitlements_service.return_value = mock_service_instance
         mock_service_instance.get_user_entitlements.return_value = (
@@ -727,10 +783,12 @@ class TestListUserEntitlements:
         assert data["page"] == 2
         assert data["page_size"] == 10
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     def test_list_entitlements_custom_page_size(
         self,
         mock_entitlements_service,
+        mock_users_service,
         client,
         app,
         sample_entitlement_list_response,
@@ -738,6 +796,17 @@ class TestListUserEntitlements:
     ):
         """Test entitlements listing with custom page size."""
         # Setup mocks
+        mock_users_service_instance = AsyncMock()
+        mock_users_service.return_value = mock_users_service_instance
+        mock_users_service_instance.get_user_by_id.return_value = {
+            "user_id": uuid4(),
+            "username": "testuser",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "developer",
+            "status": "active",
+        }
         mock_service_instance = AsyncMock()
         mock_entitlements_service.return_value = mock_service_instance
         mock_service_instance.get_user_entitlements.return_value = (
@@ -757,8 +826,8 @@ class TestListUserEntitlements:
         data = response.json()
         assert data["page_size"] == 25
 
-    @patch("app.api.user_entitlement_endpoints.UsersService")
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     def test_list_entitlements_user_not_found(
         self,
         mock_entitlements_service,
@@ -786,10 +855,12 @@ class TestListUserEntitlements:
         assert response.status_code == 404
         assert "User with ID" in response.json()["detail"]
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     def test_list_entitlements_api_keys_excluded(
         self,
         mock_entitlements_service,
+        mock_users_service,
         client,
         app,
         sample_entitlement_list_response,
@@ -797,6 +868,17 @@ class TestListUserEntitlements:
     ):
         """Test that API keys are excluded from entitlements list response."""
         # Setup mocks
+        mock_users_service_instance = AsyncMock()
+        mock_users_service.return_value = mock_users_service_instance
+        mock_users_service_instance.get_user_by_id.return_value = {
+            "user_id": uuid4(),
+            "username": "testuser",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "developer",
+            "status": "active",
+        }
         mock_service_instance = AsyncMock()
         mock_entitlements_service.return_value = mock_service_instance
         mock_service_instance.get_user_entitlements.return_value = (
@@ -820,10 +902,12 @@ class TestListUserEntitlements:
             for entitlement in data["entitlements"]
         )
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     def test_list_entitlements_as_different_roles(
         self,
         mock_entitlements_service,
+        mock_users_service,
         client,
         app,
         sample_entitlement_list_response,
@@ -831,6 +915,17 @@ class TestListUserEntitlements:
     ):
         """Test entitlements listing as different user roles."""
         # Setup mocks
+        mock_users_service_instance = AsyncMock()
+        mock_users_service.return_value = mock_users_service_instance
+        mock_users_service_instance.get_user_by_id.return_value = {
+            "user_id": uuid4(),
+            "username": "testuser",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "developer",
+            "status": "active",
+        }
         mock_service_instance = AsyncMock()
         mock_entitlements_service.return_value = mock_service_instance
         mock_service_instance.get_user_entitlements.return_value = (
@@ -867,12 +962,29 @@ class TestListUserEntitlements:
             "validation_error",
         ]
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     def test_list_entitlements_database_error(
-        self, mock_entitlements_service, client, app, mock_admin_user
+        self,
+        mock_entitlements_service,
+        mock_users_service,
+        client,
+        app,
+        mock_admin_user,
     ):
         """Test entitlements listing with database error."""
         # Setup mocks
+        mock_users_service_instance = AsyncMock()
+        mock_users_service.return_value = mock_users_service_instance
+        mock_users_service_instance.get_user_by_id.return_value = {
+            "user_id": uuid4(),
+            "username": "testuser",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "developer",
+            "status": "active",
+        }
         mock_service_instance = AsyncMock()
         mock_entitlements_service.return_value = mock_service_instance
         mock_service_instance.get_user_entitlements.side_effect = Exception(
@@ -903,8 +1015,8 @@ class TestListUserEntitlements:
 class TestDeleteEntitlement:
     """Test cases for entitlement deletion endpoint."""
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
-    @patch("app.api.user_entitlement_endpoints.UsersService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
     def test_delete_entitlement_success_as_admin(
         self,
         mock_users_service,
@@ -933,36 +1045,34 @@ class TestDeleteEntitlement:
         mock_users_service.return_value = mock_users_service_instance
         from uuid import UUID
 
-        from app.models.response_models import UserResponse
-
         # Mock get_user_by_id to return different users based on UUID
         def mock_get_user_by_id(user_id):
             if str(user_id) == "550e8400-e29b-41d4-a716-446655440000":
                 # Target user
-                return UserResponse(
-                    user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
-                    username="testuser",
-                    email="test@example.com",
-                    first_name="Test",
-                    last_name="User",
-                    role="developer",
-                    status="active",
-                    created_at=None,
-                    updated_at=None,
-                )
+                return {
+                    "user_id": UUID("550e8400-e29b-41d4-a716-446655440000"),
+                    "username": "testuser",
+                    "email": "test@example.com",
+                    "first_name": "Test",
+                    "last_name": "User",
+                    "role": "developer",
+                    "status": "active",
+                    "created_at": None,
+                    "updated_at": None,
+                }
             else:
                 # Admin user (current_user.user_id)
-                return UserResponse(
-                    user_id=user_id,
-                    username="adminuser",
-                    email="admin@example.com",
-                    first_name="Admin",
-                    last_name="User",
-                    role="admin",
-                    status="active",
-                    created_at=None,
-                    updated_at=None,
-                )
+                return {
+                    "user_id": user_id,
+                    "username": "adminuser",
+                    "email": "admin@example.com",
+                    "first_name": "Admin",
+                    "last_name": "User",
+                    "role": "admin",
+                    "status": "active",
+                    "created_at": None,
+                    "updated_at": None,
+                }
 
         mock_users_service_instance.get_user_by_id.side_effect = mock_get_user_by_id
 
@@ -985,8 +1095,8 @@ class TestDeleteEntitlement:
         assert data["deleted_by"]["admin_username"] != "N/A"
         mock_entitlements_service_instance.delete_entitlement.assert_called_once_with(1)
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
-    @patch("app.api.user_entitlement_endpoints.UsersService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
     def test_delete_entitlement_success_as_owner(
         self,
         mock_users_service,
@@ -1015,36 +1125,34 @@ class TestDeleteEntitlement:
         mock_users_service.return_value = mock_users_service_instance
         from uuid import UUID
 
-        from app.models.response_models import UserResponse
-
         # Mock get_user_by_id to return different users based on UUID
         def mock_get_user_by_id(user_id):
             if str(user_id) == "550e8400-e29b-41d4-a716-446655440000":
                 # Target user
-                return UserResponse(
-                    user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
-                    username="testuser",
-                    email="test@example.com",
-                    first_name="Test",
-                    last_name="User",
-                    role="developer",
-                    status="active",
-                    created_at=None,
-                    updated_at=None,
-                )
+                return {
+                    "user_id": UUID("550e8400-e29b-41d4-a716-446655440000"),
+                    "username": "testuser",
+                    "email": "test@example.com",
+                    "first_name": "Test",
+                    "last_name": "User",
+                    "role": "developer",
+                    "status": "active",
+                    "created_at": None,
+                    "updated_at": None,
+                }
             else:
                 # Owner user (current_user.user_id)
-                return UserResponse(
-                    user_id=user_id,
-                    username="owneruser",
-                    email="owner@example.com",
-                    first_name="Owner",
-                    last_name="User",
-                    role="owner",
-                    status="active",
-                    created_at=None,
-                    updated_at=None,
-                )
+                return {
+                    "user_id": user_id,
+                    "username": "owneruser",
+                    "email": "owner@example.com",
+                    "first_name": "Owner",
+                    "last_name": "User",
+                    "role": "owner",
+                    "status": "active",
+                    "created_at": None,
+                    "updated_at": None,
+                }
 
         mock_users_service_instance.get_user_by_id.side_effect = mock_get_user_by_id
 
@@ -1096,7 +1204,7 @@ class TestDeleteEntitlement:
         if response.status_code == 403:
             assert "Required roles: admin, owner" in response.json()["detail"]
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     def test_delete_entitlement_not_found(
         self, mock_entitlements_service, client, app, mock_admin_user
     ):
@@ -1117,8 +1225,8 @@ class TestDeleteEntitlement:
         assert response.status_code == 404
         assert "Entitlement with ID '999' not found" in response.json()["detail"]
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
-    @patch("app.api.user_entitlement_endpoints.UsersService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
     def test_delete_entitlement_wrong_user(
         self,
         mock_users_service,
@@ -1145,19 +1253,17 @@ class TestDeleteEntitlement:
         mock_users_service.return_value = mock_users_service_instance
         from uuid import UUID
 
-        from app.models.response_models import UserResponse
-
-        mock_users_service_instance.get_user_by_id.return_value = UserResponse(
-            user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
-            username="testuser",
-            email="test@example.com",
-            first_name="Test",
-            last_name="User",
-            role="developer",
-            status="active",
-            created_at=None,
-            updated_at=None,
-        )
+        mock_users_service_instance.get_user_by_id.return_value = {
+            "user_id": UUID("550e8400-e29b-41d4-a716-446655440000"),
+            "username": "testuser",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "developer",
+            "status": "active",
+            "created_at": None,
+            "updated_at": None,
+        }
 
         # Override auth dependency
         override_auth_dependency(app, mock_admin_user)
@@ -1169,8 +1275,8 @@ class TestDeleteEntitlement:
         assert response.status_code == 200
         # Admin can delete any entitlement
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
-    @patch("app.api.user_entitlement_endpoints.UsersService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
     def test_delete_entitlement_returns_200_with_details(
         self,
         mock_users_service,
@@ -1199,36 +1305,34 @@ class TestDeleteEntitlement:
         mock_users_service.return_value = mock_users_service_instance
         from uuid import UUID
 
-        from app.models.response_models import UserResponse
-
         # Mock get_user_by_id to return different users based on UUID
         def mock_get_user_by_id(user_id):
             if str(user_id) == "550e8400-e29b-41d4-a716-446655440000":
                 # Target user
-                return UserResponse(
-                    user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
-                    username="testuser",
-                    email="test@example.com",
-                    first_name="Test",
-                    last_name="User",
-                    role="developer",
-                    status="active",
-                    created_at=None,
-                    updated_at=None,
-                )
+                return {
+                    "user_id": UUID("550e8400-e29b-41d4-a716-446655440000"),
+                    "username": "testuser",
+                    "email": "test@example.com",
+                    "first_name": "Test",
+                    "last_name": "User",
+                    "role": "developer",
+                    "status": "active",
+                    "created_at": None,
+                    "updated_at": None,
+                }
             else:
                 # Admin user (current_user.user_id)
-                return UserResponse(
-                    user_id=user_id,
-                    username="adminuser",
-                    email="admin@example.com",
-                    first_name="Admin",
-                    last_name="User",
-                    role="admin",
-                    status="active",
-                    created_at=None,
-                    updated_at=None,
-                )
+                return {
+                    "user_id": user_id,
+                    "username": "adminuser",
+                    "email": "admin@example.com",
+                    "first_name": "Admin",
+                    "last_name": "User",
+                    "role": "admin",
+                    "status": "active",
+                    "created_at": None,
+                    "updated_at": None,
+                }
 
         mock_users_service_instance.get_user_by_id.side_effect = mock_get_user_by_id
 
@@ -1247,8 +1351,8 @@ class TestDeleteEntitlement:
         assert data["deleted_by"]["admin_username"] == "adminuser"
         assert data["deleted_by"]["admin_username"] != "N/A"
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
-    @patch("app.api.user_entitlement_endpoints.UsersService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
     def test_delete_entitlement_user_mismatch(
         self,
         mock_users_service,
@@ -1275,19 +1379,17 @@ class TestDeleteEntitlement:
         mock_users_service.return_value = mock_users_service_instance
         from uuid import UUID
 
-        from app.models.response_models import UserResponse
-
-        mock_users_service_instance.get_user_by_id.return_value = UserResponse(
-            user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
-            username="testuser",
-            email="test@example.com",
-            first_name="Test",
-            last_name="User",
-            role="developer",
-            status="active",
-            created_at=None,
-            updated_at=None,
-        )
+        mock_users_service_instance.get_user_by_id.return_value = {
+            "user_id": UUID("550e8400-e29b-41d4-a716-446655440000"),
+            "username": "testuser",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "developer",
+            "status": "active",
+            "created_at": None,
+            "updated_at": None,
+        }
 
         # Override auth dependency
         override_auth_dependency(app, mock_admin_user)
@@ -1299,8 +1401,8 @@ class TestDeleteEntitlement:
         assert response.status_code == 200
         # Admin can delete any entitlement
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
-    @patch("app.api.user_entitlement_endpoints.UsersService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
+    @patch("app.api.user_entitlement_endpoints.UserPersistence")
     def test_delete_entitlement_database_error(
         self,
         mock_users_service,
@@ -1356,7 +1458,7 @@ class TestDeleteEntitlement:
             in detail["error"]
         )
 
-    @patch("app.api.user_entitlement_endpoints.UserEntitlementsService")
+    @patch("app.api.user_entitlement_endpoints.UserEntitlementPersistence")
     def test_delete_entitlement_idempotent(
         self, mock_entitlements_service, client, app, mock_admin_user
     ):

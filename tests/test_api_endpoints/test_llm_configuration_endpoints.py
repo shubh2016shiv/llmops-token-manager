@@ -109,7 +109,7 @@ def sample_update_request():
 class TestCreateLLMModel:
     """Test cases for create LLM model endpoint."""
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_create_llm_model_success(
         self,
         mock_llm_service,
@@ -200,7 +200,7 @@ class TestCreateLLMModel:
         assert call_args[1]["random_seed"] == sample_create_request["random_seed"]
         # Note: deployment_region is not checked since it's not in the request
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_create_llm_model_duplicate_model(
         self, mock_llm_service, app, client, mock_admin_user, sample_create_request
     ):
@@ -229,7 +229,7 @@ class TestCreateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_create_llm_model_invalid_provider(
         self, mock_llm_service, app, client, mock_admin_user, sample_create_request
     ):
@@ -285,7 +285,7 @@ class TestCreateLLMModel:
         assert "detail" in data
         # Should have validation errors for empty model name and negative max_tokens
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_create_llm_model_database_error(
         self, mock_llm_service, app, client, mock_admin_user, sample_create_request
     ):
@@ -319,7 +319,7 @@ class TestCreateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_create_llm_model_response_structure(
         self,
         mock_llm_service,
@@ -396,7 +396,7 @@ class TestCreateLLMModel:
 class TestListLLMModelsByProvider:
     """Test cases for list LLM models by provider endpoint."""
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_list_llm_models_by_provider_success(
         self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
@@ -448,7 +448,7 @@ class TestListLLMModelsByProvider:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_list_llm_models_by_provider_with_active_filter(
         self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
@@ -488,7 +488,7 @@ class TestListLLMModelsByProvider:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_list_llm_models_by_provider_with_pagination(
         self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
@@ -529,7 +529,7 @@ class TestListLLMModelsByProvider:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_list_llm_models_by_provider_with_page_params(
         self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
@@ -564,7 +564,7 @@ class TestListLLMModelsByProvider:
 
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_list_llm_models_by_provider_page_params_take_precedence(
         self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
@@ -601,7 +601,7 @@ class TestListLLMModelsByProvider:
 
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_list_llm_models_by_provider_has_next_from_db_count(
         self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
@@ -626,7 +626,7 @@ class TestListLLMModelsByProvider:
 
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_provider_route_does_not_hit_generic_get_model_route(
         self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
@@ -654,7 +654,7 @@ class TestListLLMModelsByProvider:
 
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_list_llm_models_by_provider_value_error(
         self, mock_llm_service, app, client, mock_developer_user
     ):
@@ -682,7 +682,7 @@ class TestListLLMModelsByProvider:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_list_llm_models_by_provider_database_error(
         self, mock_llm_service, app, client, mock_developer_user
     ):
@@ -713,7 +713,7 @@ class TestListLLMModelsByProvider:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_list_llm_models_by_provider_response_structure(
         self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
@@ -770,7 +770,7 @@ class TestListLLMModelsByProvider:
 class TestGetLLMModel:
     """Test cases for get LLM model endpoint."""
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_get_llm_model_success(
         self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
@@ -808,7 +808,7 @@ class TestGetLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_get_llm_model_with_version(
         self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
@@ -844,7 +844,7 @@ class TestGetLLMModel:
             llm_provider="openai", llm_model_name="gpt-4o", llm_model_version="2024-08"
         )
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_get_llm_model_not_found(
         self, mock_llm_service, app, client, mock_developer_user
     ):
@@ -876,7 +876,7 @@ class TestGetLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_get_llm_model_value_error(
         self, mock_llm_service, app, client, mock_developer_user
     ):
@@ -904,7 +904,7 @@ class TestGetLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_get_llm_model_database_error(
         self, mock_llm_service, app, client, mock_developer_user
     ):
@@ -935,7 +935,7 @@ class TestGetLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_get_llm_model_response_structure(
         self, mock_llm_service, app, client, mock_developer_user, sample_llm_model_data
     ):
@@ -972,7 +972,7 @@ class TestGetLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_get_llm_model_http_exception_re_raise(
         self, mock_llm_service, app, client, mock_developer_user
     ):
@@ -1014,7 +1014,7 @@ class TestGetLLMModel:
 class TestUpdateLLMModel:
     """Test cases for update LLM model endpoint."""
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_update_llm_model_success(
         self,
         mock_llm_service,
@@ -1078,7 +1078,7 @@ class TestUpdateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_update_llm_model_partial_update(
         self, mock_llm_service, app, client, mock_admin_user, sample_llm_model_data
     ):
@@ -1111,7 +1111,7 @@ class TestUpdateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_update_llm_model_not_found(
         self, mock_llm_service, app, client, mock_admin_user, sample_update_request
     ):
@@ -1145,7 +1145,7 @@ class TestUpdateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_update_llm_model_value_error(
         self, mock_llm_service, app, client, mock_admin_user, sample_update_request
     ):
@@ -1175,7 +1175,7 @@ class TestUpdateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_update_llm_model_constraint_violation(
         self, mock_llm_service, app, client, mock_admin_user, sample_update_request
     ):
@@ -1207,7 +1207,7 @@ class TestUpdateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_update_llm_model_database_error(
         self, mock_llm_service, app, client, mock_admin_user, sample_update_request
     ):
@@ -1240,7 +1240,7 @@ class TestUpdateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_update_llm_model_service_call_verification(
         self,
         mock_llm_service,
@@ -1302,7 +1302,7 @@ class TestUpdateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_update_llm_model_http_exception_re_raise(
         self, mock_llm_service, app, client, mock_admin_user, sample_update_request
     ):
@@ -1346,7 +1346,7 @@ class TestUpdateLLMModel:
 class TestActivateLLMModel:
     """Test cases for activate LLM model endpoint."""
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_activate_llm_model_success(
         self, mock_llm_service, app, client, mock_admin_user, sample_llm_model_data
     ):
@@ -1384,7 +1384,7 @@ class TestActivateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_activate_llm_model_with_version(
         self, mock_llm_service, app, client, mock_admin_user, sample_llm_model_data
     ):
@@ -1422,7 +1422,7 @@ class TestActivateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_activate_llm_model_not_found(
         self, mock_llm_service, app, client, mock_admin_user
     ):
@@ -1454,7 +1454,7 @@ class TestActivateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_activate_llm_model_database_error(
         self, mock_llm_service, app, client, mock_admin_user
     ):
@@ -1485,7 +1485,7 @@ class TestActivateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_activate_llm_model_http_exception_re_raise(
         self, mock_llm_service, app, client, mock_admin_user
     ):
@@ -1527,7 +1527,7 @@ class TestActivateLLMModel:
 class TestDeactivateLLMModel:
     """Test cases for deactivate LLM model endpoint."""
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_deactivate_llm_model_success(
         self, mock_llm_service, app, client, mock_admin_user, sample_llm_model_data
     ):
@@ -1565,7 +1565,7 @@ class TestDeactivateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_deactivate_llm_model_with_version(
         self, mock_llm_service, app, client, mock_admin_user, sample_llm_model_data
     ):
@@ -1603,7 +1603,7 @@ class TestDeactivateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_deactivate_llm_model_not_found(
         self, mock_llm_service, app, client, mock_admin_user
     ):
@@ -1637,7 +1637,7 @@ class TestDeactivateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_deactivate_llm_model_database_error(
         self, mock_llm_service, app, client, mock_admin_user
     ):
@@ -1668,7 +1668,7 @@ class TestDeactivateLLMModel:
         # Cleanup
         app.dependency_overrides.clear()
 
-    @patch("app.api.llm_configuration_endpoints.LLMModelsService")
+    @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_deactivate_llm_model_http_exception_re_raise(
         self, mock_llm_service, app, client, mock_admin_user
     ):

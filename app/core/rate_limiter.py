@@ -26,8 +26,12 @@ from limits.aio.strategies import MovingWindowRateLimiter
 from limits.storage import storage_from_string
 from loguru import logger
 
-from app.core.config_manager import settings
+from app.core.config import settings
 
+# Enterprise pattern:
+# These callable types are only needed for annotations. Importing them inside
+# TYPE_CHECKING avoids unnecessary runtime imports and keeps annotation-only
+# dependencies from participating in circular import chains.
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 

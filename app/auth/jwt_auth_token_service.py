@@ -21,7 +21,7 @@ from uuid import UUID
 from jose import JWTError, jwt
 from loguru import logger
 
-from app.core.config_manager import settings
+from app.core.config import settings
 from app.models.auth_models import AuthTokenPayload
 from app.persistence.users import UserPersistence
 from app.utils.passwrd_hashing import PasswordHasher

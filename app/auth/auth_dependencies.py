@@ -29,6 +29,10 @@ from loguru import logger
 from app.auth.jwt_auth_token_service import decode_token, verify_token_type
 from app.persistence.users import UserPersistence
 
+# Enterprise pattern:
+# Import the payload model only for static type checking. At runtime, postponed
+# annotations let us reference `AuthTokenPayload` without importing the model
+# eagerly, which reduces import-time coupling and helps prevent circular imports.
 if TYPE_CHECKING:
     from app.models.auth_models import AuthTokenPayload
 

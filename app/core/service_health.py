@@ -1,10 +1,9 @@
 """
-Startup Diagnostics Module.
+Infrastructure health checks and startup presentation helpers.
 
-Handles service connectivity verification and error reporting during
-application startup.
-Provides clear, actionable error messages when infrastructure services
-are unavailable.
+This module owns only generic cross-cutting infrastructure concerns that are
+shared across the application runtime. App-specific worker and queue readiness
+checks live with their owning subsystem and are composed at bootstrap time.
 """
 
 from dataclasses import dataclass
@@ -12,16 +11,9 @@ from dataclasses import dataclass
 from loguru import logger
 from sqlalchemy import text
 
-from app.core.config_manager import settings
-from app.core.database_connection import db_manager
-from app.core.redis_connection import redis_manager
-from app.llm_client_provisioning.celery_healthcheck import (
-    inspect_celery_worker_readiness,
-)
-from app.llm_client_provisioning.queue_contract import (
-    LLM_REQUESTS_QUEUE,
-    PRIORITY_REQUESTS_QUEUE,
-)
+from app.core.config import settings
+from app.core.database import db_manager
+from app.core.redis import redis_manager
 
 
 @dataclass
@@ -35,9 +27,9 @@ class ServiceStatus:
     connection_details: dict[str, str] | None = None
 
 
-def display_startup_failure(failed_services: list[ServiceStatus]):
+def display_startup_failure(failed_services: list[ServiceStatus]) -> None:
     """Display formatted startup failure message."""
-    border = "═" * 80
+    border = "=" * 80
     print("\n" + border)
     print("[FATAL ERROR] APPLICATION STARTUP FAILED")
     print(border)
@@ -49,7 +41,7 @@ def display_startup_failure(failed_services: list[ServiceStatus]):
         if service.connection_details:
             print("   Connection Details:")
             for key, value in service.connection_details.items():
-                print(f"     • {key}: {value}")
+                print(f"     - {key}: {value}")
 
         if service.suggestion:
             print(f"   >> Suggestion: {service.suggestion}")
@@ -59,24 +51,20 @@ def display_startup_failure(failed_services: list[ServiceStatus]):
     print(border + "\n")
 
 
-def display_service_info():
-    """Display service connection information when all services are healthy."""
-    # Display service URLs in formatted tables
-    # Use print for properly aligned tables, with consistent width
-    border_line = "═" * 80
-    header_line = "─" * 80
+def display_service_info() -> None:
+    """Display generic service connection information for the local runtime."""
+    border_line = "=" * 80
+    header_line = "-" * 80
 
     print("\n" + border_line)
     print("SERVICE ENDPOINTS & CONNECTION INFORMATION")
     print(border_line)
 
-    # FastAPI URLs table - properly aligned with fixed width columns
-    # Show localhost URLs for local access (works reliably on Windows)
     local_api_base = f"http://localhost:{settings.fastapi_port}"
     print("FASTAPI SERVICE")
     print(header_line)
     print(f"{'Service':<20} | {'URL':<57}")
-    print(f"{header_line}")
+    print(header_line)
     print(f"{'Main API':<20} | {local_api_base + '/':<57}")
     print(f"{'API Documentation':<20} | {local_api_base + '/api/docs':<57}")
     print(f"{'ReDoc Interface':<20} | {local_api_base + '/api/redoc':<57}")
@@ -84,11 +72,10 @@ def display_service_info():
     print(f"{'Health Check':<20} | {local_api_base + '/api/v1/health':<57}")
     print(header_line)
 
-    # Database connection table - properly aligned
     print("\nPOSTGRESQL DATABASE")
     print(header_line)
     print(f"{'Parameter':<20} | {'Value':<57}")
-    print(f"{header_line}")
+    print(header_line)
     print(f"{'Host':<20} | {settings.database_host:<57}")
     print(f"{'Port':<20} | {str(settings.database_port):<57}")
     print(f"{'Database':<20} | {settings.database_name:<57}")
@@ -99,42 +86,17 @@ def display_service_info():
     print(f"{'Connection Pool':<20} | {pool_value:<57}")
     print(header_line)
 
-    # Redis connection table - properly aligned
     print("\nREDIS CACHE")
     print(header_line)
     print(f"{'Parameter':<20} | {'Value':<57}")
-    print(f"{header_line}")
+    print(header_line)
     print(f"{'Host':<20} | {settings.redis_host:<57}")
     print(f"{'Port':<20} | {str(settings.redis_port):<57}")
     print(f"{'Database':<20} | {str(settings.redis_db):<57}")
     print(f"{'Max Connections':<20} | {str(settings.redis_max_connections):<57}")
     print(header_line)
 
-    print("\nRABBITMQ BROKER")
-    print(header_line)
-    print(f"{'Parameter':<20} | {'Value':<57}")
-    print(f"{header_line}")
-    print(f"{'Host':<20} | {settings.rabbitmq_host:<57}")
-    print(f"{'Port':<20} | {str(settings.rabbitmq_port):<57}")
-    print(f"{'Virtual Host':<20} | {settings.rabbitmq_vhost:<57}")
-    print(f"{'Broker URL Source':<20} | {'Environment / derived settings':<57}")
-    print(header_line)
-
-    print("\nCELERY WORKER READINESS")
-    print(header_line)
-    print(f"{'Parameter':<20} | {'Value':<57}")
-    print(f"{header_line}")
-    print(
-        f"{'Startup Critical':<20} | "
-        f"{str(settings.require_celery_worker_on_startup):<57}"
-    )
-    print(f"{'Primary Queue':<20} | {LLM_REQUESTS_QUEUE:<57}")
-    print(f"{'Priority Queue':<20} | {PRIORITY_REQUESTS_QUEUE:<57}")
-    print(f"{'Result Backend':<20} | {settings.celery_result_backend:<57}")
-    print(header_line)
     print(border_line + "\n")
-
-    # Still log a simple message for the log file
     logger.info("Service endpoints and connection information displayed")
 
 
@@ -199,7 +161,6 @@ async def verify_database_connectivity() -> ServiceStatus:
 async def verify_redis_connectivity() -> ServiceStatus:
     """Verify Redis connectivity with detailed error reporting."""
     try:
-        # Use the ping method directly from the redis_manager
         if not await redis_manager.ping():
             return ServiceStatus(
                 name="Redis",
@@ -247,100 +208,5 @@ async def verify_redis_connectivity() -> ServiceStatus:
             connection_details={
                 "host": settings.redis_host,
                 "port": str(settings.redis_port),
-            },
-        )
-
-
-async def verify_rabbitmq_connectivity() -> ServiceStatus:
-    """Verify RabbitMQ connectivity with detailed error reporting."""
-    try:
-        from app.llm_client_provisioning.llm_client_request_queue import celery_app
-
-        with celery_app.connection() as conn:
-            conn.ensure_connection(max_retries=3)
-            return ServiceStatus(
-                name="RabbitMQ",
-                status="connected",
-                connection_details={
-                    "host": settings.rabbitmq_host,
-                    "port": str(settings.rabbitmq_port),
-                    "virtual_host": settings.rabbitmq_vhost,
-                    "component": "Celery broker",
-                },
-            )
-    except ConnectionRefusedError:
-        return ServiceStatus(
-            name="RabbitMQ",
-            status="failed",
-            error_message=(
-                "Connection refused - RabbitMQ is not running or not accessible"
-            ),
-            suggestion=(
-                "Start RabbitMQ server or check whether the configured "
-                "broker host and port are reachable"
-            ),
-            connection_details={
-                "host": settings.rabbitmq_host,
-                "port": str(settings.rabbitmq_port),
-                "virtual_host": settings.rabbitmq_vhost,
-                "component": "Celery broker",
-            },
-        )
-    except Exception as e:
-        return ServiceStatus(
-            name="RabbitMQ",
-            status="failed",
-            error_message=str(e),
-            suggestion="Check RabbitMQ configuration and verify broker settings",
-            connection_details={
-                "host": settings.rabbitmq_host,
-                "port": str(settings.rabbitmq_port),
-                "virtual_host": settings.rabbitmq_vhost,
-            },
-        )
-
-
-async def verify_celery_worker_readiness() -> ServiceStatus:
-    """Verify Celery worker readiness using the shared worker health contract."""
-    try:
-        is_ready, reason = inspect_celery_worker_readiness(max_retries=1)
-        if not is_ready:
-            return ServiceStatus(
-                name="Celery worker",
-                status="failed",
-                error_message=reason or "Celery worker readiness check failed",
-                suggestion=(
-                    "Start a Celery worker and verify it can import tasks "
-                    "and reach the configured broker"
-                ),
-                connection_details={
-                    "host": settings.rabbitmq_host,
-                    "port": str(settings.rabbitmq_port),
-                    "queues": f"{LLM_REQUESTS_QUEUE}, {PRIORITY_REQUESTS_QUEUE}",
-                },
-            )
-
-        return ServiceStatus(
-            name="Celery worker",
-            status="connected",
-            connection_details={
-                "host": settings.rabbitmq_host,
-                "port": str(settings.rabbitmq_port),
-                "queues": f"{LLM_REQUESTS_QUEUE}, {PRIORITY_REQUESTS_QUEUE}",
-            },
-        )
-    except Exception as e:
-        return ServiceStatus(
-            name="Celery worker",
-            status="failed",
-            error_message=str(e),
-            suggestion=(
-                "Check Celery worker configuration and confirm the worker "
-                "health contract can run successfully"
-            ),
-            connection_details={
-                "host": settings.rabbitmq_host,
-                "port": str(settings.rabbitmq_port),
-                "queues": f"{LLM_REQUESTS_QUEUE}, {PRIORITY_REQUESTS_QUEUE}",
             },
         )

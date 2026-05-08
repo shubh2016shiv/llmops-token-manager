@@ -15,7 +15,7 @@ from uuid import UUID
 from loguru import logger
 from sqlalchemy import text
 
-from app.core.database_connection import DatabaseManager
+from app.core.database import DatabaseSessionManager
 from app.persistence.base import BasePersistence
 
 
@@ -34,7 +34,7 @@ class UserEntitlementPersistence(BasePersistence):
     - Thread-safe operations for high-concurrency scenarios
     """
 
-    def __init__(self, database_manager: DatabaseManager | None = None):
+    def __init__(self, database_manager: DatabaseSessionManager | None = None):
         """
         Initialize the user entitlements service with database manager.
 

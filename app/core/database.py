@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.core.config_manager import settings
+from app.core.config import settings
 
 # Add parent directory to path for direct script execution
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 logger = logging.getLogger(__name__)
 
 
-class DatabaseManager:
+class DatabaseSessionManager:
     """
     Manages database connections and operations using SQLAlchemy async engine.
 
@@ -251,7 +251,7 @@ class DatabaseManager:
 
 
 # Global database manager instance
-db_manager = DatabaseManager()
+db_manager = DatabaseSessionManager()
 
 
 # Convenience functions

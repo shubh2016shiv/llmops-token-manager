@@ -10,13 +10,15 @@ from datetime import datetime, timezone
 from fastapi import APIRouter
 from loguru import logger
 
-from app.core.config_manager import settings
-from app.core.startup_diagnostics import (
+from app.core.config import settings
+from app.core.service_health import (
     ServiceStatus,
-    verify_celery_worker_readiness,
     verify_database_connectivity,
-    verify_rabbitmq_connectivity,
     verify_redis_connectivity,
+)
+from app.llm_client_provisioning.service_health import (
+    verify_celery_worker_readiness,
+    verify_rabbitmq_connectivity,
 )
 from app.models.response_models import DependencyHealth, HealthStatus
 

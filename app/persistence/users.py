@@ -17,7 +17,7 @@ from email_validator import EmailNotValidError, validate_email
 from loguru import logger
 from sqlalchemy import text
 
-from app.core.database_connection import DatabaseManager
+from app.core.database import DatabaseSessionManager
 from app.persistence.base import BasePersistence
 
 
@@ -39,7 +39,7 @@ class UserPersistence(BasePersistence):
     VALID_USER_ROLES = ["developer", "operator", "admin", "owner"]
     VALID_USER_STATUSES = ["active", "suspended", "inactive"]
 
-    def __init__(self, database_manager: DatabaseManager | None = None):
+    def __init__(self, database_manager: DatabaseSessionManager | None = None):
         super().__init__(database_manager)
 
     # ========================================================================

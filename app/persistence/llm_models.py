@@ -14,7 +14,7 @@ from typing import Any
 from loguru import logger
 from sqlalchemy import text
 
-from app.core.database_connection import DatabaseManager
+from app.core.database import DatabaseSessionManager
 from app.persistence.base import BasePersistence
 
 
@@ -47,7 +47,7 @@ class LLMModelPersistence(BasePersistence):
         "meta",
     ]
 
-    def __init__(self, database_manager: DatabaseManager | None = None):
+    def __init__(self, database_manager: DatabaseSessionManager | None = None):
         """
         Initialize the LLM models service with database manager.
 

@@ -65,7 +65,7 @@ RESILIENCE COMPONENTS:
 INDUSTRY BEST PRACTICES:
 -----------------------
 1. Configuration Management:
-   - Uses centralized settings from config_manager.py
+   - Uses centralized settings from config.py
    - Environment-aware configuration (dev/staging/prod)
    - No hardcoded values or secrets in code
 
@@ -101,7 +101,7 @@ from loguru import logger
 import redis.asyncio as aioredis
 from redis.asyncio.connection import ConnectionPool
 
-from app.core.config_manager import settings
+from app.core.config import settings
 
 
 class RedisManager:

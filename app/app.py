@@ -13,18 +13,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from app.api import api_router
-from app.core.config_manager import settings
-from app.core.correlation_id import correlation_id_middleware
-from app.core.database_connection import db_manager
+from app.core.config import settings
+from app.core.database import db_manager
 from app.core.rate_limiter import register_rate_limit_exception_handler
-from app.core.redis_connection import redis_manager
-from app.core.startup_diagnostics import (
+from app.core.redis import redis_manager
+from app.core.request_tracing import correlation_id_middleware
+from app.core.service_health import (
     display_service_info,
     display_startup_failure,
-    verify_celery_worker_readiness,
     verify_database_connectivity,
-    verify_rabbitmq_connectivity,
     verify_redis_connectivity,
+)
+from app.llm_client_provisioning.service_health import (
+    display_provisioning_service_info,
+    verify_celery_worker_readiness,
+    verify_rabbitmq_connectivity,
 )
 
 # -----------------------------------------------------------------------------
@@ -132,6 +135,7 @@ async def lifespan(app: FastAPI):
 
     # All services connected - display success info
     display_service_info()
+    display_provisioning_service_info()
     logger.info("[SUCCESS] Application startup complete")
 
     yield

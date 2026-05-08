@@ -18,7 +18,7 @@ from uuid import UUID
 from loguru import logger
 from sqlalchemy import text
 
-from app.core.database_connection import DatabaseManager
+from app.core.database import DatabaseSessionManager
 from app.persistence.base import BasePersistence
 
 
@@ -50,7 +50,7 @@ class LLMTokenAllocationPersistence(BasePersistence):
 
     DEFAULT_ALLOCATION_STATUS = "ACQUIRED"
 
-    def __init__(self, database_manager: DatabaseManager | None = None):
+    def __init__(self, database_manager: DatabaseSessionManager | None = None):
         """
         Initialize the token allocation service with database manager.
 
@@ -1364,7 +1364,7 @@ class LLMTokenAllocationPersistence(BasePersistence):
 
 
 def get_token_allocation_repository(
-    db_manager: DatabaseManager | None = None,
+    db_manager: DatabaseSessionManager | None = None,
 ) -> LLMTokenAllocationPersistence:
     """
     Factory function to get a TokenAllocationRepository instance

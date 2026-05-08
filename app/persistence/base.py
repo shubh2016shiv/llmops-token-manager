@@ -21,7 +21,7 @@ from loguru import logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database_connection import DatabaseManager
+from app.core.database import DatabaseSessionManager
 
 
 class BasePersistence:
@@ -37,7 +37,7 @@ class BasePersistence:
     Thread-safe and optimized for high-concurrency scenarios (10,000+ concurrent users).
     """
 
-    def __init__(self, database_manager: DatabaseManager | None = None):
+    def __init__(self, database_manager: DatabaseSessionManager | None = None):
         """
         Initialize the database service with a database manager.
 
@@ -46,7 +46,7 @@ class BasePersistence:
                             uses the singleton instance for connection pooling.
 
         """
-        self.database_manager = database_manager or DatabaseManager()
+        self.database_manager = database_manager or DatabaseSessionManager()
         self._service_name = self.__class__.__name__
 
     @asynccontextmanager

@@ -22,7 +22,7 @@ from app.auth.jwt_auth_token_service import (
     is_refresh_enabled,
     verify_token_type,
 )
-from app.core.config_manager import settings
+from app.core.config import settings
 from app.core.rate_limiter import (
     auth_login_rate_limiter,
     auth_token_generate_rate_limiter,

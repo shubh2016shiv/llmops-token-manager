@@ -1,8 +1,9 @@
 """
-Configuration Manager.
+Application settings and runtime configuration.
 
-Centralized configuration management using Pydantic Settings.
-All application settings are loaded from environment variables with validation.
+This module is the single source of truth for environment-driven application
+configuration. It uses Pydantic Settings to load, validate, and expose typed
+runtime settings for infrastructure, API, authentication, and async workers.
 """
 
 from pydantic import Field, field_validator
@@ -203,5 +204,5 @@ class ApplicationSettings(BaseSettings):
         )
 
 
-# Global settings instance
+# Global runtime settings singleton
 settings = ApplicationSettings()

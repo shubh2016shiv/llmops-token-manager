@@ -16,6 +16,10 @@ from uuid import uuid4
 
 from loguru import logger
 
+# Enterprise pattern:
+# Keep framework imports needed only for type hints inside TYPE_CHECKING so they
+# do not run at import time. This keeps runtime imports lighter and helps avoid
+# circular-import pressure while still giving Pyright/IDE autocomplete full types.
 if TYPE_CHECKING:
     from fastapi import Request, Response
 

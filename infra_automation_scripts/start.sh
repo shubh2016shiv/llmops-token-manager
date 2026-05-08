@@ -79,8 +79,13 @@ if [ ! -f docker-compose.yml ]; then
 fi
 
 if [ ! -f .env ]; then
-    echo "  INFO: .env file not found - creating one with defaults..."
-    echo "# LLM Token Manager Environment Variables" > .env
+    if [ -f .env.example ]; then
+        echo "  INFO: .env file not found - creating from .env.example..."
+        cp .env.example .env
+    else
+        echo "  INFO: .env file not found - creating one with defaults..."
+        echo "# LLM Token Manager Environment Variables" > .env
+    fi
 fi
 
 echo "  Stopping any previously running containers..."
@@ -100,6 +105,10 @@ echo ""
 
 DB_USER="${DATABASE_USER:-myuser}"
 DB_NAME="${DATABASE_NAME:-mydb}"
+REDIS_PASSWORD_VALUE="$(grep -E '^REDIS_PASSWORD=' .env 2>/dev/null | head -n 1 | cut -d= -f2-)"
+if [ -z "$REDIS_PASSWORD_VALUE" ]; then
+    REDIS_PASSWORD_VALUE="redis_password"
+fi
 CHECK_OK="[OK] healthy"
 CHECK_FAIL="[FAIL] unavailable"
 
@@ -108,7 +117,7 @@ $COMPOSE_CMD exec -T postgres pg_isready -U "$DB_USER" -d "$DB_NAME" -q 2>/dev/n
     && echo "$CHECK_OK" || echo "$CHECK_FAIL"
 
 echo -n "  Redis      ... "
-$COMPOSE_CMD exec -T redis redis-cli ping 2>/dev/null | grep -q "PONG" \
+$COMPOSE_CMD exec -T redis redis-cli --no-auth-warning -a "$REDIS_PASSWORD_VALUE" ping 2>/dev/null | grep -q "PONG" \
     && echo "$CHECK_OK" || echo "$CHECK_FAIL"
 
 echo -n "  RabbitMQ   ... "
@@ -124,7 +133,7 @@ print_infra_summary
 echo "  -- Access Points -------------------------------------------"
 echo ""
 echo "  PostgreSQL   :  localhost:${POSTGRES_HOST_PORT:-5433}   (user: ${POSTGRES_USER:-myuser} / db: ${POSTGRES_DB:-mydb})"
-echo "  Redis        :  localhost:${REDIS_HOST_PORT:-6379}"
+echo "  Redis        :  localhost:${REDIS_HOST_PORT:-6379}   (password: ${REDIS_PASSWORD_VALUE})"
 echo "  RabbitMQ     :  localhost:${RABBITMQ_AMQP_PORT:-5672}   (AMQP)"
 echo "  RabbitMQ UI  :  http://localhost:${RABBITMQ_MGMT_PORT:-15672}  (${RABBITMQ_DEFAULT_USER:-rmq_user})"
 echo ""

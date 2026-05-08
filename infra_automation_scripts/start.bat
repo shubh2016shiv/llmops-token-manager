@@ -39,9 +39,18 @@ if not exist docker-compose.yml (
 )
 
 if not exist .env (
-    echo   INFO: .env file not found -- creating one with defaults...
-    echo # LLM Token Manager Environment Variables > .env
+    if exist .env.example (
+        echo   INFO: .env file not found -- creating from .env.example...
+        copy /y .env.example .env >nul
+    ) else (
+        echo   INFO: .env file not found -- creating one with defaults...
+        echo # LLM Token Manager Environment Variables > .env
+    )
 )
+
+set "REDIS_PASSWORD_VALUE=redis_password"
+for /f "usebackq tokens=1* delims==" %%A in (`findstr /b /c:"REDIS_PASSWORD=" .env 2^>nul`) do set "REDIS_PASSWORD_VALUE=%%B"
+if "!REDIS_PASSWORD_VALUE!"=="" set "REDIS_PASSWORD_VALUE=redis_password"
 
 echo   Stopping any previously running containers...
 %COMPOSE_CMD% --profile worker down --remove-orphans >nul 2>&1
@@ -67,7 +76,7 @@ echo   PostgreSQL ... | findstr /v "^$"
 )
 
 echo   Redis      ... | findstr /v "^$"
-%COMPOSE_CMD% exec -T redis redis-cli ping 2>nul | findstr "PONG" >nul && (
+%COMPOSE_CMD% exec -T redis redis-cli --no-auth-warning -a "!REDIS_PASSWORD_VALUE!" ping 2>nul | findstr "PONG" >nul && (
     echo     [OK] healthy
 ) || (
     echo     [FAIL] unavailable
@@ -92,7 +101,7 @@ REM --- Quick-reference footer ---------------------------------------
 echo   -- Access Points ------------------------------------------
 echo.
 echo   PostgreSQL   :  localhost:5433   (user: myuser / db: mydb^)
-echo   Redis        :  localhost:6379
+echo   Redis        :  localhost:6379   (password: !REDIS_PASSWORD_VALUE!^)
 echo   RabbitMQ     :  localhost:5672   (AMQP^)
 echo   RabbitMQ UI  :  http://localhost:15672  (rmq_user^)
 echo.

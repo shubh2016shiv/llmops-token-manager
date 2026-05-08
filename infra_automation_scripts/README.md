@@ -126,6 +126,7 @@ All configurable values are read from `.env` (copy from `.env.example`). The mos
 |----------|---------|---------|
 | `POSTGRES_HOST_PORT` | `5433` | Host port for PostgreSQL |
 | `REDIS_HOST_PORT` | `6379` | Host port for Redis |
+| `REDIS_PASSWORD` | `redis_password` | Redis password used by containers and app clients |
 | `RABBITMQ_AMQP_PORT` | `5672` | Host port for RabbitMQ AMQP |
 | `RABBITMQ_MGMT_PORT` | `15672` | Host port for RabbitMQ Management UI |
 | `CELERY_WORKER_CONCURRENCY` | `10` | Number of Celery worker processes |

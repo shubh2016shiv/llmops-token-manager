@@ -23,6 +23,7 @@ os.environ.setdefault("DATABASE_USER", "myuser")
 os.environ.setdefault("DATABASE_PASSWORD", "mypassword")
 os.environ.setdefault("REDIS_HOST", "localhost")
 os.environ.setdefault("REDIS_PORT", "6379")
+os.environ.setdefault("REDIS_PASSWORD", "")
 
 # ============================================================================
 # AUTHENTICATION FIXTURES FOR TESTING

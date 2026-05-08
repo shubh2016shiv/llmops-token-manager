@@ -1,110 +1,307 @@
 # ============================================================
-#  Docker Compose Setup: LLM Token Manager Infrastructure
-# ------------------------------------------------------------
-#  Purpose:
-#    Infrastructure services for LLM token management system.
-#    Provides backend services only (no FastAPI integration).
+#  Docker Compose: LLM Token Manager
+# ============================================================
+#  Architecture:
+#    ┌──────────┐  ┌──────────┐  ┌──────────┐
+#    │PostgreSQL│  │  Redis   │  │ RabbitMQ │
+#    └────┬─────┘  └────┬─────┘  └────┬─────┘
+#         │              │              │
+#         └──────────────┼──────────────┘
+#                        │
+#                 ┌──────┴──────┐
+#                 │   Celery    │
+#                 │   Worker    │
+#                 └─────────────┘
 #
-#  Services:
-#    1. PostgreSQL – persistent data store for requests and metrics
-#    2. RabbitMQ – message broker for job queueing
-#    3. Redis – caching and rate limiting
+#  Profiles (selective startup):
+#    docker compose --profile infra up -d      # DB + Redis + RabbitMQ only
+#    docker compose --profile worker up -d     # Infra + Celery worker
+#    docker compose --profile all up -d        # Everything (future: + FastAPI)
 #
-#  Networking:
-#    - All services share a private Docker bridge network "backend_net"
-#    - Each service can reach the others by service name
+#  Quick reference:
+#    PostgreSQL      → localhost:5433
+#    Redis           → localhost:6379
+#    RabbitMQ AMQP   → localhost:5672
+#    RabbitMQ Mgmt   → http://localhost:15672
 #
-#  Access (host machine):
-#    PostgreSQL → localhost:5432
-#    Redis → localhost:6379
-#    RabbitMQ AMQP → localhost:5672
-#    RabbitMQ Management → http://localhost:15672 (login: rmq_user/rmq_password)
-#
-#  Commands:
-#    docker-compose up -d --build              # Start all services
-#    docker-compose down -v                    # Stop and remove all
-#    docker-compose logs -f postgres           # View PostgreSQL logs
-#    docker-compose logs -f redis              # View Redis logs
-#    docker-compose logs -f rabbitmq           # View RabbitMQ logs
+#  Environment:
+#    Copy .env.example → .env and adjust values for your environment.
+#    Secrets (passwords) are read from .env via variable substitution.
 # ============================================================
 
-version: '3.8'
+x-common-logging: &common-logging
+  driver: "json-file"
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+x-common-labels: &common-labels
+  com.llm_token_manager.project: "llm-token-manager"
+  com.llm_token_manager.managed_by: "docker-compose"
 
 services:
-  # -------------------- PostgreSQL --------------------------
+  # ==================================================================
+  #  PostgreSQL — relational persistence
+  # ==================================================================
   postgres:
     image: postgres:14.19-alpine3.21
     container_name: llm_postgres
     restart: unless-stopped
+    profiles: ["infra", "worker", "all"]
+    labels:
+      <<: *common-labels
+      com.llm_token_manager.service: "database"
     environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydb
+      POSTGRES_USER: ${POSTGRES_USER:-myuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mypassword}
+      POSTGRES_DB: ${POSTGRES_DB:-mydb}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./postgres_schema/initial_schema.sql:/docker-entrypoint-initdb.d/initial_schema.sql
+      - ./postgres_schema/initial_schema.sql:/docker-entrypoint-initdb.d/initial_schema.sql:ro
     networks:
-      - backend_net
+      - token_manager_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U myuser"]
+      test:
+        ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 15s
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+        reservations:
+          memory: 128m
+          cpus: "0.25"
+    stop_grace_period: 30s
 
-  # -------------------- Redis --------------------------------
+  # ==================================================================
+  #  Redis — caching and rate-limiting
+  # ==================================================================
   redis:
-    image: redis:latest
+    image: redis:7.4-alpine
     container_name: llm_redis
     restart: unless-stopped
+    profiles: ["infra", "worker", "all"]
+    labels:
+      <<: *common-labels
+      com.llm_token_manager.service: "cache"
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     networks:
-      - backend_net
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+      - token_manager_network
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.5"
+        reservations:
+          memory: 64m
+          cpus: "0.1"
+    stop_grace_period: 10s
 
-  # -------------------- RabbitMQ -----------------------------
+  # ==================================================================
+  #  RabbitMQ — message broker for Celery task queuing
+  # ==================================================================
   rabbitmq:
-    image: rabbitmq:3.13-management
+    image: rabbitmq:3.13.7-management-alpine
     container_name: llm_rabbitmq
     restart: unless-stopped
+    profiles: ["infra", "worker", "all"]
+    labels:
+      <<: *common-labels
+      com.llm_token_manager.service: "message-broker"
     environment:
-      RABBITMQ_DEFAULT_USER: rmq_user
-      RABBITMQ_DEFAULT_PASS: rmq_password
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-rmq_user}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-rmq_password}
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "${RABBITMQ_AMQP_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
-      - backend_net
+      - token_manager_network
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+        reservations:
+          memory: 128m
+          cpus: "0.25"
+    stop_grace_period: 30s
 
-# FastAPI server is not included in docker-compose
-# It will be developed and run separately
+  # ==================================================================
+  #  Celery Worker — async task processor
+  # ==================================================================
+  celery_worker:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    container_name: llm_celery_worker
+    restart: unless-stopped
+    init: true # Properly forward signals and reap zombies
+    profiles: ["worker", "all"]
+    labels:
+      <<: *common-labels
+      com.llm_token_manager.service: "task-worker"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Internal service discovery (override-able via .env)
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_VHOST: "/"
+      CELERY_RESULT_BACKEND: "rpc://"
+    command:
+      - "celery"
+      - "-A"
+      - "app.llm_client_provisioning.llm_client_request_queue.celery_app"
+      - "worker"
+      - "--loglevel=${LOG_LEVEL:-info}"
+      - "--concurrency=${CELERY_WORKER_CONCURRENCY:-10}"
+      - "--queues=priority_requests_quorum_v1,llm_requests_quorum_v1"
+      - "--without-gossip"
+      - "--without-mingle"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-m",
+          "app.llm_client_provisioning.celery_healthcheck",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - token_manager_network
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          memory: 1024m
+          cpus: "2.0"
+        reservations:
+          memory: 256m
+          cpus: "0.5"
+    stop_grace_period: 60s
 
-# Celery workers are not included in docker-compose
-# They will be part of your FastAPI application development
+  # ==================================================================
+  #  FastAPI Server (future — activate when ready)
+  # ==================================================================
+  #
+  #  Uncomment the block below and run:
+  #    docker compose --profile all up -d
+  #
+  # fastapi:
+  #   build:
+  #     context: .
+  #     dockerfile: app/Dockerfile
+  #   container_name: llm_fastapi
+  #   restart: unless-stopped
+  #   init: true
+  #   profiles: ["all"]
+  #   labels:
+  #     <<: *common-labels
+  #     com.llm_token_manager.service: "api-server"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     rabbitmq:
+  #       condition: service_healthy
+  #   env_file:
+  #     - .env
+  #   ports:
+  #     - "${FASTAPI_HOST_PORT:-8000}:8000"
+  #   networks:
+  #     - token_manager_network
+  #   healthcheck:
+  #     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+  #     interval: 15s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 10s
+  #   logging: *common-logging
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 512m
+  #         cpus: "1.0"
+  #       reservations:
+  #         memory: 128m
+  #         cpus: "0.25"
+  #   stop_grace_period: 15s
 
-# -------------------- Named Volumes --------------------------
+# ==================================================================
+#  Named Volumes
+# ==================================================================
 volumes:
   pgdata:
+    name: llm_pgdata
+    labels:
+      <<: *common-labels
+      com.llm_token_manager.volume: "postgres-data"
   redis_data:
+    name: llm_redis_data
+    labels:
+      <<: *common-labels
+      com.llm_token_manager.volume: "redis-data"
   rabbitmq_data:
+    name: llm_rabbitmq_data
+    labels:
+      <<: *common-labels
+      com.llm_token_manager.volume: "rabbitmq-data"
 
-# -------------------- Network Definition ---------------------
+# ==================================================================
+#  Network
+# ==================================================================
 networks:
-  backend_net:
+  token_manager_network:
+    name: token_manager_network
     driver: bridge
+    labels:
+      <<: *common-labels
+      com.llm_token_manager.network: "backend"

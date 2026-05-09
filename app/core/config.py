@@ -273,13 +273,57 @@ class ApplicationSettings(BaseSettings):
         description="TTL in milliseconds for token allocation work queue messages",
     )
     rabbitmq_token_queue_delivery_limit: int = Field(
-        default=3,
-        description="Maximum RabbitMQ quorum redeliveries before dead-lettering",
+        default=6,
+        description=(
+            "Maximum RabbitMQ quorum redeliveries before dead-lettering. "
+            "Must exceed the configured retry stage count so the consumer can "
+            "perform explicit DLQ routing after the final retry."
+        ),
+    )
+    rabbitmq_token_heartbeat_seconds: int = Field(
+        default=60,
+        description="Heartbeat interval in seconds for token queue broker connections",
+    )
+    token_queue_connection_pool_limit: int = Field(
+        default=10,
+        description="Persistent Kombu connection-pool size for Layer 4 publishing",
+    )
+    token_queue_retry_schedule_seconds: tuple[int, ...] = Field(
+        default=(5, 10, 20, 40, 60),
+        description=(
+            "Retry schedule in seconds for token allocation persistence messages "
+            "before DLQ routing"
+        ),
+    )
+    token_queue_consumer_prefetch_count: int = Field(
+        default=20,
+        description=(
+            "Number of unacknowledged work messages each token queue consumer "
+            "process may hold at once"
+        ),
+    )
+    token_queue_consumer_concurrency: int = Field(
+        default=8,
+        description=(
+            "Number of raw token queue consumer processes to run for Layer 4 "
+            "persistence throughput"
+        ),
+    )
+    token_queue_consumer_requeue_backoff_seconds: int = Field(
+        default=1,
+        description=(
+            "Seconds to pause before requeueing a work message when retry or DLQ "
+            "publishing is temporarily unavailable"
+        ),
     )
 
     # -------------------------------------------------------------------------
     # Celery Beat / Worker periodic task intervals
     # -------------------------------------------------------------------------
+    celery_token_maintenance_queue_name: str = Field(
+        default="token.maintenance",
+        description="Dedicated Celery queue for token maintenance tasks",
+    )
     celery_reconcile_interval_secs: int = Field(
         default=60,
         description=(
@@ -296,15 +340,27 @@ class ApplicationSettings(BaseSettings):
     )
     celery_token_persist_max_retries: int = Field(
         default=3,
-        description="Max retries for async token allocation persistence tasks",
+        description=(
+            "Deprecated compatibility setting for Celery token persistence retries. "
+            "Layer 4 queue retries are now controlled by "
+            "token_queue_retry_schedule_seconds."
+        ),
     )
     celery_token_persist_retry_base_seconds: int = Field(
         default=5,
-        description="Base countdown in seconds for token persistence retry backoff",
+        description=(
+            "Deprecated compatibility setting for Celery token persistence retry base "
+            "delay. Layer 4 queue retries are now controlled by "
+            "token_queue_retry_schedule_seconds."
+        ),
     )
     celery_token_persist_retry_backoff_multiplier: int = Field(
         default=5,
-        description="Multiplier applied between token persistence retry attempts",
+        description=(
+            "Deprecated compatibility setting for Celery token persistence retry "
+            "backoff. Layer 4 queue retries are now controlled by "
+            "token_queue_retry_schedule_seconds."
+        ),
     )
     celery_token_task_soft_time_limit_seconds: int = Field(
         default=20,
@@ -393,6 +449,11 @@ class ApplicationSettings(BaseSettings):
         "redis_token_counter_max_connections",
         "rabbitmq_token_queue_message_ttl_ms",
         "rabbitmq_token_queue_delivery_limit",
+        "rabbitmq_token_heartbeat_seconds",
+        "token_queue_connection_pool_limit",
+        "token_queue_consumer_prefetch_count",
+        "token_queue_consumer_concurrency",
+        "token_queue_consumer_requeue_backoff_seconds",
         "celery_reconcile_interval_secs",
         "celery_cleanup_interval_secs",
         "celery_dlq_alert_threshold",
@@ -435,6 +496,7 @@ class ApplicationSettings(BaseSettings):
         "rabbitmq_token_dlq_queue_name",
         "rabbitmq_token_allocate_routing_key",
         "rabbitmq_token_allocate_dead_routing_key",
+        "celery_token_maintenance_queue_name",
     )
     @classmethod
     def validate_non_empty_resilience_names(cls, v: str) -> str:
@@ -443,6 +505,35 @@ class ApplicationSettings(BaseSettings):
         if not normalized:
             raise ValueError("Resilience queue and routing names must not be blank")
         return normalized
+
+    @field_validator("token_queue_retry_schedule_seconds", mode="before")
+    @classmethod
+    def validate_token_queue_retry_schedule(
+        cls, value: object
+    ) -> tuple[int, ...] | object:
+        """Normalize retry schedules from tuple/list/csv env forms."""
+        if isinstance(value, str):
+            parsed = tuple(
+                int(part.strip()) for part in value.split(",") if part.strip()
+            )
+        elif isinstance(value, list):
+            parsed = tuple(int(part) for part in value)
+        else:
+            parsed = value
+
+        if not isinstance(parsed, tuple) or not parsed:
+            raise ValueError(
+                "token_queue_retry_schedule_seconds must contain at least one retry"
+            )
+        if any(delay <= 0 for delay in parsed):
+            raise ValueError(
+                "token_queue_retry_schedule_seconds values must be greater than 0"
+            )
+        if tuple(sorted(parsed)) != parsed:
+            raise ValueError(
+                "token_queue_retry_schedule_seconds must be in ascending order"
+            )
+        return parsed
 
     @model_validator(mode="after")
     def validate_resilience_time_limits(self) -> "ApplicationSettings":
@@ -454,6 +545,13 @@ class ApplicationSettings(BaseSettings):
             raise ValueError(
                 "celery_token_task_soft_time_limit_seconds must be less than "
                 "celery_token_task_time_limit_seconds"
+            )
+        minimum_delivery_limit = len(self.token_queue_retry_schedule_seconds) + 1
+        if self.rabbitmq_token_queue_delivery_limit < minimum_delivery_limit:
+            raise ValueError(
+                "rabbitmq_token_queue_delivery_limit must be at least "
+                f"{minimum_delivery_limit} so the final retry can reach the "
+                "consumer for explicit DLQ routing"
             )
         return self
 

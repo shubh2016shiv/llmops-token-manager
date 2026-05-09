@@ -35,6 +35,14 @@ from app.models.request_models import (
 )
 
 # Response models
+from app.models.resilience_models import (
+    BackpressureDecision,
+    CircuitBreakerSnapshot,
+    CounterSeedRecord,
+    DeploymentCapacitySnapshot,
+    DlqPayload,
+    TokenAllocationPersistPayload,
+)
 from app.models.response_models import (
     AllocationListResponse,
     # Enums
@@ -62,6 +70,12 @@ __all__ = [
     "TokenAllocation",
     "TokenEstimation",
     "InputType",
+    "TokenAllocationPersistPayload",
+    "DlqPayload",
+    "CounterSeedRecord",
+    "DeploymentCapacitySnapshot",
+    "CircuitBreakerSnapshot",
+    "BackpressureDecision",
     # Enums
     "AllocationStatus",
     "LLMProvider",

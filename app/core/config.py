@@ -1,12 +1,30 @@
 """
 Application settings and runtime configuration.
 
+Architecture:
+-------------
+    ┌─────────────────────────────┐
+    │ FastAPI / Celery bootstrap  │
+    └──────────────┬──────────────┘
+                   │ reads
+                   ▼
+    ┌─────────────────────────────┐
+    │ ApplicationSettings         │
+    │ (app/core/config.py)        │
+    └───────┬───────────┬─────────┘
+            │           │
+            ▼           ▼
+    ┌──────────────┐  ┌─────────────────┐
+    │ core/        │  │ resilience/     │
+    │ database     │  │ queue/worker    │
+    └──────────────┘  └─────────────────┘
+
 This module is the single source of truth for environment-driven application
 configuration. It uses Pydantic Settings to load, validate, and expose typed
 runtime settings for infrastructure, API, authentication, and async workers.
 """
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -102,6 +120,189 @@ class ApplicationSettings(BaseSettings):
         default=60, description="Max token refresh requests per minute per IP"
     )
 
+    # Per-service rate limiting (token allocation endpoints)
+    # X-Service-Id header buckets each upstream microservice independently.
+    rate_limit_token_acquire_per_minute: int = Field(
+        default=500,
+        description="Max /acquire requests per minute per service × IP pair",
+    )
+
+    # -------------------------------------------------------------------------
+    # PgBouncer connection pooler
+    # -------------------------------------------------------------------------
+    # The app connects to PgBouncer (port 6432) instead of PostgreSQL directly.
+    # PgBouncer multiplexes those connections onto a smaller PostgreSQL pool
+    # (transaction mode), which is critical for high-write async workloads.
+    #
+    # Laptop default: pgbouncer runs in docker-compose on port 6432.
+    # Production: point at your PgBouncer cluster / managed pooler
+    # (e.g. Supabase Pooler).
+    pgbouncer_enabled: bool = Field(
+        default=True,
+        description="Route DB connections through PgBouncer when True",
+    )
+    pgbouncer_host: str = Field(default="localhost", description="PgBouncer host")
+    pgbouncer_port: int = Field(default=6432, description="PgBouncer port")
+
+    # -------------------------------------------------------------------------
+    # Circuit Breaker settings
+    # -------------------------------------------------------------------------
+    # Three independent breakers: DB, Redis, RabbitMQ.
+    # State is stored in Redis so all FastAPI replicas share the same open/closed view.
+    #
+    # failure_threshold  — consecutive failures to trip OPEN
+    # recovery_timeout   — seconds to wait before attempting HALF_OPEN probe
+    cb_db_failure_threshold: int = Field(
+        default=5,
+        description="DB circuit breaker: consecutive failures before OPEN",
+    )
+    cb_db_recovery_timeout: int = Field(
+        default=30,
+        description="DB circuit breaker: seconds in OPEN before HALF_OPEN probe",
+    )
+    cb_redis_failure_threshold: int = Field(
+        default=3,
+        description="Redis circuit breaker: consecutive failures before OPEN",
+    )
+    cb_redis_recovery_timeout: int = Field(
+        default=10,
+        description="Redis circuit breaker: seconds in OPEN before HALF_OPEN probe",
+    )
+    cb_rmq_failure_threshold: int = Field(
+        default=3,
+        description="RabbitMQ circuit breaker: consecutive failures before OPEN",
+    )
+    cb_rmq_recovery_timeout: int = Field(
+        default=15,
+        description="RabbitMQ circuit breaker: seconds in OPEN before HALF_OPEN probe",
+    )
+
+    # -------------------------------------------------------------------------
+    # Back Pressure settings
+    # -------------------------------------------------------------------------
+    # Fail-fast 503 when the system is demonstrably saturated.
+    # This protects downstream services and prevents thundering herd cascades.
+    #
+    # bp_max_queue_depth       — max pending messages in token allocation queue
+    # bp_db_pool_saturation_pct — reject when DB pool checked-out ratio exceeds this
+    bp_max_queue_depth: int = Field(
+        default=10_000,
+        description="Max RabbitMQ token allocation queue depth before 503",
+    )
+    bp_db_pool_saturation_pct: int = Field(
+        default=90,
+        description="DB pool utilization % (0-100) above which back pressure kicks in",
+    )
+    bp_drain_rate_per_second: int = Field(
+        default=400,
+        description="Assumed queue drain rate used to estimate Retry-After values",
+    )
+    bp_retry_after_cap_seconds: int = Field(
+        default=60,
+        description="Upper bound for Retry-After returned during backpressure",
+    )
+
+    # -------------------------------------------------------------------------
+    # Redis Token Counter (fast path)
+    # -------------------------------------------------------------------------
+    # Atomic Lua-based token counters eliminate DB reads on the acquire hot path.
+    # Keys are auto-seeded at startup from PostgreSQL and periodically reconciled.
+    redis_token_counter_ttl_secs: int = Field(
+        default=3_600,
+        description=(
+            "TTL for Redis token counter keys (seconds). Reconciler re-seeds on expiry."
+        ),
+    )
+    redis_token_counter_db: int = Field(
+        default=1,
+        description=(
+            "Redis logical DB index for token counters "
+            "(isolates from rate limiter DB 0)"
+        ),
+    )
+    redis_token_counter_max_connections: int = Field(
+        default=20,
+        description="Dedicated Redis connection limit for token counter operations",
+    )
+
+    # -------------------------------------------------------------------------
+    # RabbitMQ token allocation queue topology
+    # -------------------------------------------------------------------------
+    rabbitmq_token_exchange_name: str = Field(
+        default="token.allocation",
+        description="Primary RabbitMQ exchange name for token allocation messages",
+    )
+    rabbitmq_token_exchange_type: str = Field(
+        default="direct",
+        description="RabbitMQ exchange type used for token allocation messages",
+    )
+    rabbitmq_token_dlx_name: str = Field(
+        default="token.allocation.dlx",
+        description="Dead-letter exchange name for token allocation failures",
+    )
+    rabbitmq_token_work_queue_name: str = Field(
+        default="token.allocation.work",
+        description="Primary RabbitMQ work queue for token allocation persistence",
+    )
+    rabbitmq_token_dlq_queue_name: str = Field(
+        default="token.allocation.dlq",
+        description="RabbitMQ dead-letter queue for failed token allocation messages",
+    )
+    rabbitmq_token_allocate_routing_key: str = Field(
+        default="token.allocate",
+        description="Routing key for token allocation persistence messages",
+    )
+    rabbitmq_token_allocate_dead_routing_key: str = Field(
+        default="token.allocate.dead",
+        description="Routing key for token allocation dead-letter messages",
+    )
+    rabbitmq_token_queue_message_ttl_ms: int = Field(
+        default=300_000,
+        description="TTL in milliseconds for token allocation work queue messages",
+    )
+    rabbitmq_token_queue_delivery_limit: int = Field(
+        default=3,
+        description="Maximum RabbitMQ quorum redeliveries before dead-lettering",
+    )
+
+    # -------------------------------------------------------------------------
+    # Celery Beat / Worker periodic task intervals
+    # -------------------------------------------------------------------------
+    celery_reconcile_interval_secs: int = Field(
+        default=60,
+        description=(
+            "Seconds between Redis and PostgreSQL token counter reconciliation runs"
+        ),
+    )
+    celery_cleanup_interval_secs: int = Field(
+        default=300,
+        description="Seconds between expired allocation cleanup runs",
+    )
+    celery_dlq_alert_threshold: int = Field(
+        default=100,
+        description="DLQ message count that triggers an alert log",
+    )
+    celery_token_persist_max_retries: int = Field(
+        default=3,
+        description="Max retries for async token allocation persistence tasks",
+    )
+    celery_token_persist_retry_base_seconds: int = Field(
+        default=5,
+        description="Base countdown in seconds for token persistence retry backoff",
+    )
+    celery_token_persist_retry_backoff_multiplier: int = Field(
+        default=5,
+        description="Multiplier applied between token persistence retry attempts",
+    )
+    celery_token_task_soft_time_limit_seconds: int = Field(
+        default=20,
+        description="Soft time limit for token allocation Celery tasks",
+    )
+    celery_token_task_time_limit_seconds: int = Field(
+        default=30,
+        description="Hard time limit for token allocation Celery tasks",
+    )
+
     # Caching configuration
     cache_enabled: bool = Field(default=True, description="Enable response caching")
     cache_ttl_seconds: int = Field(default=300, description="Cache TTL in seconds")
@@ -170,6 +371,68 @@ class ApplicationSettings(BaseSettings):
             raise ValueError("Temperature must be between 0.0 and 2.0")
         return v
 
+    @field_validator(
+        "bp_max_queue_depth",
+        "bp_drain_rate_per_second",
+        "bp_retry_after_cap_seconds",
+        "redis_token_counter_ttl_secs",
+        "redis_token_counter_max_connections",
+        "rabbitmq_token_queue_message_ttl_ms",
+        "rabbitmq_token_queue_delivery_limit",
+        "celery_reconcile_interval_secs",
+        "celery_cleanup_interval_secs",
+        "celery_dlq_alert_threshold",
+        "celery_token_persist_max_retries",
+        "celery_token_persist_retry_base_seconds",
+        "celery_token_persist_retry_backoff_multiplier",
+        "celery_token_task_soft_time_limit_seconds",
+        "celery_token_task_time_limit_seconds",
+    )
+    @classmethod
+    def validate_positive_resilience_integers(cls, v: int) -> int:
+        """Validate that resilience integer settings are positive."""
+        if v <= 0:
+            raise ValueError("Resilience setting must be greater than 0")
+        return v
+
+    @field_validator("bp_db_pool_saturation_pct")
+    @classmethod
+    def validate_backpressure_saturation_percent(cls, v: int) -> int:
+        """Validate DB pool saturation threshold is a real percentage."""
+        if not 1 <= v <= 100:
+            raise ValueError("bp_db_pool_saturation_pct must be between 1 and 100")
+        return v
+
+    @field_validator(
+        "rabbitmq_token_exchange_name",
+        "rabbitmq_token_exchange_type",
+        "rabbitmq_token_dlx_name",
+        "rabbitmq_token_work_queue_name",
+        "rabbitmq_token_dlq_queue_name",
+        "rabbitmq_token_allocate_routing_key",
+        "rabbitmq_token_allocate_dead_routing_key",
+    )
+    @classmethod
+    def validate_non_empty_resilience_names(cls, v: str) -> str:
+        """Validate RabbitMQ resilience names are not blank."""
+        normalized = v.strip()
+        if not normalized:
+            raise ValueError("Resilience queue and routing names must not be blank")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_resilience_time_limits(self) -> "ApplicationSettings":
+        """Validate related resilience settings as a coherent set."""
+        if (
+            self.celery_token_task_soft_time_limit_seconds
+            >= self.celery_token_task_time_limit_seconds
+        ):
+            raise ValueError(
+                "celery_token_task_soft_time_limit_seconds must be less than "
+                "celery_token_task_time_limit_seconds"
+            )
+        return self
+
     @property
     def database_url(self) -> str:
         """Construct async PostgreSQL database URL."""
@@ -188,10 +451,22 @@ class ApplicationSettings(BaseSettings):
 
     @property
     def redis_url(self) -> str:
-        """Construct Redis URL."""
+        """Construct Redis URL (DB 0 — rate limiting / general cache)."""
         if self.redis_password:
             return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
         return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
+
+    @property
+    def redis_token_counter_url(self) -> str:
+        """Construct Redis URL for the token counter fast path on isolated DB 1."""
+        if self.redis_password:
+            return (
+                f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}"
+                f"/{self.redis_token_counter_db}"
+            )
+        return (
+            f"redis://{self.redis_host}:{self.redis_port}/{self.redis_token_counter_db}"
+        )
 
     @property
     def broker_url(self) -> str:
@@ -202,6 +477,29 @@ class ApplicationSettings(BaseSettings):
             f"amqp://{self.rabbitmq_user}:{self.rabbitmq_password}"
             f"@{self.rabbitmq_host}:{self.rabbitmq_port}{self.rabbitmq_vhost}"
         )
+
+    @property
+    def effective_database_url(self) -> str:
+        """
+        Return the database URL the application should use.
+
+        When pgbouncer_enabled=True, routes through PgBouncer (transaction-mode pooler)
+        instead of connecting directly to PostgreSQL.
+
+        PgBouncer benefits for high-write workloads:
+        - Multiplexes hundreds of app connections onto a small PostgreSQL pool
+        - Reduces PostgreSQL memory pressure (each connection ~10MB)
+        - Absorbs connection storms during traffic bursts
+
+        Production note: when routing through PgBouncer in transaction mode,
+        set SQLAlchemy pool_size=1 and use NullPool to avoid double-pooling.
+        """
+        if self.pgbouncer_enabled:
+            return (
+                f"postgresql+asyncpg://{self.database_user}:{self.database_password}"
+                f"@{self.pgbouncer_host}:{self.pgbouncer_port}/{self.database_name}"
+            )
+        return self.database_url
 
 
 # Global runtime settings singleton

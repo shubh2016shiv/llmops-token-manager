@@ -44,3 +44,7 @@ python-jose[cryptography]==3.3.0  # JWT token generation and validation
 
 # --- RATE LIMITING ---
 limits==5.8.0                     # Rate limiting library
+
+# --- RESILIENCE LAYER ---
+pybreaker==1.4.1                  # Circuit breaker (CLOSED/OPEN/HALF_OPEN state machine, Redis-backed)
+prometheus-client==0.21.0         # Metrics exposure for CB state, queue depth, backpressure hits

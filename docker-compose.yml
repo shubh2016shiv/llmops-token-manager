@@ -1,18 +1,39 @@
 # ============================================================
 #  Docker Compose: LLM Token Manager
 # ============================================================
-#  Architecture:
-#    ┌──────────┐  ┌──────────┐  ┌──────────┐
-#    │PostgreSQL│  │  Redis   │  │ RabbitMQ │
-#    └────┬─────┘  └────┬─────┘  └────┬─────┘
-#         │              │              │
-#         └──────────────┼──────────────┘
-#                        │
-#                 ┌──────┴──────┐
-#                 │   Celery    │
-#                 │   Worker    │
-#                 └─────────────┘
+#  Architecture (Resilience Layer):
 #
+#    MS-1..4  ─────►  FastAPI  (rate limit, back pressure, CB)
+#                        │
+#               ┌────────┴────────┐
+#               ▼                 ▼
+#         Redis Fast Path    RabbitMQ Quorum
+#         (Lua counters)     (Queue absorption)
+#               │                 │
+#               │           Celery Workers
+#               │                 │
+#               └────────┬────────┘
+#                        ▼
+#                   PgBouncer (port 6432, transaction mode)
+#                        │
+#                   PostgreSQL (port 5432, internal only)
+#
+#  Profiles (selective startup):
+#    docker compose --profile infra up -d      # DB + PgBouncer + Redis + RabbitMQ
+#    docker compose --profile worker up -d     # Infra + Celery workers
+#    docker compose --profile all up -d        # Everything
+#
+#  Quick reference:
+#    PostgreSQL      → localhost:5433   (direct, for admin only)
+#    PgBouncer       → localhost:6432   (app connection pooler)
+#    Redis           → localhost:6379
+#    RabbitMQ AMQP   → localhost:5672
+#    RabbitMQ Mgmt   → http://localhost:15672
+#
+#  Environment:
+#    Copy .env.example → .env and adjust values for your environment.
+#    Secrets (passwords) are read from .env via variable substitution.
+# ============================================================
 #  Profiles (selective startup):
 #    docker compose --profile infra up -d      # DB + Redis + RabbitMQ only
 #    docker compose --profile worker up -d     # Infra + Celery worker
@@ -81,6 +102,75 @@ services:
     stop_grace_period: 30s
 
   # ==================================================================
+  #  PgBouncer — connection pooler (transaction mode)
+  # ==================================================================
+  # PgBouncer sits between the application and PostgreSQL.
+  # In transaction mode, one PostgreSQL backend connection serves
+  # hundreds of short-lived async app connections round-robin.
+  # This is critical for high-write async workloads (asyncpg + SQLAlchemy).
+  #
+  # pool_size=25 (pgbouncer.ini) matches SQLAlchemy's pool ceiling (20+10=30).
+  # App connects to localhost:6432 instead of localhost:5432.
+  pgbouncer:
+    image: edoburu/pgbouncer:1.22.1
+    container_name: llm_pgbouncer
+    restart: unless-stopped
+    profiles: ["infra", "worker", "all"]
+    labels:
+      <<: *common-labels
+      com.llm_token_manager.service: "connection-pooler"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # PgBouncer reads DB connection params from environment when not using ini file
+      # We mount the ini file directly for full control.
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-myuser}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-mypassword}
+      DB_NAME: ${POSTGRES_DB:-mydb}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "500"
+      DEFAULT_POOL_SIZE: "25"
+      MIN_POOL_SIZE: "5"
+      RESERVE_POOL_SIZE: "5"
+      RESERVE_POOL_TIMEOUT: "5"
+      SERVER_IDLE_TIMEOUT: "60"
+      LOG_CONNECTIONS: "1"
+      LOG_DISCONNECTIONS: "1"
+      IGNORE_STARTUP_PARAMETERS: "extra_float_digits,statement_timeout,lock_timeout"
+      ADMIN_USERS: pgbouncer_admin
+      AUTH_TYPE: plain
+    ports:
+      - "${PGBOUNCER_HOST_PORT:-6432}:5432"
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    networks:
+      - token_manager_network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h localhost -p 5432 -U ${POSTGRES_USER:-myuser} -d ${POSTGRES_DB:-mydb} || exit 1"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+          cpus: "0.25"
+        reservations:
+          memory: 16m
+          cpus: "0.05"
+    stop_grace_period: 10s
+
+  # ==================================================================
   #  Redis — caching and rate-limiting
   # ==================================================================
   redis:
@@ -91,21 +181,38 @@ services:
     labels:
       <<: *common-labels
       com.llm_token_manager.service: "cache"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_password}
     ports:
       - "${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     networks:
       - token_manager_network
-    command: >
-      redis-server
-      --appendonly yes
-      --maxmemory 512mb
-      --maxmemory-policy allkeys-lru
-      --save 900 1
-      --save 300 10
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:-redis_password}
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - "900 1"
+      - --save
+      - "300 10"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "--no-auth-warning",
+          "-a",
+          "${REDIS_PASSWORD:-redis_password}",
+          "ping",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -183,9 +290,12 @@ services:
     env_file:
       - .env
     environment:
-      # Internal service discovery (override-able via .env)
-      DATABASE_HOST: postgres
-      DATABASE_PORT: "5432"
+      # Internal service discovery — connect through PgBouncer, not PostgreSQL directly
+      DATABASE_HOST: pgbouncer
+      DATABASE_PORT: "5432"   # PgBouncer internal port (not the host-mapped 6432)
+      PGBOUNCER_HOST: pgbouncer
+      PGBOUNCER_PORT: "5432"
+      PGBOUNCER_ENABLED: "true"
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       RABBITMQ_HOST: rabbitmq
@@ -198,7 +308,7 @@ services:
       - "app.llm_client_provisioning.llm_client_request_queue.celery_app"
       - "worker"
       - "--loglevel=${LOG_LEVEL:-info}"
-      - "--concurrency=${CELERY_WORKER_CONCURRENCY:-10}"
+      - "--concurrency=${CELERY_WORKER_CONCURRENCY:-4}"
       - "--queues=priority_requests_quorum_v1,llm_requests_quorum_v1"
       - "--without-gossip"
       - "--without-mingle"
@@ -225,6 +335,209 @@ services:
         reservations:
           memory: 256m
           cpus: "0.5"
+    stop_grace_period: 60s
+
+  # ==================================================================
+  #  Celery Token Maintenance Worker — reconciliation, cleanup, telemetry
+  # ==================================================================
+  celery_token_maintenance_worker:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    container_name: llm_celery_token_maintenance_worker
+    restart: unless-stopped
+    init: true
+    profiles: ["worker", "all"]
+    labels:
+      <<: *common-labels
+      com.llm_token_manager.service: "token-maintenance-worker"
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_HOST: pgbouncer
+      DATABASE_PORT: "5432"
+      PGBOUNCER_HOST: pgbouncer
+      PGBOUNCER_PORT: "5432"
+      PGBOUNCER_ENABLED: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_VHOST: "/"
+      CELERY_RESULT_BACKEND: "rpc://"
+    command:
+      - "celery"
+      - "-A"
+      - "app.llm_client_provisioning.llm_client_request_queue.celery_app"
+      - "worker"
+      - "--loglevel=${LOG_LEVEL:-info}"
+      - "--concurrency=${CELERY_TOKEN_WORKER_CONCURRENCY:-4}"
+      - "--queues=token.maintenance"
+      - "--without-gossip"
+      - "--without-mingle"
+      - "--hostname=token-maintenance@%h"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-m",
+          "app.resilience.token_worker_healthcheck",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - token_manager_network
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+        reservations:
+          memory: 128m
+          cpus: "0.25"
+    stop_grace_period: 60s
+
+  # ==================================================================
+  #  Celery Beat — periodic resilience scheduler
+  # ==================================================================
+  celery_beat:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    container_name: llm_celery_beat
+    restart: unless-stopped
+    init: true
+    profiles: ["worker", "all"]
+    labels:
+      <<: *common-labels
+      com.llm_token_manager.service: "scheduler"
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_HOST: pgbouncer
+      DATABASE_PORT: "5432"
+      PGBOUNCER_HOST: pgbouncer
+      PGBOUNCER_PORT: "5432"
+      PGBOUNCER_ENABLED: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_VHOST: "/"
+      CELERY_RESULT_BACKEND: "rpc://"
+    command:
+      - "celery"
+      - "-A"
+      - "app.llm_client_provisioning.llm_client_request_queue.celery_app"
+      - "beat"
+      - "--loglevel=${LOG_LEVEL:-info}"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-m",
+          "app.resilience.token_worker_healthcheck",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - token_manager_network
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.5"
+        reservations:
+          memory: 64m
+          cpus: "0.1"
+    stop_grace_period: 60s
+
+  # ==================================================================
+  #  Token Queue Consumer — raw Kombu Layer 4 queue processor
+  # ==================================================================
+  token_queue_consumer:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    container_name: llm_token_queue_consumer
+    restart: unless-stopped
+    init: true
+    profiles: ["worker", "all"]
+    labels:
+      <<: *common-labels
+      com.llm_token_manager.service: "token-queue-consumer"
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_HOST: pgbouncer
+      DATABASE_PORT: "5432"
+      PGBOUNCER_HOST: pgbouncer
+      PGBOUNCER_PORT: "5432"
+      PGBOUNCER_ENABLED: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_VHOST: "/"
+      CELERY_RESULT_BACKEND: "rpc://"
+    command:
+      - "python"
+      - "-m"
+      - "app.resilience.token_queue.consumer"
+      - "--concurrency=${TOKEN_QUEUE_CONSUMER_CONCURRENCY:-8}"
+      - "--prefetch-count=${TOKEN_QUEUE_CONSUMER_PREFETCH_COUNT:-20}"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-m",
+          "app.resilience.token_queue.healthcheck",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - token_manager_network
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+        reservations:
+          memory: 128m
+          cpus: "0.25"
     stop_grace_period: 60s
 
   # ==================================================================

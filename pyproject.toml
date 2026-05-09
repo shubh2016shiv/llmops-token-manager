@@ -50,6 +50,7 @@ dependencies = [
     "python-jose[cryptography]>=3.3.0",
     # --- RATE LIMITING ---
     "limits>=5.8.0",
+    "pybreaker>=1.4.1",
 ]
 
 [project.optional-dependencies]

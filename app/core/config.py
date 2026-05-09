@@ -330,6 +330,13 @@ class ApplicationSettings(BaseSettings):
             "Seconds between Redis and PostgreSQL token counter reconciliation runs"
         ),
     )
+    celery_reconcile_drift_warning_threshold: int = Field(
+        default=100,
+        description=(
+            "Per-deployment token drift magnitude that triggers a warning log "
+            "during reconciliation"
+        ),
+    )
     celery_cleanup_interval_secs: int = Field(
         default=300,
         description="Seconds between expired allocation cleanup runs",
@@ -455,6 +462,7 @@ class ApplicationSettings(BaseSettings):
         "token_queue_consumer_concurrency",
         "token_queue_consumer_requeue_backoff_seconds",
         "celery_reconcile_interval_secs",
+        "celery_reconcile_drift_warning_threshold",
         "celery_cleanup_interval_secs",
         "celery_dlq_alert_threshold",
         "celery_token_persist_max_retries",

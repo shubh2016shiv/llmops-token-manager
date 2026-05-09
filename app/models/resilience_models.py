@@ -15,8 +15,8 @@ Architecture:
                                                    │ validates
                                                    ▼
                                       ┌─────────────────────────┐
-                                      │ token_worker / Redis    │
-                                      │ reconciliation tasks    │
+                                      │ token_maintenance /     │
+                                      │ Redis reconciliation    │
                                       └─────────────────────────┘
 
 Dependencies:
@@ -148,6 +148,22 @@ class CounterSeedRecord(BaseModel):
     api_endpoint_url: str = Field(..., min_length=1, description="Deployment endpoint")
     allocated_tokens: int = Field(..., ge=0, description="Current allocated token sum")
     max_tokens: int = Field(..., gt=0, description="Configured token capacity limit")
+
+
+class InvalidActiveDeploymentRecord(BaseModel):
+    """Represents one invalid active deployment missing configured capacity."""
+
+    llm_provider: str = Field(..., min_length=1, description="LLM provider name")
+    llm_model_name: str = Field(..., min_length=1, description="LLM model name")
+    api_endpoint_url: str = Field(..., min_length=1, description="Deployment endpoint")
+    deployment_name: str | None = Field(
+        default=None,
+        description="Optional deployment identifier",
+    )
+    deployment_region: str | None = Field(
+        default=None,
+        description="Optional deployment region",
+    )
 
 
 class DeploymentCapacitySnapshot(BaseModel):

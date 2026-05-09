@@ -60,6 +60,27 @@ class LLMTokenAllocationPersistence(BasePersistence):
         """
         super().__init__(database_manager)
 
+    def _require_configured_max_tokens(
+        self,
+        chosen_model_config: dict[str, Any],
+        llm_model_name: str,
+        api_endpoint_url: str,
+    ) -> int:
+        """Require configured capacity for active deployment operations."""
+        max_token_limit = chosen_model_config.get("max_tokens")
+        if max_token_limit is None:
+            logger.error(
+                "Active deployment is missing max_tokens and cannot participate in allocation flows",
+                llm_model_name=llm_model_name,
+                api_endpoint_url=api_endpoint_url,
+                deployment_name=chosen_model_config.get("deployment_name"),
+                deployment_region=chosen_model_config.get("deployment_region"),
+            )
+            raise ValueError(
+                "Active deployment is missing max_tokens and cannot serve requests"
+            )
+        return int(max_token_limit)
+
     def validate_allocation_status(self, allocation_status: str) -> None:
         """
         Validate that an allocation status is one of the allowed values.
@@ -848,7 +869,11 @@ class LLMTokenAllocationPersistence(BasePersistence):
                     }
 
             # Get required properties from model config
-            max_token_limit = chosen_model_config.get("max_tokens", 100000)
+            max_token_limit = self._require_configured_max_tokens(
+                dict(chosen_model_config),
+                llm_model_name,
+                api_endpoint,
+            )
             provider_name = chosen_model_config.get("provider_name")
             deployment_region = chosen_model_config.get("deployment_region", "unknown")
             deployment_name = chosen_model_config.get("deployment_name", "")
@@ -1081,7 +1106,11 @@ class LLMTokenAllocationPersistence(BasePersistence):
                 total_allocated_tokens,
                 chosen_model_config,
             ) = await self.get_least_loaded_deployment(llm_model_name)
-            max_token_limit = chosen_model_config.get("max_tokens", 100000)
+            max_token_limit = self._require_configured_max_tokens(
+                chosen_model_config,
+                llm_model_name,
+                chosen_model_config.get("api_endpoint_url", ""),
+            )
             max_token_lock_time_secs = chosen_model_config.get(
                 "max_token_lock_time_secs", 70
             )
@@ -1172,9 +1201,11 @@ class LLMTokenAllocationPersistence(BasePersistence):
             ) = await self.get_least_loaded_deployment(llm_model_name)
 
             # Extract max token limit and lock time
-            max_token_limit = chosen_model_config.get("max_tokens")
-            if not max_token_limit:
-                max_token_limit = 100000  # Default if not specified
+            max_token_limit = self._require_configured_max_tokens(
+                chosen_model_config,
+                llm_model_name,
+                chosen_model_config.get("api_endpoint_url", ""),
+            )
 
             max_token_lock_time_secs = chosen_model_config.get(
                 "max_token_lock_time_secs", 70
@@ -1280,11 +1311,35 @@ class LLMTokenAllocationPersistence(BasePersistence):
                 result = await session.execute(
                     text(deployments_query), {"llm_model_name": llm_model_name}
                 )
-                model_deployments = result.mappings().all()
+                model_deployments = [dict(row) for row in result.mappings().all()]
 
                 if not model_deployments:
                     raise ValueError(
                         f"No model deployments found for llm_model_name = {llm_model_name}"
+                    )
+
+                valid_model_deployments = [
+                    deployment
+                    for deployment in model_deployments
+                    if deployment.get("max_tokens") is not None
+                    and deployment.get("api_endpoint_url") is not None
+                ]
+                invalid_model_deployments = [
+                    deployment
+                    for deployment in model_deployments
+                    if deployment not in valid_model_deployments
+                ]
+                for invalid_deployment in invalid_model_deployments:
+                    logger.error(
+                        "Active deployment is missing max_tokens and is excluded from least-loaded selection",
+                        llm_model_name=invalid_deployment.get("llm_model_name"),
+                        api_endpoint_url=invalid_deployment.get("api_endpoint_url"),
+                        deployment_name=invalid_deployment.get("deployment_name"),
+                        deployment_region=invalid_deployment.get("deployment_region"),
+                    )
+                if not valid_model_deployments:
+                    raise ValueError(
+                        f"No valid active deployments with max_tokens found for llm_model_name = {llm_model_name}"
                     )
 
                 # Get current allocations grouped by llm_model_name and api_endpoint_url
@@ -1314,19 +1369,18 @@ class LLMTokenAllocationPersistence(BasePersistence):
                     used_endpoints = [r["api_endpoint_url"] for r in allocation_results]
                     unused_deployments = [
                         m
-                        for m in model_deployments
+                        for m in valid_model_deployments
                         if m["api_endpoint_url"] not in used_endpoints
-                        and m["api_endpoint_url"] is not None
                     ]
 
                     if unused_deployments:
                         # Choose the first unused deployment
-                        chosen_model_config = dict(unused_deployments[0])
+                        chosen_model_config = unused_deployments[0]
                         return 0, chosen_model_config
 
                 # If no allocations found or no unused deployments, choose the first deployment
                 if not allocation_results:
-                    chosen_model_config = dict(model_deployments[0])
+                    chosen_model_config = valid_model_deployments[0]
                     return 0, chosen_model_config
 
                 # Otherwise, get the deployment with the lowest token count
@@ -1334,17 +1388,17 @@ class LLMTokenAllocationPersistence(BasePersistence):
                 total_allocated_tokens = least_loaded["total_tokens"]
 
                 # Find the matching deployment config
-                for deployment in model_deployments:
+                for deployment in valid_model_deployments:
                     if (
                         deployment["api_endpoint_url"]
                         == least_loaded["api_endpoint_url"]
                     ):
-                        chosen_model_config = dict(deployment)
+                        chosen_model_config = deployment
                         break
 
                 # If no match found (shouldn't happen), use the first deployment
                 if not chosen_model_config:
-                    chosen_model_config = dict(model_deployments[0])
+                    chosen_model_config = valid_model_deployments[0]
                     logger.warning(
                         f"No matching deployment found for endpoint {least_loaded['api_endpoint_url']}"
                     )
@@ -1376,8 +1430,9 @@ def get_token_allocation_repository(
         TokenAllocationRepository instance
 
     Example:
-        >>> from app.core.database_connection import get_db_manager
-        >>> repo = get_token_allocation_repository()
+        >>> from app.core.database import get_db_manager
+        >>> db_mgr = get_db_manager()
+        >>> repo = get_token_allocation_repository(db_mgr)
         >>> allocation = repo.create_token_allocation(
         ...     token_request_id="req_123",
         ...     user_id=UUID('12345678-1234-1234-1234-123456789012'),

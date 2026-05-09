@@ -22,7 +22,7 @@ DB_POOL_SATURATED_REASON = "db_pool_saturated"
 DB_CIRCUIT_BREAKER_OPEN_REASON = "db_circuit_breaker_open"
 
 QUEUE_DEPTH_PUBLISH_TASK_NAME = (
-    "app.resilience.token_worker.publish_backpressure_queue_depth"
+    "app.resilience.token_maintenance.publish_backpressure_queue_depth"
 )
 QUEUE_DEPTH_PUBLISH_SCHEDULE_NAME = "publish-backpressure-queue-depth"
 QUEUE_DEPTH_PUBLISH_TTL_MULTIPLIER = 3

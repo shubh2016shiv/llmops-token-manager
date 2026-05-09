@@ -32,6 +32,9 @@ from app.llm_client_provisioning.service_health import (
     verify_celery_worker_readiness,
     verify_rabbitmq_connectivity,
 )
+from app.resilience.token_maintenance.service_health import (
+    verify_token_maintenance_readiness,
+)
 
 
 class TestServiceStatus:
@@ -802,3 +805,81 @@ class TestVerifyCeleryWorkerReadiness:
         assert result.name == "Celery worker"
         assert result.status == "failed"
         assert result.error_message == "health helper failed"
+
+
+class TestVerifyTokenMaintenanceReadiness:
+    """Test cases for token-maintenance runtime readiness verification."""
+
+    @pytest.mark.asyncio
+    @patch("app.resilience.token_maintenance.service_health.settings")
+    @patch(
+        "app.resilience.token_maintenance.service_health.inspect_token_maintenance_runtime"
+    )
+    async def test_verify_token_maintenance_readiness_success(
+        self, mock_inspect_runtime, mock_settings
+    ):
+        """Test successful token-maintenance readiness verification."""
+        mock_settings.rabbitmq_host = "broker"
+        mock_settings.rabbitmq_port = 5672
+        mock_settings.rabbitmq_vhost = "/"
+        mock_settings.celery_token_maintenance_queue_name = "token_maintenance_q"
+        mock_inspect_runtime.return_value = (True, None)
+
+        result = await verify_token_maintenance_readiness()
+
+        assert result.name == "Token maintenance"
+        assert result.status == "connected"
+        assert result.connection_details == {
+            "host": "broker",
+            "port": "5672",
+            "virtual_host": "/",
+            "queue": "token_maintenance_q",
+            "required_tasks": (
+                "app.resilience.token_maintenance.cleanup_expired_allocations, "
+                "app.resilience.token_maintenance.publish_backpressure_queue_depth, "
+                "app.resilience.token_maintenance.reconcile_redis_postgres"
+            ),
+        }
+
+    @pytest.mark.asyncio
+    @patch("app.resilience.token_maintenance.service_health.settings")
+    @patch(
+        "app.resilience.token_maintenance.service_health.inspect_token_maintenance_runtime"
+    )
+    async def test_verify_token_maintenance_readiness_failure(
+        self, mock_inspect_runtime, mock_settings
+    ):
+        """Test failed token-maintenance readiness details."""
+        mock_settings.rabbitmq_host = "broker"
+        mock_settings.rabbitmq_port = 5672
+        mock_settings.rabbitmq_vhost = "/"
+        mock_settings.celery_token_maintenance_queue_name = "token_maintenance_q"
+        mock_inspect_runtime.return_value = (False, "runtime not ready")
+
+        result = await verify_token_maintenance_readiness()
+
+        assert result.name == "Token maintenance"
+        assert result.status == "failed"
+        assert result.error_message == "runtime not ready"
+        assert "Verify token-maintenance tasks are registered" in result.suggestion
+
+    @pytest.mark.asyncio
+    @patch("app.resilience.token_maintenance.service_health.settings")
+    @patch(
+        "app.resilience.token_maintenance.service_health.inspect_token_maintenance_runtime"
+    )
+    async def test_verify_token_maintenance_readiness_exception(
+        self, mock_inspect_runtime, mock_settings
+    ):
+        """Test token-maintenance readiness when the shared probe raises."""
+        mock_settings.rabbitmq_host = "broker"
+        mock_settings.rabbitmq_port = 5672
+        mock_settings.rabbitmq_vhost = "/"
+        mock_settings.celery_token_maintenance_queue_name = "token_maintenance_q"
+        mock_inspect_runtime.side_effect = RuntimeError("probe failed")
+
+        result = await verify_token_maintenance_readiness()
+
+        assert result.name == "Token maintenance"
+        assert result.status == "failed"
+        assert result.error_message == "probe failed"

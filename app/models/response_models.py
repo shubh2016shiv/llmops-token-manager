@@ -563,6 +563,7 @@ class DependencyHealth(BaseModel):
     - Redis cache
     - RabbitMQ message broker
     - Celery worker readiness
+    - Token-maintenance runtime readiness
 
     Each component is represented as a boolean indicating if it's operational.
     """
@@ -571,6 +572,9 @@ class DependencyHealth(BaseModel):
     redis: bool = Field(..., description="Redis cache health status")
     rabbitmq: bool = Field(..., description="RabbitMQ message broker health status")
     celery_worker: bool = Field(..., description="Celery worker readiness status")
+    token_maintenance: bool = Field(
+        ..., description="Token-maintenance runtime readiness status"
+    )
     status: str = Field(
         ..., description="Overall health status: 'healthy' or 'unhealthy'"
     )
@@ -585,6 +589,7 @@ class DependencyHealth(BaseModel):
                 "redis": True,
                 "rabbitmq": True,
                 "celery_worker": True,
+                "token_maintenance": True,
                 "status": "healthy",
                 "timestamp": "2025-10-13T10:30:00Z",
             }

@@ -12,6 +12,7 @@ from app.core.service_health import ServiceStatus
 @pytest.mark.asyncio
 @patch("app.app.display_provisioning_service_info")
 @patch("app.app.display_service_info")
+@patch("app.app.verify_token_maintenance_readiness", new_callable=AsyncMock)
 @patch("app.app.verify_celery_worker_readiness", new_callable=AsyncMock)
 @patch("app.app.verify_rabbitmq_connectivity", new_callable=AsyncMock)
 @patch("app.app.verify_redis_connectivity", new_callable=AsyncMock)
@@ -27,6 +28,7 @@ async def test_lifespan_allows_worker_degradation_by_default(
     mock_verify_redis,
     mock_verify_rabbitmq,
     mock_verify_celery_worker,
+    mock_verify_token_maintenance,
     mock_display_service_info,
     mock_display_provisioning_service_info,
 ):
@@ -47,6 +49,9 @@ async def test_lifespan_allows_worker_degradation_by_default(
     mock_verify_celery_worker.return_value = ServiceStatus(
         "Celery worker", "failed", error_message="worker unavailable"
     )
+    mock_verify_token_maintenance.return_value = ServiceStatus(
+        "Token maintenance", "connected"
+    )
 
     async with lifespan(fastapi_app):
         pass
@@ -57,6 +62,7 @@ async def test_lifespan_allows_worker_degradation_by_default(
 
 @pytest.mark.asyncio
 @patch("app.app.display_startup_failure")
+@patch("app.app.verify_token_maintenance_readiness", new_callable=AsyncMock)
 @patch("app.app.verify_celery_worker_readiness", new_callable=AsyncMock)
 @patch("app.app.verify_rabbitmq_connectivity", new_callable=AsyncMock)
 @patch("app.app.verify_redis_connectivity", new_callable=AsyncMock)
@@ -74,6 +80,7 @@ async def test_lifespan_can_require_celery_worker_on_startup(
     mock_verify_redis,
     mock_verify_rabbitmq,
     mock_verify_celery_worker,
+    mock_verify_token_maintenance,
     mock_display_startup_failure,
 ):
     """FastAPI should fail startup when the worker is required and unavailable."""
@@ -94,6 +101,9 @@ async def test_lifespan_can_require_celery_worker_on_startup(
         "Celery worker", "failed", error_message="worker unavailable"
     )
     mock_verify_celery_worker.return_value = worker_status
+    mock_verify_token_maintenance.return_value = ServiceStatus(
+        "Token maintenance", "connected"
+    )
 
     with pytest.raises(RuntimeError, match="startup halted"):
         async with lifespan(fastapi_app):

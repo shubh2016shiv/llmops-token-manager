@@ -58,6 +58,7 @@ def sample_dependency_health():
         "redis": True,
         "rabbitmq": True,
         "celery_worker": True,
+        "token_maintenance": True,
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc),
     }
@@ -128,6 +129,7 @@ class TestBasicHealthCheck:
 class TestDependencyHealthCheck:
     """Test cases for dependency health check endpoint."""
 
+    @patch("app.api.health_endpoints._check_token_maintenance")
     @patch("app.api.health_endpoints._check_celery_worker")
     @patch("app.api.health_endpoints._check_rabbitmq")
     @patch("app.api.health_endpoints._check_redis")
@@ -138,6 +140,7 @@ class TestDependencyHealthCheck:
         mock_check_redis,
         mock_check_rabbitmq,
         mock_check_celery_worker,
+        mock_check_token_maintenance,
         client,
         sample_dependency_health,
     ):
@@ -147,6 +150,7 @@ class TestDependencyHealthCheck:
         mock_check_redis.return_value = True
         mock_check_rabbitmq.return_value = True
         mock_check_celery_worker.return_value = True
+        mock_check_token_maintenance.return_value = True
 
         # Act
         response = client.get("/api/v1/health/dependencies")
@@ -158,9 +162,11 @@ class TestDependencyHealthCheck:
         assert data["redis"] is True
         assert data["rabbitmq"] is True
         assert data["celery_worker"] is True
+        assert data["token_maintenance"] is True
         assert data["status"] == "healthy"
         assert "timestamp" in data
 
+    @patch("app.api.health_endpoints._check_token_maintenance")
     @patch("app.api.health_endpoints._check_celery_worker")
     @patch("app.api.health_endpoints._check_rabbitmq")
     @patch("app.api.health_endpoints._check_redis")
@@ -171,6 +177,7 @@ class TestDependencyHealthCheck:
         mock_check_redis,
         mock_check_rabbitmq,
         mock_check_celery_worker,
+        mock_check_token_maintenance,
         client,
     ):
         """Test PostgreSQL unhealthy returns correct response."""
@@ -179,6 +186,7 @@ class TestDependencyHealthCheck:
         mock_check_redis.return_value = True
         mock_check_rabbitmq.return_value = True
         mock_check_celery_worker.return_value = True
+        mock_check_token_maintenance.return_value = True
 
         # Act
         response = client.get("/api/v1/health/dependencies")
@@ -190,8 +198,10 @@ class TestDependencyHealthCheck:
         assert data["redis"] is True
         assert data["rabbitmq"] is True
         assert data["celery_worker"] is True
+        assert data["token_maintenance"] is True
         assert data["status"] == "unhealthy"
 
+    @patch("app.api.health_endpoints._check_token_maintenance")
     @patch("app.api.health_endpoints._check_celery_worker")
     @patch("app.api.health_endpoints._check_rabbitmq")
     @patch("app.api.health_endpoints._check_redis")
@@ -202,6 +212,7 @@ class TestDependencyHealthCheck:
         mock_check_redis,
         mock_check_rabbitmq,
         mock_check_celery_worker,
+        mock_check_token_maintenance,
         client,
     ):
         """Test Redis unhealthy returns correct response."""
@@ -210,6 +221,7 @@ class TestDependencyHealthCheck:
         mock_check_redis.return_value = False
         mock_check_rabbitmq.return_value = True
         mock_check_celery_worker.return_value = True
+        mock_check_token_maintenance.return_value = True
 
         # Act
         response = client.get("/api/v1/health/dependencies")
@@ -221,8 +233,10 @@ class TestDependencyHealthCheck:
         assert data["redis"] is False
         assert data["rabbitmq"] is True
         assert data["celery_worker"] is True
+        assert data["token_maintenance"] is True
         assert data["status"] == "unhealthy"
 
+    @patch("app.api.health_endpoints._check_token_maintenance")
     @patch("app.api.health_endpoints._check_celery_worker")
     @patch("app.api.health_endpoints._check_rabbitmq")
     @patch("app.api.health_endpoints._check_redis")
@@ -233,6 +247,7 @@ class TestDependencyHealthCheck:
         mock_check_redis,
         mock_check_rabbitmq,
         mock_check_celery_worker,
+        mock_check_token_maintenance,
         client,
     ):
         """Test RabbitMQ unhealthy returns correct response."""
@@ -241,6 +256,7 @@ class TestDependencyHealthCheck:
         mock_check_redis.return_value = True
         mock_check_rabbitmq.return_value = False
         mock_check_celery_worker.return_value = True
+        mock_check_token_maintenance.return_value = True
 
         # Act
         response = client.get("/api/v1/health/dependencies")
@@ -252,8 +268,10 @@ class TestDependencyHealthCheck:
         assert data["redis"] is True
         assert data["rabbitmq"] is False
         assert data["celery_worker"] is True
+        assert data["token_maintenance"] is True
         assert data["status"] == "unhealthy"
 
+    @patch("app.api.health_endpoints._check_token_maintenance")
     @patch("app.api.health_endpoints._check_celery_worker")
     @patch("app.api.health_endpoints._check_rabbitmq")
     @patch("app.api.health_endpoints._check_redis")
@@ -264,6 +282,7 @@ class TestDependencyHealthCheck:
         mock_check_redis,
         mock_check_rabbitmq,
         mock_check_celery_worker,
+        mock_check_token_maintenance,
         client,
     ):
         """Test multiple dependencies unhealthy returns correct response."""
@@ -272,6 +291,7 @@ class TestDependencyHealthCheck:
         mock_check_redis.return_value = False
         mock_check_rabbitmq.return_value = False
         mock_check_celery_worker.return_value = False
+        mock_check_token_maintenance.return_value = False
 
         # Act
         response = client.get("/api/v1/health/dependencies")
@@ -283,8 +303,10 @@ class TestDependencyHealthCheck:
         assert data["redis"] is False
         assert data["rabbitmq"] is False
         assert data["celery_worker"] is False
+        assert data["token_maintenance"] is False
         assert data["status"] == "unhealthy"
 
+    @patch("app.api.health_endpoints._check_token_maintenance")
     @patch("app.api.health_endpoints._check_celery_worker")
     @patch("app.api.health_endpoints._check_rabbitmq")
     @patch("app.api.health_endpoints._check_redis")
@@ -295,6 +317,7 @@ class TestDependencyHealthCheck:
         mock_check_redis,
         mock_check_rabbitmq,
         mock_check_celery_worker,
+        mock_check_token_maintenance,
         client,
     ):
         """Test dependency health response matches DependencyHealth schema."""
@@ -303,6 +326,7 @@ class TestDependencyHealthCheck:
         mock_check_redis.return_value = True
         mock_check_rabbitmq.return_value = True
         mock_check_celery_worker.return_value = True
+        mock_check_token_maintenance.return_value = True
 
         # Act
         response = client.get("/api/v1/health/dependencies")
@@ -317,6 +341,7 @@ class TestDependencyHealthCheck:
             "redis",
             "rabbitmq",
             "celery_worker",
+            "token_maintenance",
             "status",
             "timestamp",
         ]
@@ -328,6 +353,7 @@ class TestDependencyHealthCheck:
         assert isinstance(data["redis"], bool)
         assert isinstance(data["rabbitmq"], bool)
         assert isinstance(data["celery_worker"], bool)
+        assert isinstance(data["token_maintenance"], bool)
         assert isinstance(data["status"], str)
         assert isinstance(data["timestamp"], str)
 
@@ -337,8 +363,10 @@ class TestDependencyHealthCheck:
         assert dependency_health.redis is True
         assert dependency_health.rabbitmq is True
         assert dependency_health.celery_worker is True
+        assert dependency_health.token_maintenance is True
         assert dependency_health.status == "healthy"
 
+    @patch("app.api.health_endpoints._check_token_maintenance")
     @patch("app.api.health_endpoints._check_celery_worker")
     @patch("app.api.health_endpoints._check_rabbitmq")
     @patch("app.api.health_endpoints._check_redis")
@@ -349,6 +377,7 @@ class TestDependencyHealthCheck:
         mock_check_redis,
         mock_check_rabbitmq,
         mock_check_celery_worker,
+        mock_check_token_maintenance,
         client,
     ):
         """Test Celery worker unhealthy returns correct response."""
@@ -356,6 +385,7 @@ class TestDependencyHealthCheck:
         mock_check_redis.return_value = True
         mock_check_rabbitmq.return_value = True
         mock_check_celery_worker.return_value = False
+        mock_check_token_maintenance.return_value = True
 
         response = client.get("/api/v1/health/dependencies")
 
@@ -365,4 +395,5 @@ class TestDependencyHealthCheck:
         assert data["redis"] is True
         assert data["rabbitmq"] is True
         assert data["celery_worker"] is False
+        assert data["token_maintenance"] is True
         assert data["status"] == "unhealthy"

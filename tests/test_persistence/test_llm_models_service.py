@@ -284,7 +284,7 @@ class TestLLMModelsServiceCreate:
             "api_key_vault_id": None,
             "api_endpoint": None,
             "model_version": None,
-            "max_tokens": None,
+            "max_tokens": 4096,
             "tokens_per_minute_limit": None,
             "requests_per_minute_limit": None,
             "is_active": True,
@@ -1012,7 +1012,7 @@ class TestLLMModelsServiceUpdate:
 
         # Assert
         assert result == updated_data
-        mock_session.execute.assert_called_once()
+        assert mock_session.execute.await_count == 2
 
     @pytest.mark.asyncio
     async def test_deactivate_llm_model(

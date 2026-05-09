@@ -872,6 +872,9 @@ class LLMModelCreateRequest(BaseModel):
                 "When using cloud-based LLM, all cloud-specific fields must be provided."
             )
 
+        if self.is_active_status and self.max_tokens is None:
+            raise ValueError("max_tokens is required when is_active_status is True")
+
         return self
 
     class Config:

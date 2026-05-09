@@ -4,7 +4,7 @@ Queue depth publisher - worker-side RabbitMQ telemetry for Layer 1.
 Architecture:
 -------------
     ┌────────────────────────────┐     ┌────────────────────────────┐
-    │ token_worker.py beat task  │────▶│ queue_depth_publisher.py   │
+    │ token_maintenance task     │────▶│ queue_depth_publisher.py   │
     │ scheduler / dispatcher     │     │ queue depth snapshot write │
     └────────────────────────────┘     └──────────────┬─────────────┘
                                                       │
@@ -105,7 +105,10 @@ def _read_current_work_queue_depth() -> int:
     """Read the current RabbitMQ work-queue depth using Kombu's queue helper."""
     connection = cast(
         "BrokerConnectionContextProtocol",
-        Connection(settings.broker_url, heartbeat=10),
+        Connection(
+            settings.broker_url,
+            heartbeat=settings.rabbitmq_token_heartbeat_seconds,
+        ),
     )
     with connection:
         channel = connection.channel()

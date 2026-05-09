@@ -246,3 +246,47 @@ def auth_token_refresh_rate_limiter() -> Callable[[Request], Awaitable[None]]:
         key_namespace="auth_token_refresh",
     )
     return rate_limit_dependency(rule=rule, key_fn=ip_only_key)
+
+
+# ---------------------------------------------------------------------------
+# Per-service token acquisition rate limiter
+# ---------------------------------------------------------------------------
+# Buckets each upstream microservice (identified by X-Service-Id header)
+# independently. This prevents one misbehaving service from exhausting the
+# shared rate-limit budget and starving other services.
+#
+# Key: "{service_id}:{client_ip}"
+#   - service_id: value of X-Service-Id header (falls back to "unknown")
+#   - client_ip:  extracted via get_client_ip (respects X-Forwarded-For)
+#
+# If X-Service-Id is missing, the request is bucketed as "unknown" — it
+# still rate-limits but does not interfere with identified services.
+
+
+async def service_id_key(request: Request) -> str:
+    """
+    Rate-limit key for per-service token acquisition limiting.
+
+    Format: "{service_id}:{client_ip}"
+
+    Enterprise note: ensure upstream services set X-Service-Id consistently.
+    Recommended values: "ms-llm-gateway", "ms-content-pipeline", etc.
+    """
+    service_id = request.headers.get("X-Service-Id", "unknown").strip() or "unknown"
+    client_ip = get_client_ip(request)
+    return f"{service_id}:{client_ip}"
+
+
+def token_acquire_rate_limiter() -> Callable[[Request], Awaitable[None]]:
+    """
+    Dependency enforcing per-service rate limiting on the token acquire endpoint.
+
+    Limit: settings.rate_limit_token_acquire_per_minute per service×IP pair per minute.
+    Default: 500/min (generous for legitimate microservices; blocks runaway loops).
+    """
+    rule = RateLimitRule(
+        name="token_acquire",
+        limit=f"{settings.rate_limit_token_acquire_per_minute}/minute",
+        key_namespace="token_acquire",
+    )
+    return rate_limit_dependency(rule=rule, key_fn=service_id_key)

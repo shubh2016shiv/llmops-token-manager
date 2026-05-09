@@ -24,7 +24,7 @@ Dependencies:
     - app/core/config.py - backpressure thresholds and retry settings
     - app/models/resilience_models.py - BackpressureDecision contract
     - app/resilience/circuit_breaker - DB breaker state snapshot
-    - app/resilience/token_worker.py - periodic queue-depth publication
+    - app/resilience/token_maintenance/tasks.py - periodic queue-depth publication
 
 Author: Engineering Team
 Last Updated: 2026-05-09

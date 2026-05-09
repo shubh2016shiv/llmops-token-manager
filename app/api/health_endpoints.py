@@ -2,7 +2,8 @@
 Health Check Endpoints
 ---------------------
 Health monitoring endpoints for service and dependencies.
-Provides status checks for database, Redis, RabbitMQ, and Celery worker readiness.
+Provides status checks for database, Redis, RabbitMQ, Celery worker readiness,
+and token-maintenance runtime readiness.
 """
 
 from datetime import datetime, timezone
@@ -21,6 +22,9 @@ from app.llm_client_provisioning.service_health import (
     verify_rabbitmq_connectivity,
 )
 from app.models.response_models import DependencyHealth, HealthStatus
+from app.resilience.token_maintenance.service_health import (
+    verify_token_maintenance_readiness,
+)
 
 router = APIRouter(prefix="/api/v1/health", tags=["Health"])
 
@@ -48,7 +52,8 @@ async def health_check() -> HealthStatus:
 async def check_dependencies() -> DependencyHealth:
     """
     Check health of all service dependencies.
-    Tests connectivity to PostgreSQL, Redis, RabbitMQ, and Celery worker readiness.
+    Tests connectivity to PostgreSQL, Redis, RabbitMQ, Celery worker readiness,
+    and token-maintenance runtime readiness.
 
     Returns a 200 OK status with the health status of each component.
     If any component is unhealthy, the overall status will be 'unhealthy'
@@ -77,12 +82,16 @@ async def check_dependencies() -> DependencyHealth:
     # Check Celery worker readiness
     celery_worker_healthy = await _check_celery_worker()
 
+    # Check token-maintenance runtime readiness
+    token_maintenance_healthy = await _check_token_maintenance()
+
     # Determine overall health status
     all_healthy = (
         postgresql_healthy
         and redis_healthy
         and rabbitmq_healthy
         and celery_worker_healthy
+        and token_maintenance_healthy
     )
     status = "healthy" if all_healthy else "unhealthy"
 
@@ -92,7 +101,8 @@ async def check_dependencies() -> DependencyHealth:
             f"Infrastructure health check detected issues: "
             "postgresql="
             f"{postgresql_healthy}, redis={redis_healthy}, rabbitmq={rabbitmq_healthy}, "
-            f"celery_worker={celery_worker_healthy}"
+            f"celery_worker={celery_worker_healthy}, "
+            f"token_maintenance={token_maintenance_healthy}"
         )
     else:
         logger.info("All infrastructure components healthy")
@@ -104,6 +114,7 @@ async def check_dependencies() -> DependencyHealth:
         redis=redis_healthy,
         rabbitmq=rabbitmq_healthy,
         celery_worker=celery_worker_healthy,
+        token_maintenance=token_maintenance_healthy,
         status=status,
         timestamp=datetime.now(timezone.utc),
     )
@@ -155,6 +166,18 @@ async def _check_celery_worker() -> bool:
     """
     result = await verify_celery_worker_readiness()
     return _is_service_connected(result, "Celery worker")
+
+
+async def _check_token_maintenance() -> bool:
+    """
+    Check token-maintenance runtime readiness.
+
+    Returns:
+        bool: True if the token-maintenance runtime is ready
+
+    """
+    result = await verify_token_maintenance_readiness()
+    return _is_service_connected(result, "Token maintenance")
 
 
 def _is_service_connected(result: ServiceStatus, service_name: str) -> bool:

@@ -3,13 +3,15 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from app.resilience import token_worker as token_worker_module
 from app.resilience.backpressure import (
     queue_depth_publisher as queue_depth_publisher_module,
 )
 from app.resilience.backpressure.constants import (
     QUEUE_DEPTH_PUBLISH_SCHEDULE_NAME,
     QUEUE_DEPTH_PUBLISH_TASK_NAME,
+)
+from app.resilience.token_maintenance import (
+    schedule_registry as schedule_registry_module,
 )
 
 
@@ -117,23 +119,18 @@ def test_queue_depth_publisher_skips_redis_write_when_sampling_fails(
 
 
 def test_publish_task_is_registered_in_beat_schedule(monkeypatch) -> None:
-    monkeypatch.setattr(
-        token_worker_module,
-        "celery_app",
-        SimpleNamespace(conf=SimpleNamespace(beat_schedule={}, task_routes={})),
-    )
+    fake_celery_app = SimpleNamespace(conf=SimpleNamespace(beat_schedule={}))
+    monkeypatch.setattr(schedule_registry_module, "_beat_registered", False)
 
-    token_worker_module.register_beat_schedule()
+    schedule_registry_module.register_beat_schedule(fake_celery_app)
 
     assert (
-        token_worker_module.celery_app.conf.beat_schedule[
-            QUEUE_DEPTH_PUBLISH_SCHEDULE_NAME
-        ]["task"]
+        fake_celery_app.conf.beat_schedule[QUEUE_DEPTH_PUBLISH_SCHEDULE_NAME]["task"]
         == QUEUE_DEPTH_PUBLISH_TASK_NAME
     )
     assert (
-        token_worker_module.celery_app.conf.task_routes[QUEUE_DEPTH_PUBLISH_TASK_NAME][
+        schedule_registry_module.MAINTENANCE_TASK_ROUTES[QUEUE_DEPTH_PUBLISH_TASK_NAME][
             "queue"
         ]
-        == token_worker_module.settings.rabbitmq_token_work_queue_name
+        == schedule_registry_module.settings.celery_token_maintenance_queue_name
     )

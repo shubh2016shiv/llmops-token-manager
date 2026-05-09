@@ -121,6 +121,11 @@ class RedisTokenCounterService:
             await close_result
         self._closed = True
 
+    @property
+    def redis_client(self) -> aioredis.Redis:
+        """Expose the shared Redis client for coordinated maintenance operations."""
+        return self._redis
+
     async def reserve_tokens(
         self,
         model_name: str,

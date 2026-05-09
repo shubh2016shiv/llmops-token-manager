@@ -24,11 +24,23 @@ from app.core.service_health import (
     verify_database_connectivity,
     verify_redis_connectivity,
 )
+from app.llm_client_provisioning.llm_client_request_queue import celery_app
 from app.llm_client_provisioning.service_health import (
     display_provisioning_service_info,
     verify_celery_worker_readiness,
     verify_rabbitmq_connectivity,
 )
+from app.persistence.token_maintenance_persistence import TokenMaintenancePersistence
+from app.resilience.circuit_breaker import close_circuit_breaker_redis_client
+from app.resilience.redis_token_counter import (
+    close_shared_redis_token_counter_service,
+    get_shared_redis_token_counter_service,
+)
+from app.resilience.token_maintenance.schedule_registry import register_beat_schedule
+from app.resilience.token_maintenance.service_health import (
+    verify_token_maintenance_readiness,
+)
+from app.resilience.token_queue import declare_token_queues
 
 # -----------------------------------------------------------------------------
 # APP BOOTSTRAP EXPLANATION (for future maintainers)
@@ -114,6 +126,17 @@ async def lifespan(app: FastAPI):
             "REQUIRE_CELERY_WORKER_ON_STARTUP is false."
         )
 
+    logger.info("Checking token maintenance readiness...")
+    token_maintenance_status = await verify_token_maintenance_readiness()
+    service_statuses.append(token_maintenance_status)
+
+    if token_maintenance_status.status == "connected":
+        logger.info("[SUCCESS] Token maintenance runtime ready")
+    else:
+        logger.error(
+            f"[FAILED] Token maintenance: {token_maintenance_status.error_message}"
+        )
+
     startup_blockers = [
         service
         for service in service_statuses
@@ -136,6 +159,33 @@ async def lifespan(app: FastAPI):
     # All services connected - display success info
     display_service_info()
     display_provisioning_service_info()
+
+    # ----------------------------------------------------------------
+    # Resilience layer startup
+    # ----------------------------------------------------------------
+    # 1. Declare RabbitMQ token allocation queues (idempotent)
+    logger.info("Declaring token allocation queues...")
+    try:
+        declare_token_queues()
+        logger.info("[SUCCESS] Token allocation queues declared")
+    except Exception as e:
+        logger.warning(f"[DEGRADED] Token queue declaration failed (non-fatal): {e}")
+
+    # 2. Seed Redis token counters from PostgreSQL ground truth
+    logger.info("Seeding Redis token counters from PostgreSQL...")
+    try:
+        await _seed_token_counters()
+        logger.info("[SUCCESS] Redis token counters seeded")
+    except Exception as e:
+        logger.warning(
+            f"[DEGRADED] Token counter seeding failed (non-fatal — "
+            f"will self-correct on first reconcile run): {e}"
+        )
+
+    # 3. Register Celery beat schedule for periodic reconciliation tasks
+    register_beat_schedule(celery_app)
+    logger.info("[SUCCESS] Celery beat schedule registered")
+
     logger.info("[SUCCESS] Application startup complete")
 
     yield
@@ -145,9 +195,52 @@ async def lifespan(app: FastAPI):
     try:
         await db_manager.close()
         await redis_manager.close()
+        await close_shared_redis_token_counter_service()
+        close_circuit_breaker_redis_client()
         logger.info("Application shutdown complete")
     except Exception as e:
         logger.error(f"Shutdown error: {e}")
+
+
+async def _seed_token_counters() -> None:
+    """
+    Seed Redis token counters with current PostgreSQL allocation sums.
+
+    Queries all active (ACQUIRED + PAUSED) allocations grouped by model/endpoint
+    and seeds the Redis fast-path counters so the first requests after startup
+    use the fast path immediately (no cold-start DB read cascade).
+
+    Non-fatal: if PostgreSQL or Redis are unavailable at this point,
+    the counters will be seeded lazily by the first reconcile beat task.
+    """
+    shared_token_counter_service = get_shared_redis_token_counter_service()
+    maintenance_persistence = TokenMaintenancePersistence()
+    invalid_active_models = (
+        await maintenance_persistence.list_invalid_active_models_without_capacity()
+    )
+    for invalid_model in invalid_active_models:
+        logger.error(
+            "Active deployment is missing max_tokens "
+            "and is excluded from startup counter seeding",
+            llm_provider=invalid_model.llm_provider,
+            llm_model_name=invalid_model.llm_model_name,
+            api_endpoint_url=invalid_model.api_endpoint_url,
+            deployment_name=invalid_model.deployment_name,
+            deployment_region=invalid_model.deployment_region,
+        )
+    seed_records = await maintenance_persistence.list_startup_counter_seed_snapshots()
+
+    seeded = 0
+    for seed_record in seed_records:
+        await shared_token_counter_service.seed_counter(
+            model_name=seed_record.llm_model_name,
+            api_endpoint_url=seed_record.api_endpoint_url,
+            current_allocated=seed_record.allocated_tokens,
+            max_limit=seed_record.max_tokens,
+        )
+        seeded += 1
+
+    logger.info(f"Seeded {seeded} Redis token counter(s) from PostgreSQL")
 
 
 # Create FastAPI application

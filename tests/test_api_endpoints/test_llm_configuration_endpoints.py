@@ -285,6 +285,29 @@ class TestCreateLLMModel:
         assert "detail" in data
         # Should have validation errors for empty model name and negative max_tokens
 
+    def test_create_llm_model_active_without_max_tokens_returns_422(
+        self,
+        app,
+        client,
+        mock_admin_user,
+    ):
+        """Active deployments without capacity must be rejected at the API boundary."""
+        from app.auth.auth_dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
+
+        invalid_request = {
+            "llm_provider": "openai",
+            "llm_model_name": "gpt-4o",
+            "api_key_variable_name": "OPENAI_API_KEY_GPT4O",
+            "api_endpoint_url": "https://api.openai.com/v1",
+            "is_active_status": True,
+        }
+
+        response = client.post("/api/v1/llm-models/", json=invalid_request)
+
+        assert response.status_code == 422
+
     @patch("app.api.llm_configuration_endpoints.LLMModelPersistence")
     def test_create_llm_model_database_error(
         self, mock_llm_service, app, client, mock_admin_user, sample_create_request

@@ -70,6 +70,7 @@ class TestApplicationSettingsDefaults:
         assert settings.celery_token_persist_retry_backoff_multiplier == 5
         assert settings.celery_token_task_soft_time_limit_seconds == 20
         assert settings.celery_token_task_time_limit_seconds == 30
+        assert settings.celery_token_maintenance_queue_name == "token.maintenance"
 
         # Assert - Resilience queue and backpressure configuration
         assert settings.rabbitmq_token_exchange_name == "token.allocation"
@@ -81,7 +82,13 @@ class TestApplicationSettingsDefaults:
             settings.rabbitmq_token_allocate_dead_routing_key == "token.allocate.dead"
         )
         assert settings.rabbitmq_token_queue_message_ttl_ms == 300000
-        assert settings.rabbitmq_token_queue_delivery_limit == 3
+        assert settings.rabbitmq_token_queue_delivery_limit == 6
+        assert settings.rabbitmq_token_heartbeat_seconds == 60
+        assert settings.token_queue_connection_pool_limit == 10
+        assert settings.token_queue_retry_schedule_seconds == (5, 10, 20, 40, 60)
+        assert settings.token_queue_consumer_prefetch_count == 20
+        assert settings.token_queue_consumer_concurrency == 8
+        assert settings.token_queue_consumer_requeue_backoff_seconds == 1
         assert settings.bp_drain_rate_per_second == 400
         assert settings.bp_retry_after_cap_seconds == 60
         assert settings.bp_queue_safe_depth_ratio == 0.8
@@ -165,6 +172,11 @@ class TestApplicationSettingsValidators:
             ("bp_queue_depth_publish_interval_secs", 0),
             ("redis_token_counter_max_connections", 0),
             ("rabbitmq_token_queue_message_ttl_ms", 0),
+            ("rabbitmq_token_heartbeat_seconds", 0),
+            ("token_queue_connection_pool_limit", 0),
+            ("token_queue_consumer_prefetch_count", 0),
+            ("token_queue_consumer_concurrency", 0),
+            ("token_queue_consumer_requeue_backoff_seconds", 0),
             ("celery_token_persist_max_retries", 0),
             ("celery_token_persist_retry_base_seconds", 0),
         ],
@@ -184,11 +196,36 @@ class TestApplicationSettingsValidators:
 
         assert "must be less than" in str(exc_info.value)
 
+    def test_validate_delivery_limit_exceeds_retry_stage_count(self):
+        """Delivery limit must allow a final consumer delivery for explicit DLQ."""
+        with pytest.raises(ValidationError) as exc_info:
+            ApplicationSettings(
+                rabbitmq_token_queue_delivery_limit=5,
+                token_queue_retry_schedule_seconds=(5, 10, 20, 40, 60),
+            )
+
+        assert "explicit DLQ routing" in str(exc_info.value)
+
     @pytest.mark.parametrize("invalid_ratio", [0.0, -0.1, 1.1])
     def test_validate_backpressure_safe_depth_ratio_invalid(self, invalid_ratio):
         """Queue safe-depth ratio must stay within sensible bounds."""
         with pytest.raises(ValidationError):
             ApplicationSettings(bp_queue_safe_depth_ratio=invalid_ratio)
+
+    @pytest.mark.parametrize(
+        "retry_schedule",
+        ["", "10,5", [5, 0, 10]],
+    )
+    def test_validate_retry_schedule_invalid(self, retry_schedule):
+        """Retry schedule values must be non-empty, positive, and ascending."""
+        with pytest.raises(ValidationError):
+            ApplicationSettings(token_queue_retry_schedule_seconds=retry_schedule)
+
+    def test_validate_retry_schedule_csv(self):
+        """CSV retry schedules should normalize to an integer tuple."""
+        settings = ApplicationSettings(token_queue_retry_schedule_seconds="3,6,9")
+
+        assert settings.token_queue_retry_schedule_seconds == (3, 6, 9)
 
     @pytest.mark.parametrize("valid_temperature", [0.0, 0.7, 1.0, 2.0])
     def test_validate_temperature_valid(self, valid_temperature):

@@ -201,6 +201,18 @@ class ApplicationSettings(BaseSettings):
         default=60,
         description="Upper bound for Retry-After returned during backpressure",
     )
+    bp_queue_safe_depth_ratio: float = Field(
+        default=0.8,
+        description="Queue depth ratio below which the system is considered healthy",
+    )
+    bp_db_pool_retry_after_seconds: int = Field(
+        default=5,
+        description="Retry-After returned when the DB pool is saturated",
+    )
+    bp_queue_depth_publish_interval_secs: int = Field(
+        default=5,
+        description="Seconds between RabbitMQ work-queue depth publications to Redis",
+    )
 
     # -------------------------------------------------------------------------
     # Redis Token Counter (fast path)
@@ -375,6 +387,8 @@ class ApplicationSettings(BaseSettings):
         "bp_max_queue_depth",
         "bp_drain_rate_per_second",
         "bp_retry_after_cap_seconds",
+        "bp_db_pool_retry_after_seconds",
+        "bp_queue_depth_publish_interval_secs",
         "redis_token_counter_ttl_secs",
         "redis_token_counter_max_connections",
         "rabbitmq_token_queue_message_ttl_ms",
@@ -401,6 +415,16 @@ class ApplicationSettings(BaseSettings):
         """Validate DB pool saturation threshold is a real percentage."""
         if not 1 <= v <= 100:
             raise ValueError("bp_db_pool_saturation_pct must be between 1 and 100")
+        return v
+
+    @field_validator("bp_queue_safe_depth_ratio")
+    @classmethod
+    def validate_backpressure_safe_depth_ratio(cls, v: float) -> float:
+        """Validate queue safe-depth ratio remains within (0, 1]."""
+        if not 0 < v <= 1:
+            raise ValueError(
+                "bp_queue_safe_depth_ratio must be greater than 0 and at most 1"
+            )
         return v
 
     @field_validator(

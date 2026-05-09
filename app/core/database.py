@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import Pool
 
 from app.core.config import settings
 
@@ -129,6 +130,13 @@ class DatabaseSessionManager:
             self._engine = None
             self._sessionmaker = None
             logger.info("SQLAlchemy engine disposed")
+
+    @property
+    def pool(self) -> Pool | None:
+        """Return the SQLAlchemy pool when the async engine is initialized."""
+        if self._engine is None:
+            return None
+        return self._engine.pool
 
     @asynccontextmanager
     async def get_session(self) -> AsyncGenerator[AsyncSession, None]:

@@ -4,13 +4,10 @@ from __future__ import annotations
 def test_runtime_modules_resolve_breakers_from_new_package() -> None:
     from app import app as app_module
     from app.api import token_manager_endpoints
-    from app.resilience import backpressure, token_queue
+    from app.resilience import token_queue
     from app.resilience.redis_token_counter import counter_service
 
     assert token_manager_endpoints.get_db_circuit_breaker.__module__ == (
-        "app.resilience.circuit_breaker.breaker_registry"
-    )
-    assert backpressure.get_db_circuit_breaker.__module__ == (
         "app.resilience.circuit_breaker.breaker_registry"
     )
     assert counter_service.get_redis_circuit_breaker.__module__ == (

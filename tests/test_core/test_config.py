@@ -65,6 +65,29 @@ class TestApplicationSettingsDefaults:
         assert settings.celery_worker_concurrency == 10
         assert settings.celery_task_soft_time_limit == 300
         assert settings.celery_task_time_limit == 600
+        assert settings.celery_token_persist_max_retries == 3
+        assert settings.celery_token_persist_retry_base_seconds == 5
+        assert settings.celery_token_persist_retry_backoff_multiplier == 5
+        assert settings.celery_token_task_soft_time_limit_seconds == 20
+        assert settings.celery_token_task_time_limit_seconds == 30
+
+        # Assert - Resilience queue and backpressure configuration
+        assert settings.rabbitmq_token_exchange_name == "token.allocation"
+        assert settings.rabbitmq_token_dlx_name == "token.allocation.dlx"
+        assert settings.rabbitmq_token_work_queue_name == "token.allocation.work"
+        assert settings.rabbitmq_token_dlq_queue_name == "token.allocation.dlq"
+        assert settings.rabbitmq_token_allocate_routing_key == "token.allocate"
+        assert (
+            settings.rabbitmq_token_allocate_dead_routing_key == "token.allocate.dead"
+        )
+        assert settings.rabbitmq_token_queue_message_ttl_ms == 300000
+        assert settings.rabbitmq_token_queue_delivery_limit == 3
+        assert settings.bp_drain_rate_per_second == 400
+        assert settings.bp_retry_after_cap_seconds == 60
+        assert settings.bp_queue_safe_depth_ratio == 0.8
+        assert settings.bp_db_pool_retry_after_seconds == 5
+        assert settings.bp_queue_depth_publish_interval_secs == 5
+        assert settings.redis_token_counter_max_connections == 20
 
         # Assert - Rate limiting configuration
         assert settings.rate_limit_requests_per_minute == 100
@@ -130,6 +153,42 @@ class TestApplicationSettingsValidators:
         assert "WARNING" in error_str
         assert "ERROR" in error_str
         assert "CRITICAL" in error_str
+
+    @pytest.mark.parametrize(
+        "field_name, field_value",
+        [
+            ("bp_db_pool_saturation_pct", 0),
+            ("bp_db_pool_saturation_pct", 101),
+            ("bp_drain_rate_per_second", 0),
+            ("bp_retry_after_cap_seconds", 0),
+            ("bp_db_pool_retry_after_seconds", 0),
+            ("bp_queue_depth_publish_interval_secs", 0),
+            ("redis_token_counter_max_connections", 0),
+            ("rabbitmq_token_queue_message_ttl_ms", 0),
+            ("celery_token_persist_max_retries", 0),
+            ("celery_token_persist_retry_base_seconds", 0),
+        ],
+    )
+    def test_validate_resilience_settings_invalid(self, field_name, field_value):
+        """Invalid resilience settings should raise ValidationError."""
+        with pytest.raises(ValidationError):
+            ApplicationSettings(**{field_name: field_value})
+
+    def test_validate_resilience_time_limits_invalid(self):
+        """Soft task time limit must remain below the hard time limit."""
+        with pytest.raises(ValidationError) as exc_info:
+            ApplicationSettings(
+                celery_token_task_soft_time_limit_seconds=30,
+                celery_token_task_time_limit_seconds=30,
+            )
+
+        assert "must be less than" in str(exc_info.value)
+
+    @pytest.mark.parametrize("invalid_ratio", [0.0, -0.1, 1.1])
+    def test_validate_backpressure_safe_depth_ratio_invalid(self, invalid_ratio):
+        """Queue safe-depth ratio must stay within sensible bounds."""
+        with pytest.raises(ValidationError):
+            ApplicationSettings(bp_queue_safe_depth_ratio=invalid_ratio)
 
     @pytest.mark.parametrize("valid_temperature", [0.0, 0.7, 1.0, 2.0])
     def test_validate_temperature_valid(self, valid_temperature):

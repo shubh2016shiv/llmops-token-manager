@@ -122,6 +122,18 @@ class LLMModelPersistence(BasePersistence):
         if random_seed is not None and not isinstance(random_seed, int):
             raise ValueError("random_seed must be an integer")
 
+    def validate_active_model_capacity(
+        self,
+        *,
+        max_tokens: int | None,
+        is_active_status: bool,
+    ) -> None:
+        """Require configured capacity for every active deployment."""
+        if is_active_status and max_tokens is None:
+            raise ValueError(
+                "max_tokens is required when is_active_status is True"
+            )
+
     # ========================================================================
     # CREATE OPERATIONS
     # ========================================================================
@@ -182,6 +194,10 @@ class LLMModelPersistence(BasePersistence):
             temperature_value=temperature,
             top_p_value=top_p,
             random_seed=random_seed,
+        )
+        self.validate_active_model_capacity(
+            max_tokens=max_tokens,
+            is_active_status=is_active_status,
         )
 
         try:
@@ -523,6 +539,22 @@ class LLMModelPersistence(BasePersistence):
                 llm_provider, llm_model_name, llm_model_version
             )
 
+        if is_active_status is True and max_tokens is None:
+            current_model = await self.get_llm_model_by_provider_and_model(
+                llm_provider,
+                llm_model_name,
+                llm_model_version,
+            )
+            if current_model is None:
+                logger.warning(
+                    f"Model ({llm_provider}, {llm_model_name}, {llm_model_version}) not found for update"
+                )
+                return None
+            self.validate_active_model_capacity(
+                max_tokens=current_model.get("max_tokens"),
+                is_active_status=True,
+            )
+
         try:
             # Build where clause for composite key
             where_clause = (
@@ -557,9 +589,6 @@ class LLMModelPersistence(BasePersistence):
                     )
                     return dict(updated_model)
 
-                logger.warning(
-                    f"Model ({llm_provider}, {llm_model_name}, {llm_model_version}) not found for update"
-                )
                 return None
         except Exception as e:
             logger.error(

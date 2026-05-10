@@ -4,13 +4,13 @@ Backpressure guard - compatibility facade for Layer 1 admission control.
 Architecture:
 -------------
     ┌──────────────────────────┐     ┌──────────────────────────┐
-    │ legacy callers           │────▶│ guard.py                 │
+    │ legacy callers           │────▶│ backpressure_gate.py     │
     │ BackPressureGuard.check  │     │ compatibility facade     │
     └──────────────────────────┘     └─────────────┬────────────┘
                                                    │
                                                    ▼
                                   ┌─────────────────────────────────┐
-                                  │ evaluator.py + decision mapper │
+                                  │ evaluator.py + decision mapper  │
                                   └─────────────────────────────────┘
 
 Dependencies:
@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from app.resilience.backpressure.decision_to_http import (
+from app.resilience.backpressure.backpressure_http_response import (
     raise_for_backpressure_decision,
 )
 from app.resilience.backpressure.evaluator import evaluate_backpressure

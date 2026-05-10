@@ -31,10 +31,10 @@ from __future__ import annotations
 from typing import Any
 import uuid
 
+import aiobreaker
 from kombu import Producer, Queue, pools
 from kombu.exceptions import KombuError
 from loguru import logger
-import pybreaker
 
 from app.core.config import settings
 from app.models.resilience_models import DlqPayload, TokenAllocationPersistPayload
@@ -84,7 +84,7 @@ class TokenAllocationPublisher:
                 f"msg_id={message_id} model={persist_payload.llm_model_name}"
             )
             return message_id
-        except pybreaker.CircuitBreakerError:
+        except aiobreaker.CircuitBreakerError:
             logger.warning(
                 f"[TokenQueue] RMQ circuit breaker OPEN - "
                 f"caller should use DB fallback for msg_id={message_id}"
@@ -163,7 +163,7 @@ class TokenAllocationPublisher:
                 f"reason={reason} msg_id={message_id}"
             )
         except (
-            pybreaker.CircuitBreakerError,
+            aiobreaker.CircuitBreakerError,
             KombuError,
             ConnectionError,
             TimeoutError,

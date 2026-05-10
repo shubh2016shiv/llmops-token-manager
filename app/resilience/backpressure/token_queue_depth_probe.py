@@ -4,7 +4,7 @@ Queue depth probe - Redis-backed Layer 1 queue saturation signal.
 Architecture:
 -------------
     ┌───────────────────┐     ┌──────────────────────────┐
-    │ evaluator.py      │────▶│ queue_depth_probe.py     │
+    │ evaluator.py      │────▶│ token_queue_depth_probe.py     │
     │ Layer 1 ordering  │     │ Redis queue-depth reader │
     └───────────────────┘     └─────────────┬────────────┘
                                             │

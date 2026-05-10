@@ -176,6 +176,20 @@ GET_ACTIVE_DEPLOYMENT_BY_MODEL_AND_ENDPOINT_SQL = """
     WHERE llm_model_name = :llm_model_name AND api_endpoint_url = :api_endpoint_url AND is_active_status = TRUE
 """
 
+# Used by pause_deployment() to serialize concurrent pause requests per deployment.
+# FOR UPDATE locks the llm_models row for the duration of the calling transaction,
+# so a second concurrent caller blocks here until the first commits/rolls back.
+# This eliminates the check-then-insert race without requiring a separate unique
+# index on (llm_model_name, api_endpoint_url, 'PAUSED') in token_manager.
+GET_ACTIVE_DEPLOYMENT_BY_MODEL_AND_ENDPOINT_LOCKED_SQL = """
+    SELECT *
+    FROM llm_models
+    WHERE llm_model_name = :llm_model_name
+      AND api_endpoint_url = :api_endpoint_url
+      AND is_active_status = TRUE
+    FOR UPDATE
+"""
+
 LIST_TOKEN_ALLOCATION_SUMMARY_BY_MODEL_SQL = """
     SELECT
         allocation_status,

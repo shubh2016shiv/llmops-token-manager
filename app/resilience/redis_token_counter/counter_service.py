@@ -30,15 +30,16 @@ from __future__ import annotations
 
 import hashlib
 import inspect
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
 
+    import redis.asyncio as aioredis
+
+import aiobreaker
 from loguru import logger
-import pybreaker
 from redis import exceptions as redis_exceptions
-import redis.asyncio as aioredis
 
 from app.core.config import settings
 from app.resilience.circuit_breaker import get_redis_circuit_breaker
@@ -85,6 +86,29 @@ class AsyncCircuitBreakerProtocol(Protocol):
         ...
 
 
+class AsyncRedisClientProtocol(Protocol):
+    """
+    Minimal async Redis client interface consumed by RedisTokenCounterService.
+
+    Typed as a Protocol (not the concrete aioredis.Redis) so that test doubles
+    and alternative implementations satisfy the interface without subclassing.
+    Methods that return pipeline objects or coroutines are typed as Any because
+    the pipeline API is accessed dynamically and its shape is an aioredis detail.
+    """
+
+    def register_script(self, script: str) -> RedisLuaScriptRunner:
+        """Register and return a callable Lua script runner."""
+        ...
+
+    def pipeline(self) -> Any:
+        """Return a pipeline context for batched Redis commands."""
+        ...
+
+    def close(self) -> Any:
+        """Close the connection; may return an awaitable."""
+        ...
+
+
 SCRIPT_SOURCE_BY_NAME = {
     SCRIPT_NAME_RESERVE: LUA_RESERVE_TOKENS,
     SCRIPT_NAME_RELEASE: LUA_RELEASE_TOKENS,
@@ -96,7 +120,7 @@ SCRIPT_SOURCE_BY_NAME = {
 class RedisTokenCounterService:
     """Atomic Redis token counter operations for the resilience fast path."""
 
-    def __init__(self, redis_client: aioredis.Redis) -> None:
+    def __init__(self, redis_client: AsyncRedisClientProtocol) -> None:
         self._redis = redis_client
         self._reserve_script: RedisLuaScriptRunner | None = None
         self._release_script: RedisLuaScriptRunner | None = None
@@ -124,7 +148,10 @@ class RedisTokenCounterService:
     @property
     def redis_client(self) -> aioredis.Redis:
         """Expose the shared Redis client for coordinated maintenance operations."""
-        return self._redis
+        # cast: __init__ accepts the minimal AsyncRedisClientProtocol so test
+        # doubles work without subclassing aioredis.Redis; callers that need the
+        # full Redis API (e.g. reconciliation lock) always pass a real Redis client.
+        return cast("aioredis.Redis", self._redis)
 
     async def reserve_tokens(
         self,
@@ -149,7 +176,7 @@ class RedisTokenCounterService:
                 f"result={reservation_result.name}"
             )
             return reservation_result
-        except pybreaker.CircuitBreakerError as exc:
+        except aiobreaker.CircuitBreakerError as exc:
             logger.warning(
                 f"[FastPath] reserve_tokens short-circuited by Redis breaker: {exc}"
             )
@@ -179,8 +206,8 @@ class RedisTokenCounterService:
                 f"[FastPath] release model={model_name} tokens={token_count} "
                 f"new_counter={updated_counter_value}"
             )
-            return int(updated_counter_value)
-        except pybreaker.CircuitBreakerError as exc:
+            return updated_counter_value
+        except aiobreaker.CircuitBreakerError as exc:
             logger.warning(
                 f"[FastPath] release_tokens short-circuited by Redis breaker: {exc}"
             )
@@ -233,7 +260,7 @@ class RedisTokenCounterService:
             keys=[counter_key, limit_key],
             args=[allocated_tokens_from_db, max_tokens_from_db, ttl_seconds],
         )
-        return CounterReconciliationResult(int(reconciliation_result))
+        return CounterReconciliationResult(reconciliation_result)
 
     async def get_counter(
         self,
@@ -248,7 +275,7 @@ class RedisTokenCounterService:
                 api_endpoint_url,
             )
             return cast("tuple[int, int] | None", counter_snapshot)
-        except pybreaker.CircuitBreakerError as exc:
+        except aiobreaker.CircuitBreakerError as exc:
             logger.warning(
                 f"[FastPath] get_counter short-circuited by Redis breaker: {exc}"
             )
@@ -273,7 +300,7 @@ class RedisTokenCounterService:
             keys=[counter_key, limit_key],
             args=[token_count],
         )
-        return TokenReservationResult(int(reservation_result))
+        return TokenReservationResult(reservation_result)
 
     async def _release_tokens_raw(
         self,
@@ -288,7 +315,7 @@ class RedisTokenCounterService:
             keys=[counter_key],
             args=[token_count],
         )
-        return int(updated_counter_value)
+        return updated_counter_value
 
     async def _get_counter_raw(
         self,
@@ -339,10 +366,7 @@ class RedisTokenCounterService:
 
     def _register_script(self, script_name: str) -> RedisLuaScriptRunner:
         script_source = SCRIPT_SOURCE_BY_NAME[script_name]
-        script_runner = cast(
-            "RedisLuaScriptRunner",
-            self._redis.register_script(script_source),
-        )
+        script_runner = self._redis.register_script(script_source)
         setattr(self, self._script_attr_name(script_name), script_runner)
         return script_runner
 
@@ -351,12 +375,7 @@ class RedisTokenCounterService:
         operation: object,
         *args: object,
     ) -> object:
-        """
-        Execute one async Redis operation under breaker protection.
-
-        Third-party stubs for `pybreaker.call_async` are too loose for pyright,
-        so this adapter narrows the awaitable contract in one place.
-        """
+        """Execute one async Redis operation under breaker protection."""
         redis_circuit_breaker = cast(
             "AsyncCircuitBreakerProtocol",
             get_redis_circuit_breaker(),

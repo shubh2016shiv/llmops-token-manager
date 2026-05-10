@@ -14,6 +14,7 @@ This base class provides:
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+import json
 from typing import Any
 from uuid import UUID
 
@@ -263,6 +264,38 @@ class BasePersistence:
                 f"Invalid {parameter_name}: '{enum_value}'. "
                 f"Must be one of: {', '.join(valid_values)}"
             )
+
+    def _validate_and_serialize_json(
+        self,
+        data: dict[str, Any] | None,
+        param_name: str = "metadata",
+    ) -> str | None:
+        """
+        Validate that *data* is JSON-serializable and return its serialized form.
+
+        Centralising this here avoids calling json.dumps() twice (once for
+        validation, once for the DB parameter) and converts the opaque TypeError
+        that would otherwise surface inside an async session into a ValueError
+        with a human-readable message — before any network round-trip is made.
+
+        Args:
+            data: Dict to serialize, or None (None → returns None immediately).
+            param_name: Name used in the error message.
+
+        Returns:
+            JSON string if *data* is not None, else None.
+
+        Raises:
+            ValueError: If *data* contains non-JSON-serializable values.
+        """
+        if data is None:
+            return None
+        try:
+            return json.dumps(data)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{param_name} contains non-JSON-serializable values: {exc}"
+            ) from exc
 
     def validate_pagination_parameters(
         self, limit: int, offset: int, max_limit: int = 1000

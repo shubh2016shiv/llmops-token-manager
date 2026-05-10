@@ -2,16 +2,21 @@
 Storage helpers for circuit breaker state backends.
 
 This module provides a shared synchronous Redis client and a factory that
-returns the appropriate pybreaker storage implementation per breaker type.
+returns the appropriate aiobreaker storage implementation per breaker type.
 """
 
 from __future__ import annotations
 
 import threading
+from typing import TYPE_CHECKING
 
+import aiobreaker
+from aiobreaker.storage import CircuitMemoryStorage, CircuitRedisStorage
 from loguru import logger
-import pybreaker
 import redis
+
+if TYPE_CHECKING:
+    from aiobreaker.storage.base import CircuitBreakerStorage
 
 from app.core.config import settings
 
@@ -25,7 +30,7 @@ _synchronous_redis_client_lock = threading.Lock()
 
 def build_synchronous_redis_client() -> redis.Redis:
     """
-    Construct (once) a synchronous Redis client for pybreaker's storage layer.
+    Construct (once) a synchronous Redis client for aiobreaker's storage layer.
 
     Reuses existing Redis host/port/credentials from application settings.
     Each breaker is isolated via `CircuitRedisStorage` namespaces.
@@ -81,7 +86,7 @@ def close_synchronous_redis_client() -> None:
 # ---------------------------------------------------------------------------
 
 
-def build_breaker_storage(breaker_name: str) -> pybreaker.CircuitBreakerStorage:
+def build_breaker_storage(breaker_name: str) -> CircuitBreakerStorage:
     """
     Build the storage backend for a named circuit breaker.
 
@@ -95,12 +100,12 @@ def build_breaker_storage(breaker_name: str) -> pybreaker.CircuitBreakerStorage:
     via Redis, with a fail-closed fallback.
     """
     if breaker_name == "postgres":
-        return pybreaker.CircuitMemoryStorage(pybreaker.STATE_CLOSED)
+        return CircuitMemoryStorage(aiobreaker.CircuitBreakerState.CLOSED)
 
     redis_client = build_synchronous_redis_client()
-    return pybreaker.CircuitRedisStorage(
-        state=pybreaker.STATE_CLOSED,
+    return CircuitRedisStorage(
+        state=aiobreaker.CircuitBreakerState.CLOSED,
         redis_object=redis_client,
         namespace=f"cb:{breaker_name}",
-        fallback_circuit_state=pybreaker.STATE_OPEN,
+        fallback_circuit_state=aiobreaker.CircuitBreakerState.OPEN,
     )

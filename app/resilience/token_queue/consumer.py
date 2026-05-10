@@ -28,9 +28,9 @@ import multiprocessing
 import time
 from typing import TYPE_CHECKING, Any
 
+import aiobreaker
 from kombu.mixins import ConsumerMixin
 from loguru import logger
-import pybreaker
 
 from app.core.config import settings
 from app.resilience.token_queue.handlers import (
@@ -108,7 +108,7 @@ class TokenQueueConsumerService(ConsumerMixin):
                         attempt=next_attempt,
                         reason=str(exc),
                     )
-                except pybreaker.CircuitBreakerError as publish_exc:
+                except aiobreaker.CircuitBreakerError as publish_exc:
                     self._backoff_requeue(
                         message=message,
                         retry_attempt=next_attempt,
@@ -131,7 +131,7 @@ class TokenQueueConsumerService(ConsumerMixin):
                     reason=str(exc),
                     retry_attempts=retry_attempt,
                 )
-            except pybreaker.CircuitBreakerError as publish_exc:
+            except aiobreaker.CircuitBreakerError as publish_exc:
                 self._backoff_requeue(
                     message=message,
                     retry_attempt=retry_attempt,
@@ -162,7 +162,7 @@ class TokenQueueConsumerService(ConsumerMixin):
         *,
         message: Any,
         retry_attempt: int,
-        error: pybreaker.CircuitBreakerError,
+        error: aiobreaker.CircuitBreakerError,
     ) -> None:
         """Pause briefly before requeueing when the broker breaker is open."""
         breaker_state = getattr(self._publisher._rmq_cb, "current_state", "unknown")

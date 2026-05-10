@@ -4,7 +4,7 @@ Pool probe - Layer 1 database pool saturation signal.
 Architecture:
 -------------
     ┌───────────────────┐     ┌──────────────────────┐
-    │ evaluator.py      │────▶│ pool_probe.py        │
+    │ evaluator.py      │────▶│ db_connection_pool_probe.py        │
     │ Layer 1 ordering  │     │ public pool accessor │
     └───────────────────┘     └────────────┬─────────┘
                                            │

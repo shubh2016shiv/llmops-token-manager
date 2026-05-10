@@ -24,7 +24,7 @@ Last Updated: 2026-05-09
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import cast
 
 from app.models.resilience_models import CircuitBreakerSnapshot
@@ -36,11 +36,17 @@ def read_db_circuit_breaker_snapshot() -> CircuitBreakerSnapshot:
     db_circuit_breaker = get_db_circuit_breaker()
     raw_opened_at = getattr(db_circuit_breaker._state_storage, "opened_at", None)  # noqa: SLF001
     opened_at = _coerce_opened_at(raw_opened_at)
-    breaker_name = cast("str", db_circuit_breaker.name)
-    recovery_timeout_seconds = int(db_circuit_breaker.reset_timeout)
+    breaker_name = db_circuit_breaker.name
+    # aiobreaker's timeout_duration setter is annotated as datetime (the
+    # reopen-at timestamp), making pyright infer the property type as datetime.
+    # At runtime the getter always returns a timedelta as stored in __init__.
+    recovery_timeout_seconds = int(
+        cast("timedelta", db_circuit_breaker.timeout_duration).total_seconds()
+    )
+    state_str = db_circuit_breaker.current_state.name.lower().replace("_", "-")
     return CircuitBreakerSnapshot(
         name=breaker_name,
-        state=db_circuit_breaker.current_state,
+        state=state_str,
         failure_count=db_circuit_breaker.fail_counter,
         recovery_timeout_seconds=recovery_timeout_seconds,
         opened_at=opened_at,

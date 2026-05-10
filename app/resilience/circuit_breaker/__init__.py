@@ -11,7 +11,7 @@ All public symbols are re-exported here so existing callers can keep using
 `from app.resilience.circuit_breaker import get_db_circuit_breaker`.
 """
 
-import pybreaker
+import aiobreaker
 
 from app.resilience.circuit_breaker.breaker_listener import CircuitBreakerListener
 from app.resilience.circuit_breaker.breaker_registry import (
@@ -40,6 +40,7 @@ def close_circuit_breaker_redis_client() -> None:
 
 
 __all__ = [
+    "aiobreaker",
     "CircuitBreakerState",
     "CircuitBreakerListener",
     "get_db_circuit_breaker",
@@ -53,5 +54,4 @@ __all__ = [
     "build_breaker_storage",
     "create_circuit_breaker",
     "_circuit_breaker_registry",
-    "pybreaker",
 ]

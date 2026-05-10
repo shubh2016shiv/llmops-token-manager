@@ -4,7 +4,7 @@ Backpressure evaluator - ordered Layer 1 admission decisions.
 Architecture:
 -------------
     ┌──────────────────────────┐     ┌──────────────────────────┐
-    │ dependency.py / guard.py │────▶│ evaluator.py             │
+    │ dependency.py / backpressure_gate.py │────▶│ evaluator.py │
     │ request admission        │     │ ordered Layer 1 checks   │
     └──────────────────────────┘     └───────┬────────┬─────────┘
                                              │        │
@@ -37,8 +37,10 @@ from app.resilience.backpressure.constants import (
     DB_POOL_SATURATED_REASON,
     QUEUE_DEPTH_EXCEEDED_REASON,
 )
-from app.resilience.backpressure.pool_probe import read_db_pool_utilization_pct
-from app.resilience.backpressure.queue_depth_probe import (
+from app.resilience.backpressure.db_connection_pool_probe import (
+    read_db_pool_utilization_pct,
+)
+from app.resilience.backpressure.token_queue_depth_probe import (
     estimate_queue_retry_after_seconds,
     read_queue_depth,
 )

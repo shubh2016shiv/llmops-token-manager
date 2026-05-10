@@ -7,18 +7,18 @@ registered breaker.
 
 from __future__ import annotations
 
+import aiobreaker
 from loguru import logger
-import pybreaker
 
 
-class CircuitBreakerListener(pybreaker.CircuitBreakerListener):
+class CircuitBreakerListener(aiobreaker.CircuitBreakerListener):
     """Emit structured log lines for state changes and call outcomes."""
 
     def state_change(
         self,
-        circuit_breaker: pybreaker.CircuitBreaker,
-        old_state: pybreaker.CircuitBreakerState,
-        new_state: pybreaker.CircuitBreakerState,
+        circuit_breaker: aiobreaker.CircuitBreaker,
+        old_state: aiobreaker.CircuitBreakerState,
+        new_state: aiobreaker.CircuitBreakerState,
     ) -> None:
         """Log a breaker state transition with current failure counters."""
         logger.warning(
@@ -30,7 +30,7 @@ class CircuitBreakerListener(pybreaker.CircuitBreakerListener):
 
     def failure(
         self,
-        circuit_breaker: pybreaker.CircuitBreaker,
+        circuit_breaker: aiobreaker.CircuitBreaker,
         exception: Exception,
     ) -> None:
         """Log an operation failure captured by the breaker."""
@@ -42,12 +42,12 @@ class CircuitBreakerListener(pybreaker.CircuitBreakerListener):
 
     def success(
         self,
-        circuit_breaker: pybreaker.CircuitBreaker,
+        circuit_breaker: aiobreaker.CircuitBreaker,
     ) -> None:
         """Log a successful protected call."""
         logger.debug(
             f"[CircuitBreaker:{circuit_breaker.name}] "
-            f"Success (state={circuit_breaker.current_state})"
+            f"Success (state={circuit_breaker.current_state.name})"
         )
 
 

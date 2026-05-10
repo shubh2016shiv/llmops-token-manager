@@ -4,7 +4,7 @@ Decision-to-HTTP mapper - convert Layer 1 decisions into FastAPI 503 responses.
 Architecture:
 -------------
     ┌──────────────────────────┐     ┌──────────────────────────┐
-    │ dependency.py / guard.py │────▶│ decision_to_http.py      │
+    │ dependency.py / backpressure_gate.py │────▶│ backpressure_http_response.py      │
     │ typed decision available │     │ HTTPException conversion │
     └──────────────────────────┘     └──────────────────────────┘
 

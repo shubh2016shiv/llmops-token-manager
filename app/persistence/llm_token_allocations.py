@@ -19,6 +19,7 @@ from loguru import logger
 from sqlalchemy import text
 
 from app.core.database import DatabaseSessionManager
+from app.models.response_models import VALID_CLOUD_PROVIDERS, VALID_LLM_PROVIDERS
 from app.persistence.base import BasePersistence
 from app.persistence.queries.llm_token_allocation_queries import (
     CHECK_ACTIVE_PAUSE_ALLOCATION_EXISTS_SQL,
@@ -29,7 +30,7 @@ from app.persistence.queries.llm_token_allocation_queries import (
     DELETE_TOKEN_ALLOCATION_BY_REQUEST_ID_SQL,
     DELETE_USER_ALLOCATIONS_BY_STATUS_SQL,
     DELETE_USER_ALLOCATIONS_SQL,
-    GET_ACTIVE_DEPLOYMENT_BY_MODEL_AND_ENDPOINT_SQL,
+    GET_ACTIVE_DEPLOYMENT_BY_MODEL_AND_ENDPOINT_LOCKED_SQL,
     GET_TOKEN_ALLOCATION_BY_REQUEST_ID_SQL,
     GET_TOTAL_ALLOCATED_TOKENS_FOR_ENDPOINT_SQL,
     GET_USER_TOKEN_USAGE_STATS_SQL,
@@ -117,6 +118,33 @@ class LLMTokenAllocationPersistence(BasePersistence):
             allocation_status, self.VALID_ALLOCATION_STATUSES, "allocation status"
         )
 
+    def validate_llm_provider(self, llm_provider: str) -> None:
+        """
+        Validate that llm_provider is a recognised provider name.
+
+        Uses the same canonical list as TokenAllocationResponse so that the
+        persistence layer and the API response model always agree on valid values.
+
+        Raises:
+            ValueError: If llm_provider is not in the allowed set.
+        """
+        self.validate_enum_value(llm_provider, VALID_LLM_PROVIDERS, "llm_provider")
+
+    def validate_cloud_provider(self, cloud_provider: str | None) -> None:
+        """
+        Validate an optional cloud_provider value.
+
+        None is always valid (direct/on-premise deployment with no cloud wrapper).
+        A non-None value must be in the canonical VALID_CLOUD_PROVIDERS set.
+
+        Raises:
+            ValueError: If cloud_provider is not None and not in the allowed set.
+        """
+        if cloud_provider is not None:
+            self.validate_enum_value(
+                cloud_provider, VALID_CLOUD_PROVIDERS, "cloud_provider"
+            )
+
     # ========================================================================
     # CREATE OPERATIONS
     # ========================================================================
@@ -177,17 +205,21 @@ class LLMTokenAllocationPersistence(BasePersistence):
             token_request_identifier, "token_request_identifier"
         )
         self.validate_uuid(user_id, "user_id")
+        self.validate_string_not_empty(llm_provider, "llm_provider")
+        self.validate_llm_provider(llm_provider)
         self.validate_string_not_empty(llm_model_name, "llm_model_name")
+        self.validate_string_not_empty(api_endpoint_url, "api_endpoint_url")
         self.validate_positive_integer(token_count, "token_count")
         self.validate_allocation_status(allocation_status)
+        self.validate_cloud_provider(cloud_provider_name)
+        # Serialise before opening the session so a non-serialisable payload
+        # raises a clear ValueError instead of an opaque DB-layer TypeError.
+        request_context_json = self._validate_and_serialize_json(
+            request_metadata, "request_metadata"
+        )
 
         try:
             async with self.get_session() as session:
-                # Convert dict to JSON string for JSONB column
-                request_context_json = (
-                    json.dumps(request_metadata) if request_metadata else None
-                )
-
                 params = {
                     "token_request_id": token_request_identifier,
                     "user_id": user_id,
@@ -258,15 +290,17 @@ class LLMTokenAllocationPersistence(BasePersistence):
         )
         self.validate_uuid(user_id, "user_id")
         self.validate_string_not_empty(llm_provider, "llm_provider")
+        self.validate_llm_provider(llm_provider)
         self.validate_string_not_empty(llm_model_name, "llm_model_name")
         self.validate_positive_integer(token_count, "token_count")
         self.validate_string_not_empty(api_endpoint_url, "api_endpoint_url")
+        self.validate_cloud_provider(cloud_provider_name)
+        request_context_json = self._validate_and_serialize_json(
+            request_metadata, "request_metadata"
+        )
 
         try:
             async with self.get_session() as session:
-                request_context_json = (
-                    json.dumps(request_metadata) if request_metadata else None
-                )
                 params = {
                     "token_request_id": token_request_identifier,
                     "user_id": user_id,
@@ -539,6 +573,13 @@ class LLMTokenAllocationPersistence(BasePersistence):
             sqlalchemy.exc.SQLAlchemyError: On database errors
 
         """
+        self.validate_string_not_empty(token_request_id, "token_request_id")
+        self.validate_allocation_status(new_status)
+        if api_endpoint is not None:
+            self.validate_string_not_empty(api_endpoint, "api_endpoint")
+        if latency_ms is not None:
+            self.validate_positive_integer(latency_ms, "latency_ms", allow_zero=True)
+
         try:
             async with self.get_session() as session:
                 # Build dynamic update query
@@ -815,49 +856,47 @@ class LLMTokenAllocationPersistence(BasePersistence):
         pause_duration_minutes: int = 30,
     ) -> dict[str, Any]:
         """
-        Pause a deployment by creating a PAUSED allocation
-        Similar to MongoDB's pause_llm_deployment method
+        Atomically pause a deployment by creating a PAUSED capacity-blocker allocation.
+
+        The method serializes concurrent pause requests through a PostgreSQL row lock
+        on the target llm_models row (FOR UPDATE).  The lock is held for the entire
+        transaction, so a second concurrent caller blocks at the deployment lookup
+        until the first commits.  Once the first caller commits the INSERT, the second
+        caller finds the existing PAUSED row in the check and returns ALREADY_PAUSED
+        without a duplicate insert.
+
+        All three operations — lock, check, insert — execute within the same session
+        and therefore the same transaction.  No cross-session TOCTOU window exists.
 
         Args:
             user_id: User requesting the pause
             llm_provider: LLM provider name
             llm_model_name: Model name
             api_endpoint: API endpoint URL to pause
-            pause_reason: Reason for pausing
-            pause_duration_minutes: Duration to pause for
+            pause_reason: Reason for pausing (stored in request_context)
+            pause_duration_minutes: Duration to pause for (must be > 0)
 
         Returns:
-            Dictionary with pause details
+            Allocation record dict (allocation_status = 'PAUSED') on success.
+            Sentinel dict with alloc_status = 'NOT_FOUND' or 'ALREADY_PAUSED'
+            when those conditions are detected.
 
         Raises:
-            ValueError: If model or deployment not found
+            ValueError: If pause_duration_minutes <= 0 or deployment is missing max_tokens
             sqlalchemy.exc.SQLAlchemyError: On database errors
-
         """
+        if pause_duration_minutes <= 0:
+            raise ValueError(
+                f"Pause duration must be positive, got {pause_duration_minutes}"
+            )
+
         try:
             async with self.get_session() as session:
-                # Check for existing active pause to prevent race conditions
-                existing_pause = await session.execute(
-                    text(CHECK_ACTIVE_PAUSE_ALLOCATION_EXISTS_SQL),
-                    {
-                        "llm_model_name": llm_model_name,
-                        "api_endpoint_url": api_endpoint,
-                    },
-                )
-                if existing_pause.scalar_one_or_none():
-                    logger.warning(
-                        f"Deployment {llm_model_name} at {api_endpoint} is already paused."
-                    )
-                    return {
-                        "alloc_status": "ALREADY_PAUSED",
-                        "llm_model_name": llm_model_name,
-                        "api_endpoint_url": api_endpoint,
-                        "reason": "Deployment is already in a paused state.",
-                    }
-
-                # Find the model configuration for this deployment
+                # Step 1 — Lock the deployment row.
+                # FOR UPDATE blocks any concurrent transaction that tries to lock the
+                # same llm_models row, serialising all pause requests per deployment.
                 result = await session.execute(
-                    text(GET_ACTIVE_DEPLOYMENT_BY_MODEL_AND_ENDPOINT_SQL),
+                    text(GET_ACTIVE_DEPLOYMENT_BY_MODEL_AND_ENDPOINT_LOCKED_SQL),
                     {
                         "llm_model_name": llm_model_name,
                         "api_endpoint_url": api_endpoint,
@@ -876,36 +915,80 @@ class LLMTokenAllocationPersistence(BasePersistence):
                         "reason": "Deployment not found",
                     }
 
-                # Convert to plain dict while the session is still open.
                 chosen_model_config: dict[str, Any] = dict(row)
 
-            # Get required properties from model config
-            max_token_limit = self._require_configured_max_tokens(
-                chosen_model_config,
-                llm_model_name,
-                api_endpoint,
-            )
-            provider_name = chosen_model_config.get("provider_name")
-            deployment_region = chosen_model_config.get("deployment_region", "unknown")
-            deployment_name = chosen_model_config.get("deployment_name", "")
+                # Step 2 — Check for an existing active pause under the lock.
+                # Safe from TOCTOU: the deployment row lock prevents a concurrent
+                # caller from reaching this point until we commit or roll back.
+                existing_pause = await session.execute(
+                    text(CHECK_ACTIVE_PAUSE_ALLOCATION_EXISTS_SQL),
+                    {
+                        "llm_model_name": llm_model_name,
+                        "api_endpoint_url": api_endpoint,
+                    },
+                )
+                if existing_pause.scalar_one_or_none():
+                    logger.warning(
+                        f"Deployment {llm_model_name} at {api_endpoint} is already paused."
+                    )
+                    return {
+                        "alloc_status": "ALREADY_PAUSED",
+                        "llm_model_name": llm_model_name,
+                        "api_endpoint_url": api_endpoint,
+                        "reason": "Deployment is already in a paused state.",
+                    }
 
-            # Create a token request ID for the pause allocation
-            token_request_id = f"pause_{uuid.uuid4().hex}"
+                # Step 3 — Extract deployment fields and insert within the same transaction.
+                # cloud_provider reads the correct schema column name (not provider_name).
+                max_token_limit = self._require_configured_max_tokens(
+                    chosen_model_config, llm_model_name, api_endpoint
+                )
+                cloud_provider = chosen_model_config.get("cloud_provider")
+                deployment_region = (
+                    chosen_model_config.get("deployment_region") or "unknown"
+                )
+                deployment_name = chosen_model_config.get("deployment_name") or ""
 
-            # Create the pause allocation
-            return await self.create_pause_allocation(
-                token_request_id=token_request_id,
-                user_id=user_id,
-                llm_provider=llm_provider,
-                llm_model_name=llm_model_name,
-                api_endpoint=api_endpoint,
-                deployment_region=deployment_region,
-                max_token_limit=max_token_limit,
-                pause_duration_minutes=pause_duration_minutes,
-                cloud_provider=provider_name,
-                deployment_name=deployment_name,
-                reason=pause_reason,
-            )
+                token_request_id = f"pause_{uuid.uuid4().hex}"
+                expiration_timestamp = datetime.now() + timedelta(
+                    minutes=pause_duration_minutes
+                )
+                context: dict[str, Any] = {"operation": "pause_deployment"}
+                if pause_reason:
+                    context["reason"] = pause_reason
+
+                params = {
+                    "token_request_id": token_request_id,
+                    "user_id": user_id,
+                    "llm_provider": llm_provider,
+                    "llm_model_name": llm_model_name,
+                    "deployment_name": deployment_name or None,
+                    "cloud_provider": cloud_provider,
+                    "api_endpoint_url": api_endpoint,
+                    "deployment_region": deployment_region or None,
+                    "token_count": max_token_limit,
+                    "allocation_status": "PAUSED",
+                    "allocated_at": datetime.now(),
+                    "expires_at": expiration_timestamp,
+                    "request_context": json.dumps(context),
+                    "temperature": None,
+                    "top_p": None,
+                    "seed": None,
+                }
+
+                insert_result = await session.execute(
+                    text(CREATE_TOKEN_ALLOCATION_SQL), params
+                )
+                created_allocation = insert_result.mappings().one_or_none()
+
+                if not created_allocation:
+                    raise RuntimeError("Failed to create pause allocation record")
+
+                logger.info(
+                    f"Created pause allocation for {llm_model_name} at {api_endpoint} "
+                    f"for {pause_duration_minutes}m"
+                )
+                return dict(created_allocation)
 
         except ValueError as e:
             logger.error(f"Value error in pause_deployment: {e}")
@@ -913,80 +996,6 @@ class LLMTokenAllocationPersistence(BasePersistence):
         except Exception as e:
             logger.error(f"Database error in pause_deployment: {e}")
             raise
-
-    async def create_pause_allocation(
-        self,
-        token_request_id: str,
-        user_id: UUID,
-        llm_provider: str,
-        llm_model_name: str,
-        api_endpoint: str,
-        deployment_region: str,
-        max_token_limit: int,
-        pause_duration_minutes: int,
-        cloud_provider: str | None = None,
-        deployment_name: str | None = None,
-        reason: str | None = None,
-    ) -> dict[str, Any]:
-        """
-        Create a PAUSED allocation to block an entire deployment
-        Used for failover scenarios and deployment maintenance
-
-        Args:
-            token_request_id: Unique identifier for pause allocation
-            llm_provider: LLM provider name (e.g. openai, anthropic)
-            llm_model_name: Model to pause
-            api_endpoint: Endpoint to pause
-            deployment_region: Deployment region to pause
-            max_token_limit: Full token limit to block
-            pause_duration_minutes: How long to pause (in minutes)
-            cloud_provider: Optional cloud provider name
-            deployment_name: Optional deployment identifier
-            reason: Optional reason for pausing
-
-        Returns:
-            Created allocation record
-
-        Raises:
-            ValueError: On invalid input parameters
-            sqlalchemy.exc.SQLAlchemyError: On database errors
-
-        """
-        if max_token_limit <= 0:
-            raise ValueError(f"Token limit must be positive, got {max_token_limit}")
-        if pause_duration_minutes <= 0:
-            raise ValueError(
-                f"Pause duration must be positive, got {pause_duration_minutes}"
-            )
-
-        # Calculate expiration and create context object
-        expiration_timestamp = datetime.now() + timedelta(
-            minutes=pause_duration_minutes
-        )
-        context = (
-            {"reason": reason, "operation": "pause_deployment"}
-            if reason
-            else {"operation": "pause_deployment"}
-        )
-
-        logger.info(
-            f"Creating pause allocation for {llm_model_name} at {api_endpoint} for {pause_duration_minutes}m"
-        )
-
-        return await self.create_token_allocation(
-            token_request_identifier=token_request_id,
-            user_id=user_id,
-            llm_provider=llm_provider,
-            llm_model_name=llm_model_name,
-            token_count=max_token_limit,
-            allocation_status="PAUSED",
-            expiration_timestamp=expiration_timestamp,
-            api_endpoint_url=api_endpoint,
-            cloud_provider_name=cloud_provider,
-            deployment_name=deployment_name,
-            request_metadata=context,
-            deployment_region=deployment_region,
-        )
 
     async def get_allocation_summary_by_model(
         self, llm_model_name: str

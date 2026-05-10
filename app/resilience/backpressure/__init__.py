@@ -30,8 +30,8 @@ Author: Engineering Team
 Last Updated: 2026-05-09
 """
 
+from app.resilience.backpressure.backpressure_gate import BackPressureGuard
 from app.resilience.backpressure.dependency import backpressure_dependency
-from app.resilience.backpressure.guard import BackPressureGuard
 
 __all__ = [
     "BackPressureGuard",

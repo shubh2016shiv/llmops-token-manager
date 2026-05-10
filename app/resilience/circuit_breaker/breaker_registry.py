@@ -7,10 +7,12 @@ creating dependency-specific breakers and inspecting their current states.
 
 from __future__ import annotations
 
+from datetime import timedelta
 import threading
 
+import aiobreaker
+from aiobreaker.storage import CircuitMemoryStorage
 from loguru import logger
-import pybreaker
 
 from app.core.config import settings
 
@@ -26,7 +28,7 @@ from app.resilience.circuit_breaker.breaker_state import CircuitBreakerState
 # Registry - thread-safe singleton cache with double-checked locking
 # ---------------------------------------------------------------------------
 
-_circuit_breaker_registry: dict[str, pybreaker.CircuitBreaker] = {}
+_circuit_breaker_registry: dict[str, aiobreaker.CircuitBreaker] = {}
 _circuit_breaker_registry_lock = threading.Lock()
 
 
@@ -39,7 +41,7 @@ def create_circuit_breaker(
     breaker_name: str,
     failure_threshold: int,
     recovery_timeout_seconds: int,
-) -> pybreaker.CircuitBreaker:
+) -> aiobreaker.CircuitBreaker:
     """
     Create or return a cached thread-safe singleton circuit breaker.
 
@@ -49,7 +51,7 @@ def create_circuit_breaker(
         recovery_timeout_seconds: seconds in OPEN before HALF_OPEN probe
 
     Returns:
-        A configured pybreaker.CircuitBreaker instance (singleton per name).
+        A configured aiobreaker.CircuitBreaker instance (singleton per name).
     """
     if breaker_name in _circuit_breaker_registry:
         return _circuit_breaker_registry[breaker_name]
@@ -67,11 +69,11 @@ def create_circuit_breaker(
                 f"[CircuitBreaker:{breaker_name}] Failed to build storage; "
                 "falling back to local OPEN state storage"
             )
-            storage = pybreaker.CircuitMemoryStorage(pybreaker.STATE_OPEN)
+            storage = CircuitMemoryStorage(aiobreaker.CircuitBreakerState.OPEN)
 
-        circuit_breaker = pybreaker.CircuitBreaker(
+        circuit_breaker = aiobreaker.CircuitBreaker(
             fail_max=failure_threshold,
-            reset_timeout=recovery_timeout_seconds,
+            timeout_duration=timedelta(seconds=recovery_timeout_seconds),
             state_storage=storage,
             listeners=[_CIRCUIT_BREAKER_LISTENER],
             name=breaker_name,
@@ -90,7 +92,7 @@ def create_circuit_breaker(
 # ---------------------------------------------------------------------------
 
 
-def get_db_circuit_breaker() -> pybreaker.CircuitBreaker:
+def get_db_circuit_breaker() -> aiobreaker.CircuitBreaker:
     """
     Circuit breaker protecting PostgreSQL (local in-memory state).
 
@@ -103,7 +105,7 @@ def get_db_circuit_breaker() -> pybreaker.CircuitBreaker:
     )
 
 
-def get_redis_circuit_breaker() -> pybreaker.CircuitBreaker:
+def get_redis_circuit_breaker() -> aiobreaker.CircuitBreaker:
     """
     Circuit breaker protecting Redis operations.
 
@@ -117,7 +119,7 @@ def get_redis_circuit_breaker() -> pybreaker.CircuitBreaker:
     )
 
 
-def get_rmq_circuit_breaker() -> pybreaker.CircuitBreaker:
+def get_rmq_circuit_breaker() -> aiobreaker.CircuitBreaker:
     """
     Circuit breaker protecting RabbitMQ publish calls.
 
@@ -145,9 +147,12 @@ def get_circuit_breaker_states() -> dict[str, str]:
     """
     states: dict[str, str] = {}
     for breaker_name, circuit_breaker in _circuit_breaker_registry.items():
-        raw_state = circuit_breaker.current_state
+        # aiobreaker.CircuitBreakerState is an Enum whose .name gives 'CLOSED',
+        # 'OPEN', 'HALF_OPEN'. Map to our lowercase convention ('closed',
+        # 'open', 'half-open') so callers are insulated from the library enum.
+        raw_name = circuit_breaker.current_state.name.lower().replace("_", "-")
         try:
-            states[breaker_name] = CircuitBreakerState(raw_state).value
+            states[breaker_name] = CircuitBreakerState(raw_name).value
         except ValueError:
-            states[breaker_name] = raw_state
+            states[breaker_name] = raw_name
     return states

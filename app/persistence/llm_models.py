@@ -16,6 +16,16 @@ from sqlalchemy import text
 
 from app.core.database import DatabaseSessionManager
 from app.persistence.base import BasePersistence
+from app.persistence.queries.llm_model_queries import (
+    COUNT_LLM_MODELS_BY_PROVIDER_BASE_SQL,
+    CREATE_LLM_MODEL_SQL,
+    DELETE_LLM_MODEL_BY_PROVIDER_AND_MODEL_WITH_VERSION_SQL,
+    DELETE_LLM_MODEL_BY_PROVIDER_AND_MODEL_WITHOUT_VERSION_SQL,
+    DELETE_LLM_MODELS_BY_PROVIDER_SQL,
+    GET_LLM_MODEL_BY_PROVIDER_AND_MODEL_WITH_VERSION_SQL,
+    GET_LLM_MODEL_BY_PROVIDER_AND_MODEL_WITHOUT_VERSION_SQL,
+    LIST_LLM_MODELS_BY_PROVIDER_BASE_SQL,
+)
 
 
 class LLMModelPersistence(BasePersistence):
@@ -130,9 +140,7 @@ class LLMModelPersistence(BasePersistence):
     ) -> None:
         """Require configured capacity for every active deployment."""
         if is_active_status and max_tokens is None:
-            raise ValueError(
-                "max_tokens is required when is_active_status is True"
-            )
+            raise ValueError("max_tokens is required when is_active_status is True")
 
     # ========================================================================
     # CREATE OPERATIONS
@@ -202,19 +210,6 @@ class LLMModelPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    INSERT INTO llm_models (
-                        llm_provider, llm_model_name, deployment_name, api_key_variable_name,
-                        api_endpoint_url, llm_model_version, max_tokens, tokens_per_minute_limit,
-                        requests_per_minute_limit, is_active_status, temperature, top_p, random_seed, deployment_region
-                    ) VALUES (
-                        :llm_provider, :llm_model_name, :deployment_name, :api_key_variable_name,
-                        :api_endpoint_url, :llm_model_version, :max_tokens, :tokens_per_minute_limit,
-                        :requests_per_minute_limit, :is_active_status, :temperature, :top_p, :random_seed, :deployment_region
-                    )
-                    RETURNING *
-                """
-
                 params = {
                     "llm_provider": llm_provider,
                     "llm_model_name": llm_model_name,
@@ -232,7 +227,7 @@ class LLMModelPersistence(BasePersistence):
                     "deployment_region": deployment_region,
                 }
 
-                result = await session.execute(text(sql_query), params)
+                result = await session.execute(text(CREATE_LLM_MODEL_SQL), params)
                 created_model = result.mappings().one_or_none()
 
                 if not created_model:
@@ -279,23 +274,15 @@ class LLMModelPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                where_conditions = (
-                    "llm_provider = :llm_provider AND llm_model_name = :llm_model_name"
-                )
                 params = {
                     "llm_provider": llm_provider,
                     "llm_model_name": llm_model_name,
                 }
                 if llm_model_version is not None:
-                    where_conditions += " AND llm_model_version = :llm_model_version"
                     params["llm_model_version"] = llm_model_version
+                    sql_query = GET_LLM_MODEL_BY_PROVIDER_AND_MODEL_WITH_VERSION_SQL
                 else:
-                    where_conditions += " AND llm_model_version IS NULL"
-
-                sql_query = f"""
-                    SELECT * FROM llm_models
-                    WHERE {where_conditions}
-                """
+                    sql_query = GET_LLM_MODEL_BY_PROVIDER_AND_MODEL_WITHOUT_VERSION_SQL
                 result = await session.execute(text(sql_query), params)
                 model_record = result.mappings().one_or_none()
                 return dict(model_record) if model_record else None
@@ -337,9 +324,7 @@ class LLMModelPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = (
-                    "SELECT * FROM llm_models WHERE llm_provider = :llm_provider"
-                )
+                sql_query = LIST_LLM_MODELS_BY_PROVIDER_BASE_SQL
                 params: dict[str, Any] = {"llm_provider": llm_provider}
 
                 if active_only is not None:
@@ -414,10 +399,7 @@ class LLMModelPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    SELECT COUNT(*) FROM llm_models
-                    WHERE llm_provider = :llm_provider
-                """
+                sql_query = COUNT_LLM_MODELS_BY_PROVIDER_BASE_SQL
                 params: dict[str, Any] = {"llm_provider": llm_provider}
                 if active_only is not None:
                     sql_query += " AND is_active_status = :is_active_status"
@@ -729,23 +711,17 @@ class LLMModelPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                where_conditions = (
-                    "llm_provider = :llm_provider AND llm_model_name = :llm_model_name"
-                )
                 params = {
                     "llm_provider": llm_provider,
                     "llm_model_name": llm_model_name,
                 }
                 if llm_model_version is not None:
-                    where_conditions += " AND llm_model_version = :llm_model_version"
                     params["llm_model_version"] = llm_model_version
+                    sql_query = DELETE_LLM_MODEL_BY_PROVIDER_AND_MODEL_WITH_VERSION_SQL
                 else:
-                    where_conditions += " AND llm_model_version IS NULL"
-
-                sql_query = f"""
-                    DELETE FROM llm_models
-                    WHERE {where_conditions}
-                """
+                    sql_query = (
+                        DELETE_LLM_MODEL_BY_PROVIDER_AND_MODEL_WITHOUT_VERSION_SQL
+                    )
                 result = await session.execute(text(sql_query), params)
                 # was_deleted = result.rowcount > 0
                 was_deleted = getattr(result, "rowcount", 0) > 0
@@ -789,12 +765,9 @@ class LLMModelPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    DELETE FROM llm_models
-                    WHERE llm_provider = :llm_provider
-                """
                 result = await session.execute(
-                    text(sql_query), {"llm_provider": llm_provider}
+                    text(DELETE_LLM_MODELS_BY_PROVIDER_SQL),
+                    {"llm_provider": llm_provider},
                 )
                 deleted_count = getattr(result, "rowcount", 0)
 

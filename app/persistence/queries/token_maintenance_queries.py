@@ -1,20 +1,8 @@
 """
 Token maintenance SQL definitions - raw queries for Layer 4 maintenance data.
 
-Architecture:
--------------
-    ┌────────────────────────────────────┐     ┌────────────────────────────────────┐
-    │ token_maintenance_persistence.py   │────▶│ token_maintenance_queries.py       │
-    │ persistence API / row mapping      │     │ named SQL statements only          │
-    └────────────────────────────────────┘     └────────────────────────────────────┘
-                     │
-                     ▼
-    ┌──────────────────────────────────────────────────────────────────────────────┐
-    │ PostgreSQL `llm_models` + `token_manager`                                   │
-    └──────────────────────────────────────────────────────────────────────────────┘
-
-Dependencies:
-    - none - this module stores SQL text only
+This module stores named SQL statements for the token maintenance persistence
+layer. It is the canonical source for all token-maintenance query text.
 
 Author: Engineering Team
 Last Updated: 2026-05-10

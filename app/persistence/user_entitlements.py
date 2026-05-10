@@ -17,6 +17,16 @@ from sqlalchemy import text
 
 from app.core.database import DatabaseSessionManager
 from app.persistence.base import BasePersistence
+from app.persistence.queries.user_entitlement_queries import (
+    CHECK_PROVIDER_MODEL_EXISTS_FOR_ENTITLEMENT_SQL,
+    CHECK_USER_ENTITLEMENT_EXISTS_SQL,
+    CHECK_USER_EXISTS_FOR_ENTITLEMENT_SQL,
+    COUNT_USER_ENTITLEMENTS_SQL,
+    CREATE_USER_ENTITLEMENT_SQL,
+    DELETE_USER_ENTITLEMENT_BY_ID_SQL,
+    GET_USER_ENTITLEMENT_BY_ID_SQL,
+    LIST_USER_ENTITLEMENTS_SQL,
+)
 
 
 class UserEntitlementPersistence(BasePersistence):
@@ -64,12 +74,10 @@ class UserEntitlementPersistence(BasePersistence):
         """
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    SELECT 1 FROM users
-                    WHERE user_id = :user_id
-                    LIMIT 1
-                """
-                result = await session.execute(text(sql_query), {"user_id": user_id})
+                result = await session.execute(
+                    text(CHECK_USER_EXISTS_FOR_ENTITLEMENT_SQL),
+                    {"user_id": user_id},
+                )
                 return result.first() is not None
         except Exception as e:
             logger.error(f"Error validating user existence {user_id}: {e}")
@@ -94,17 +102,14 @@ class UserEntitlementPersistence(BasePersistence):
         """
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    SELECT 1 FROM llm_models
-                    WHERE llm_provider = :llm_provider
-                      AND llm_model_name = :llm_model_name
-                    LIMIT 1
-                """
                 params = {
                     "llm_provider": llm_provider,
                     "llm_model_name": llm_model_name,
                 }
-                result = await session.execute(text(sql_query), params)
+                result = await session.execute(
+                    text(CHECK_PROVIDER_MODEL_EXISTS_FOR_ENTITLEMENT_SQL),
+                    params,
+                )
                 return result.first() is not None
         except Exception as e:
             logger.error(
@@ -137,21 +142,15 @@ class UserEntitlementPersistence(BasePersistence):
         """
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    SELECT 1 FROM user_llm_entitlements
-                    WHERE user_id = :user_id
-                      AND llm_provider = :llm_provider
-                      AND llm_model_name = :llm_model_name
-                      AND api_endpoint_url = :api_endpoint_url
-                    LIMIT 1
-                """
                 params = {
                     "user_id": user_id,
                     "llm_provider": llm_provider,
                     "llm_model_name": llm_model_name,
                     "api_endpoint_url": api_endpoint_url,
                 }
-                result = await session.execute(text(sql_query), params)
+                result = await session.execute(
+                    text(CHECK_USER_ENTITLEMENT_EXISTS_SQL), params
+                )
                 return result.first() is not None
         except Exception as e:
             logger.error(
@@ -234,22 +233,6 @@ class UserEntitlementPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    INSERT INTO user_llm_entitlements (
-                        user_id, llm_provider, llm_model_name, api_key_value,
-                        api_endpoint_url, cloud_provider, deployment_name, deployment_region,
-                        created_at, updated_at, created_by_user_id
-                    )
-                    VALUES (
-                        :user_id, :llm_provider, :llm_model_name, :api_key_value,
-                        :api_endpoint_url, :cloud_provider, :deployment_name, :deployment_region,
-                        :created_at, :updated_at, :created_by_user_id
-                    )
-                    RETURNING entitlement_id, user_id, llm_provider, llm_model_name,
-                              api_endpoint_url, cloud_provider, deployment_name, deployment_region,
-                              created_at, updated_at, created_by_user_id
-                """
-
                 params = {
                     "user_id": user_id,
                     "llm_provider": llm_provider,
@@ -264,7 +247,9 @@ class UserEntitlementPersistence(BasePersistence):
                     "created_by_user_id": created_by_user_id,
                 }
 
-                result = await session.execute(text(sql_query), params)
+                result = await session.execute(
+                    text(CREATE_USER_ENTITLEMENT_SQL), params
+                )
                 created_entitlement = result.mappings().one_or_none()
 
                 if not created_entitlement:
@@ -307,15 +292,9 @@ class UserEntitlementPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    SELECT entitlement_id, user_id, llm_provider, llm_model_name,
-                           api_endpoint_url, cloud_provider, deployment_name, deployment_region,
-                           created_at, updated_at, created_by_user_id
-                    FROM user_llm_entitlements
-                    WHERE entitlement_id = :entitlement_id
-                """
                 result = await session.execute(
-                    text(sql_query), {"entitlement_id": entitlement_id}
+                    text(GET_USER_ENTITLEMENT_BY_ID_SQL),
+                    {"entitlement_id": entitlement_id},
                 )
                 entitlement_record = result.mappings().one_or_none()
                 return dict(entitlement_record) if entitlement_record else None
@@ -349,17 +328,8 @@ class UserEntitlementPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    SELECT entitlement_id, user_id, llm_provider, llm_model_name,
-                           api_endpoint_url, cloud_provider, deployment_name, deployment_region,
-                           created_at, updated_at, created_by_user_id
-                    FROM user_llm_entitlements
-                    WHERE user_id = :user_id
-                    ORDER BY created_at DESC
-                    LIMIT :limit OFFSET :offset
-                """
                 params = {"user_id": user_id, "limit": limit, "offset": offset}
-                result = await session.execute(text(sql_query), params)
+                result = await session.execute(text(LIST_USER_ENTITLEMENTS_SQL), params)
                 entitlement_records = result.mappings().all()
                 logger.debug(
                     f"Retrieved {len(entitlement_records)} entitlements for user {user_id}"
@@ -387,11 +357,9 @@ class UserEntitlementPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    SELECT COUNT(*) FROM user_llm_entitlements
-                    WHERE user_id = :user_id
-                """
-                result = await session.execute(text(sql_query), {"user_id": user_id})
+                result = await session.execute(
+                    text(COUNT_USER_ENTITLEMENTS_SQL), {"user_id": user_id}
+                )
                 return result.scalar_one_or_none() or 0
         except Exception as e:
             logger.error(f"Error counting entitlements for user {user_id}: {e}")
@@ -508,12 +476,9 @@ class UserEntitlementPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    DELETE FROM user_llm_entitlements
-                    WHERE entitlement_id = :entitlement_id
-                """
                 result = await session.execute(
-                    text(sql_query), {"entitlement_id": entitlement_id}
+                    text(DELETE_USER_ENTITLEMENT_BY_ID_SQL),
+                    {"entitlement_id": entitlement_id},
                 )
                 was_deleted = getattr(result, "rowcount", 0) > 0
 

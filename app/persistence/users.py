@@ -19,6 +19,17 @@ from sqlalchemy import text
 
 from app.core.database import DatabaseSessionManager
 from app.persistence.base import BasePersistence
+from app.persistence.queries.user_queries import (
+    CHECK_USER_EMAIL_EXISTS_SQL,
+    CHECK_USERNAME_EXISTS_SQL,
+    COUNT_USERS_BY_STATUS_SQL,
+    CREATE_USER_SQL,
+    DELETE_USER_BY_EMAIL_SQL,
+    DELETE_USER_BY_ID_SQL,
+    GET_USER_BY_EMAIL_SQL,
+    GET_USER_BY_ID_SQL,
+    GET_USER_BY_USERNAME_SQL,
+)
 
 
 class UserPersistence(BasePersistence):
@@ -50,8 +61,9 @@ class UserPersistence(BasePersistence):
         """Check if email already exists in database"""
         try:
             async with self.get_session() as session:
-                sql_query = "SELECT 1 FROM users WHERE email = :email LIMIT 1"
-                result = await session.execute(text(sql_query), {"email": email})
+                result = await session.execute(
+                    text(CHECK_USER_EMAIL_EXISTS_SQL), {"email": email}
+                )
                 return result.first() is not None
         except Exception as e:
             logger.error(f"Error checking email existence: {e}")
@@ -61,8 +73,9 @@ class UserPersistence(BasePersistence):
         """Check if username already exists in database"""
         try:
             async with self.get_session() as session:
-                sql_query = "SELECT 1 FROM users WHERE username = :username LIMIT 1"
-                result = await session.execute(text(sql_query), {"username": username})
+                result = await session.execute(
+                    text(CHECK_USERNAME_EXISTS_SQL), {"username": username}
+                )
                 return result.first() is not None
         except Exception as e:
             logger.error(f"Error checking username existence: {e}")
@@ -186,19 +199,6 @@ class UserPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    INSERT INTO users (
-                        user_id, username, email, first_name, last_name,
-                        password_hash, role, status, created_at, updated_at
-                    )
-                    VALUES (
-                        :user_id, :username, :email, :first_name, :last_name,
-                        :password_hash, :role, :status, :created_at, :updated_at
-                    )
-                    RETURNING user_id, username, email, first_name, last_name,
-                              role, status, created_at, updated_at
-                """
-
                 params = {
                     "user_id": user_id,
                     "username": username,
@@ -212,7 +212,7 @@ class UserPersistence(BasePersistence):
                     "updated_at": updated_at,
                 }
 
-                result = await session.execute(text(sql_query), params)
+                result = await session.execute(text(CREATE_USER_SQL), params)
                 created_user = result.mappings().one_or_none()
 
                 if not created_user:
@@ -255,11 +255,9 @@ class UserPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    SELECT * FROM users
-                    WHERE user_id = :user_id
-                """
-                result = await session.execute(text(sql_query), {"user_id": user_id})
+                result = await session.execute(
+                    text(GET_USER_BY_ID_SQL), {"user_id": user_id}
+                )
                 user_record = result.mappings().one_or_none()
                 return dict(user_record) if user_record else None
         except Exception as e:
@@ -285,12 +283,8 @@ class UserPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    SELECT * FROM users
-                    WHERE email = :email
-                """
                 result = await session.execute(
-                    text(sql_query), {"email": email_address}
+                    text(GET_USER_BY_EMAIL_SQL), {"email": email_address}
                 )
                 user_record = result.mappings().one_or_none()
                 return dict(user_record) if user_record else None
@@ -314,11 +308,9 @@ class UserPersistence(BasePersistence):
         """
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    SELECT * FROM users
-                    WHERE username = :username
-                """
-                result = await session.execute(text(sql_query), {"username": username})
+                result = await session.execute(
+                    text(GET_USER_BY_USERNAME_SQL), {"username": username}
+                )
                 user_record = result.mappings().one_or_none()
                 return dict(user_record) if user_record else None
         except Exception as e:
@@ -447,11 +439,9 @@ class UserPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    SELECT COUNT(*) FROM users
-                    WHERE status = :status
-                """
-                result = await session.execute(text(sql_query), {"status": user_status})
+                result = await session.execute(
+                    text(COUNT_USERS_BY_STATUS_SQL), {"status": user_status}
+                )
                 return result.scalar_one_or_none() or 0
         except Exception as e:
             logger.error(f"Error counting users by status {user_status}: {e}")
@@ -636,11 +626,9 @@ class UserPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    DELETE FROM users
-                    WHERE user_id = :user_id
-                """
-                result = await session.execute(text(sql_query), {"user_id": user_id})
+                result = await session.execute(
+                    text(DELETE_USER_BY_ID_SQL), {"user_id": user_id}
+                )
                 # was_deleted = result.rowcount > 0
                 was_deleted = getattr(result, "rowcount", 0) > 0
 
@@ -676,12 +664,8 @@ class UserPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    DELETE FROM users
-                    WHERE email = :email
-                """
                 result = await session.execute(
-                    text(sql_query), {"email": email_address}
+                    text(DELETE_USER_BY_EMAIL_SQL), {"email": email_address}
                 )
                 # was_deleted = result.rowcount > 0
                 was_deleted = getattr(result, "rowcount", 0) > 0

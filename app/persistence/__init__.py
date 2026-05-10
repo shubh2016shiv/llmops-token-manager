@@ -14,7 +14,7 @@ This package provides:
 from app.persistence.base import BasePersistence
 from app.persistence.llm_models import LLMModelPersistence
 from app.persistence.llm_token_allocations import LLMTokenAllocationPersistence
-from app.persistence.token_maintenance_persistence import TokenMaintenancePersistence
+from app.persistence.token_maintenance import TokenMaintenancePersistence
 from app.persistence.user_entitlements import UserEntitlementPersistence
 from app.persistence.users import UserPersistence
 

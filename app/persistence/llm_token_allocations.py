@@ -20,6 +20,27 @@ from sqlalchemy import text
 
 from app.core.database import DatabaseSessionManager
 from app.persistence.base import BasePersistence
+from app.persistence.queries.llm_token_allocation_queries import (
+    CHECK_ACTIVE_PAUSE_ALLOCATION_EXISTS_SQL,
+    COUNT_ACTIVE_ALLOCATIONS_BY_MODEL_SQL,
+    CREATE_TOKEN_ALLOCATION_SQL,
+    CREATE_TOKEN_ALLOCATION_WITH_CAPACITY_CHECK_SQL,
+    DELETE_EXPIRED_TOKEN_ALLOCATIONS_SQL,
+    DELETE_TOKEN_ALLOCATION_BY_REQUEST_ID_SQL,
+    DELETE_USER_ALLOCATIONS_BY_STATUS_SQL,
+    DELETE_USER_ALLOCATIONS_SQL,
+    GET_ACTIVE_DEPLOYMENT_BY_MODEL_AND_ENDPOINT_SQL,
+    GET_TOKEN_ALLOCATION_BY_REQUEST_ID_SQL,
+    GET_TOTAL_ALLOCATED_TOKENS_FOR_ENDPOINT_SQL,
+    GET_USER_TOKEN_USAGE_STATS_SQL,
+    LIST_ACTIVE_MODEL_DEPLOYMENTS_SQL,
+    LIST_LEAST_LOADED_ALLOCATIONS_BY_MODEL_SQL,
+    LIST_TOKEN_ALLOCATION_SUMMARY_BY_MODEL_SQL,
+    LIST_TOTAL_ALLOCATED_TOKENS_BY_MODEL_SQL,
+    LIST_USER_ALLOCATIONS_BY_STATUS_SQL,
+    LIST_USER_ALLOCATIONS_SQL,
+    TRANSITION_WAITING_TO_ACQUIRED_WITH_CAPACITY_CHECK_SQL,
+)
 
 
 class LLMTokenAllocationPersistence(BasePersistence):
@@ -162,21 +183,6 @@ class LLMTokenAllocationPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    INSERT INTO token_manager (
-                        token_request_id, user_id, llm_provider, llm_model_name,
-                        deployment_name, cloud_provider, api_endpoint_url, deployment_region,
-                        token_count, allocation_status, allocated_at, expires_at,
-                        request_context, temperature, top_p, seed
-                    ) VALUES (
-                        :token_request_id, :user_id, :llm_provider, :llm_model_name,
-                        :deployment_name, :cloud_provider, :api_endpoint_url, :deployment_region,
-                        :token_count, :allocation_status, :allocated_at, :expires_at,
-                        :request_context, :temperature, :top_p, :seed
-                    )
-                    RETURNING *
-                """
-
                 # Convert dict to JSON string for JSONB column
                 request_context_json = (
                     json.dumps(request_metadata) if request_metadata else None
@@ -201,7 +207,9 @@ class LLMTokenAllocationPersistence(BasePersistence):
                     "seed": seed,
                 }
 
-                result = await session.execute(text(sql_query), params)
+                result = await session.execute(
+                    text(CREATE_TOKEN_ALLOCATION_SQL), params
+                )
                 created_allocation = result.mappings().one_or_none()
 
                 if not created_allocation:
@@ -216,6 +224,92 @@ class LLMTokenAllocationPersistence(BasePersistence):
                 return dict(created_allocation)
         except Exception as e:
             logger.error(f"Error creating allocation {token_request_identifier}: {e}")
+            raise
+
+    async def create_token_allocation_with_capacity_check(
+        self,
+        token_request_identifier: str,
+        user_id: UUID,
+        llm_provider: str,
+        llm_model_name: str,
+        token_count: int,
+        api_endpoint_url: str,
+        allocation_timestamp: datetime | None = None,
+        expiration_timestamp: datetime | None = None,
+        deployment_name: str | None = None,
+        cloud_provider_name: str | None = None,
+        deployment_region: str | None = None,
+        request_metadata: dict[str, Any] | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        seed: int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Create an allocation after an atomic capacity check.
+
+        This is the DB-fallback allocation primitive. It locks the selected
+        active deployment row, recomputes current active load, decides
+        ACQUIRED vs WAITING, and inserts the allocation in the same transaction.
+        That prevents concurrent DB fallback requests from all observing the
+        same stale capacity snapshot and over-allocating the endpoint.
+        """
+        self.validate_string_not_empty(
+            token_request_identifier, "token_request_identifier"
+        )
+        self.validate_uuid(user_id, "user_id")
+        self.validate_string_not_empty(llm_provider, "llm_provider")
+        self.validate_string_not_empty(llm_model_name, "llm_model_name")
+        self.validate_positive_integer(token_count, "token_count")
+        self.validate_string_not_empty(api_endpoint_url, "api_endpoint_url")
+
+        try:
+            async with self.get_session() as session:
+                request_context_json = (
+                    json.dumps(request_metadata) if request_metadata else None
+                )
+                params = {
+                    "token_request_id": token_request_identifier,
+                    "user_id": user_id,
+                    "llm_provider": llm_provider,
+                    "llm_model_name": llm_model_name,
+                    "deployment_name": deployment_name,
+                    "cloud_provider": cloud_provider_name,
+                    "api_endpoint_url": api_endpoint_url,
+                    "deployment_region": deployment_region,
+                    "token_count": token_count,
+                    "allocated_at": allocation_timestamp or datetime.now(),
+                    "expires_at": expiration_timestamp,
+                    "request_context": request_context_json,
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "seed": seed,
+                }
+
+                result = await session.execute(
+                    text(CREATE_TOKEN_ALLOCATION_WITH_CAPACITY_CHECK_SQL), params
+                )
+                created_allocation = result.mappings().one_or_none()
+                if not created_allocation:
+                    raise ValueError(
+                        "No active deployment with enough single-request capacity "
+                        f"found for {llm_provider}/{llm_model_name} at {api_endpoint_url}"
+                    )
+
+                allocation = dict(created_allocation)
+                self.log_operation(
+                    "CREATE",
+                    token_request_identifier,
+                    success=True,
+                    additional_context=(
+                        f"{token_count} tokens for {llm_model_name} "
+                        f"as {allocation.get('allocation_status')}"
+                    ),
+                )
+                return allocation
+        except Exception as e:
+            logger.error(
+                f"Error atomically creating allocation {token_request_identifier}: {e}"
+            )
             raise
 
     # ========================================================================
@@ -245,12 +339,9 @@ class LLMTokenAllocationPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    SELECT * FROM token_manager
-                    WHERE token_request_id = :token_request_id
-                """
                 result = await session.execute(
-                    text(sql_query), {"token_request_id": token_request_identifier}
+                    text(GET_TOKEN_ALLOCATION_BY_REQUEST_ID_SQL),
+                    {"token_request_id": token_request_identifier},
                 )
                 allocation_record = result.mappings().one_or_none()
                 return dict(allocation_record) if allocation_record else None
@@ -293,25 +384,8 @@ class LLMTokenAllocationPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    SELECT
-                        llm_model_name,
-                        api_endpoint_url,
-                        deployment_region,
-                        cloud_provider,
-                        SUM(token_count) as total_tokens,
-                        COUNT(*) as allocation_count
-                    FROM token_manager
-                    WHERE
-                        llm_model_name = :llm_model_name
-                        AND allocation_status = ANY(:included_statuses)
-                        AND (expires_at IS NULL OR expires_at > NOW())
-                    GROUP BY llm_model_name, api_endpoint_url, deployment_region, cloud_provider
-                    ORDER BY total_tokens ASC
-                """
-
                 result = await session.execute(
-                    text(sql_query),
+                    text(LIST_TOTAL_ALLOCATED_TOKENS_BY_MODEL_SQL),
                     {
                         "llm_model_name": llm_model_name,
                         "included_statuses": included_statuses,
@@ -352,18 +426,8 @@ class LLMTokenAllocationPersistence(BasePersistence):
 
         try:
             async with self.get_session() as session:
-                sql_query = """
-                    SELECT COALESCE(SUM(token_count), 0) as total_tokens
-                    FROM token_manager
-                    WHERE
-                        llm_model_name = :llm_model_name
-                        AND api_endpoint_url = :api_endpoint_url
-                        AND allocation_status IN ('ACQUIRED', 'PAUSED')
-                        AND (expires_at IS NULL OR expires_at > NOW())
-                """
-
                 result = await session.execute(
-                    text(sql_query),
+                    text(GET_TOTAL_ALLOCATED_TOKENS_FOR_ENDPOINT_SQL),
                     {
                         "llm_model_name": llm_model_name,
                         "api_endpoint_url": api_endpoint_url,
@@ -396,14 +460,8 @@ class LLMTokenAllocationPersistence(BasePersistence):
         try:
             async with self.get_session() as session:
                 if status_filter:
-                    query = """
-                        SELECT * FROM token_manager
-                        WHERE user_id = :user_id AND allocation_status = ANY(:status_filter)
-                        ORDER BY allocated_at DESC
-                        LIMIT :limit
-                    """
                     result = await session.execute(
-                        text(query),
+                        text(LIST_USER_ALLOCATIONS_BY_STATUS_SQL),
                         {
                             "user_id": user_id,
                             "status_filter": status_filter,
@@ -411,14 +469,9 @@ class LLMTokenAllocationPersistence(BasePersistence):
                         },
                     )
                 else:
-                    query = """
-                        SELECT * FROM token_manager
-                        WHERE user_id = :user_id
-                        ORDER BY allocated_at DESC
-                        LIMIT :limit
-                    """
                     result = await session.execute(
-                        text(query), {"user_id": user_id, "limit": limit}
+                        text(LIST_USER_ALLOCATIONS_SQL),
+                        {"user_id": user_id, "limit": limit},
                     )
 
                 results = result.mappings().all()
@@ -444,16 +497,9 @@ class LLMTokenAllocationPersistence(BasePersistence):
         """
         try:
             async with self.get_session() as session:
-                query = """
-                    SELECT COUNT(*)
-                    FROM token_manager
-                    WHERE
-                        llm_model_name = :llm_model_name
-                        AND allocation_status IN ('ACQUIRED', 'PAUSED')
-                        AND (expires_at IS NULL OR expires_at > NOW())
-                """
                 result = await session.execute(
-                    text(query), {"llm_model_name": llm_model_name}
+                    text(COUNT_ACTIVE_ALLOCATIONS_BY_MODEL_SQL),
+                    {"llm_model_name": llm_model_name},
                 )
                 return result.scalar_one_or_none() or 0
         except Exception as e:
@@ -570,21 +616,8 @@ class LLMTokenAllocationPersistence(BasePersistence):
         """
         try:
             async with self.get_session() as session:
-                query = """
-                    UPDATE token_manager
-                    SET
-                        allocation_status = 'ACQUIRED',
-                        api_endpoint_url = :api_endpoint_url,
-                        deployment_region = :deployment_region,
-                        expires_at = :expires_at
-                    WHERE
-                        token_request_id = :token_request_id
-                        AND allocation_status = 'WAITING'
-                    RETURNING *
-                """
-
                 result = await session.execute(
-                    text(query),
+                    text(TRANSITION_WAITING_TO_ACQUIRED_WITH_CAPACITY_CHECK_SQL),
                     {
                         "api_endpoint_url": api_endpoint,
                         "deployment_region": deployment_region,
@@ -686,12 +719,9 @@ class LLMTokenAllocationPersistence(BasePersistence):
         """
         try:
             async with self.get_session() as session:
-                query = """
-                    DELETE FROM token_manager
-                    WHERE token_request_id = :token_request_id
-                """
                 result = await session.execute(
-                    text(query), {"token_request_id": token_request_id}
+                    text(DELETE_TOKEN_ALLOCATION_BY_REQUEST_ID_SQL),
+                    {"token_request_id": token_request_id},
                 )
                 deleted = getattr(result, "rowcount", 0) > 0
 
@@ -720,14 +750,9 @@ class LLMTokenAllocationPersistence(BasePersistence):
         """
         try:
             async with self.get_session() as session:
-                query = """
-                    DELETE FROM token_manager
-                    WHERE
-                        expires_at IS NOT NULL
-                        AND expires_at < NOW()
-                        AND allocation_status IN ('ACQUIRED', 'PAUSED', 'WAITING')
-                """
-                result = await session.execute(text(query))
+                result = await session.execute(
+                    text(DELETE_EXPIRED_TOKEN_ALLOCATIONS_SQL)
+                )
                 deleted_count = getattr(result, "rowcount", 0)
 
                 if deleted_count > 0:
@@ -760,19 +785,14 @@ class LLMTokenAllocationPersistence(BasePersistence):
         try:
             async with self.get_session() as session:
                 if status:
-                    query = """
-                        DELETE FROM token_manager
-                        WHERE user_id = :user_id AND allocation_status = :status
-                    """
                     result = await session.execute(
-                        text(query), {"user_id": user_id, "status": status}
+                        text(DELETE_USER_ALLOCATIONS_BY_STATUS_SQL),
+                        {"user_id": user_id, "status": status},
                     )
                 else:
-                    query = """
-                        DELETE FROM token_manager
-                        WHERE user_id = :user_id
-                    """
-                    result = await session.execute(text(query), {"user_id": user_id})
+                    result = await session.execute(
+                        text(DELETE_USER_ALLOCATIONS_SQL), {"user_id": user_id}
+                    )
 
                 deleted_count = getattr(result, "rowcount", 0)
                 logger.info(f"Deleted {deleted_count} allocations for user {user_id}")
@@ -817,15 +837,8 @@ class LLMTokenAllocationPersistence(BasePersistence):
         try:
             async with self.get_session() as session:
                 # Check for existing active pause to prevent race conditions
-                pause_check_query = """
-                    SELECT 1 FROM token_manager
-                    WHERE llm_model_name = :llm_model_name
-                      AND api_endpoint_url = :api_endpoint_url
-                      AND allocation_status = 'PAUSED'
-                      AND expires_at > NOW()
-                """
                 existing_pause = await session.execute(
-                    text(pause_check_query),
+                    text(CHECK_ACTIVE_PAUSE_ALLOCATION_EXISTS_SQL),
                     {
                         "llm_model_name": llm_model_name,
                         "api_endpoint_url": api_endpoint,
@@ -843,21 +856,16 @@ class LLMTokenAllocationPersistence(BasePersistence):
                     }
 
                 # Find the model configuration for this deployment
-                query = """
-                    SELECT *
-                    FROM llm_models
-                    WHERE llm_model_name = :llm_model_name AND api_endpoint_url = :api_endpoint_url AND is_active_status = TRUE
-                """
                 result = await session.execute(
-                    text(query),
+                    text(GET_ACTIVE_DEPLOYMENT_BY_MODEL_AND_ENDPOINT_SQL),
                     {
                         "llm_model_name": llm_model_name,
                         "api_endpoint_url": api_endpoint,
                     },
                 )
-                chosen_model_config = result.mappings().one_or_none()
+                row = result.mappings().one_or_none()
 
-                if not chosen_model_config:
+                if not row:
                     logger.warning(
                         f"Deployment not found: {llm_model_name} at {api_endpoint}"
                     )
@@ -868,9 +876,12 @@ class LLMTokenAllocationPersistence(BasePersistence):
                         "reason": "Deployment not found",
                     }
 
+                # Convert to plain dict while the session is still open.
+                chosen_model_config: dict[str, Any] = dict(row)
+
             # Get required properties from model config
             max_token_limit = self._require_configured_max_tokens(
-                dict(chosen_model_config),
+                chosen_model_config,
                 llm_model_name,
                 api_endpoint,
             )
@@ -885,6 +896,7 @@ class LLMTokenAllocationPersistence(BasePersistence):
             return await self.create_pause_allocation(
                 token_request_id=token_request_id,
                 user_id=user_id,
+                llm_provider=llm_provider,
                 llm_model_name=llm_model_name,
                 api_endpoint=api_endpoint,
                 deployment_region=deployment_region,
@@ -906,6 +918,7 @@ class LLMTokenAllocationPersistence(BasePersistence):
         self,
         token_request_id: str,
         user_id: UUID,
+        llm_provider: str,
         llm_model_name: str,
         api_endpoint: str,
         deployment_region: str,
@@ -921,6 +934,7 @@ class LLMTokenAllocationPersistence(BasePersistence):
 
         Args:
             token_request_id: Unique identifier for pause allocation
+            llm_provider: LLM provider name (e.g. openai, anthropic)
             llm_model_name: Model to pause
             api_endpoint: Endpoint to pause
             deployment_region: Deployment region to pause
@@ -962,7 +976,7 @@ class LLMTokenAllocationPersistence(BasePersistence):
         return await self.create_token_allocation(
             token_request_identifier=token_request_id,
             user_id=user_id,
-            llm_provider="openai",  # Default provider for pause allocations
+            llm_provider=llm_provider,
             llm_model_name=llm_model_name,
             token_count=max_token_limit,
             allocation_status="PAUSED",
@@ -992,20 +1006,9 @@ class LLMTokenAllocationPersistence(BasePersistence):
         """
         try:
             async with self.get_session() as session:
-                query = """
-                    SELECT
-                        allocation_status,
-                        COUNT(*) as count,
-                        SUM(token_count) as total_tokens,
-                        AVG(token_count) as avg_tokens
-                    FROM token_manager
-                    WHERE
-                        llm_model_name = :llm_model_name
-                        AND (expires_at IS NULL OR expires_at > NOW())
-                    GROUP BY allocation_status
-                """
                 result = await session.execute(
-                    text(query), {"llm_model_name": llm_model_name}
+                    text(LIST_TOKEN_ALLOCATION_SUMMARY_BY_MODEL_SQL),
+                    {"llm_model_name": llm_model_name},
                 )
                 results = result.mappings().all()
 
@@ -1038,18 +1041,9 @@ class LLMTokenAllocationPersistence(BasePersistence):
         """
         try:
             async with self.get_session() as session:
-                query = """
-                    SELECT
-                        COUNT(*) as total_requests,
-                        SUM(token_count) as total_tokens,
-                        AVG(token_count) as avg_tokens_per_request,
-                        AVG(latency_ms) as avg_latency_ms,
-                        COUNT(CASE WHEN allocation_status = 'RELEASED' THEN 1 END) as completed_requests,
-                        COUNT(CASE WHEN allocation_status = 'FAILED' THEN 1 END) as failed_requests
-                    FROM token_manager
-                    WHERE user_id = :user_id
-                """
-                result = await session.execute(text(query), {"user_id": user_id})
+                result = await session.execute(
+                    text(GET_USER_TOKEN_USAGE_STATS_SQL), {"user_id": user_id}
+                )
                 result_row = result.mappings().one_or_none()
 
                 stats = dict(result_row) if result_row else {}
@@ -1098,6 +1092,7 @@ class LLMTokenAllocationPersistence(BasePersistence):
                 }
 
             # Get model name and token count
+            llm_provider = allocation["llm_provider"]
             llm_model_name = allocation["llm_model_name"]
             token_count = allocation["token_count"]
 
@@ -1105,7 +1100,7 @@ class LLMTokenAllocationPersistence(BasePersistence):
             (
                 total_allocated_tokens,
                 chosen_model_config,
-            ) = await self.get_least_loaded_deployment(llm_model_name)
+            ) = await self.get_least_loaded_deployment(llm_provider, llm_model_name)
             max_token_limit = self._require_configured_max_tokens(
                 chosen_model_config,
                 llm_model_name,
@@ -1153,6 +1148,19 @@ class LLMTokenAllocationPersistence(BasePersistence):
                 updated_allocation["seed"] = chosen_model_config.get("seed", 42)
                 return updated_allocation
             else:
+                latest_allocation = await self.get_allocation_by_request_id(
+                    token_request_id
+                )
+                if (
+                    latest_allocation
+                    and latest_allocation.get("allocation_status") == "WAITING"
+                ):
+                    return {
+                        "alloc_status": "WAITING",
+                        "token_request_id": token_request_id,
+                        "llm_model_name": llm_model_name,
+                        "token_count": token_count,
+                    }
                 return {
                     "error": f"Failed to acquire tokens for request {token_request_id}"
                 }
@@ -1198,7 +1206,7 @@ class LLMTokenAllocationPersistence(BasePersistence):
             (
                 total_allocated_tokens,
                 chosen_model_config,
-            ) = await self.get_least_loaded_deployment(llm_model_name)
+            ) = await self.get_least_loaded_deployment(llm_provider, llm_model_name)
 
             # Extract max token limit and lock time
             max_token_limit = self._require_configured_max_tokens(
@@ -1229,44 +1237,30 @@ class LLMTokenAllocationPersistence(BasePersistence):
             now = datetime.now()
             expires_at = now + timedelta(seconds=max_token_lock_time_secs)
 
-            # Initialize with WAITING status
-            allocation_status = "WAITING"
-            # api_version = ""
-            deployment_name = ""
-            api_endpoint = ""
-            deployment_region = ""
-            # api_keyv_id = ""
-            temperature = 0.0
-            seed = 0
-
-            # Check if we can allocate immediately
-            if (
-                total_allocated_tokens + token_count <= max_token_limit
-            ):  # TODO: Correct this
-                # Immediate allocation (ACQUIRED)
-                allocation_status = "ACQUIRED"
-                # api_version = chosen_model_config.get("api_version", "")
-                deployment_name = chosen_model_config.get("deployment_name", "")
-                api_endpoint = chosen_model_config.get("api_endpoint_url", "")
-                deployment_region = chosen_model_config.get("deployment_region", "")
-                # api_keyv_id = chosen_model_config.get("api_keyv_id", "")
-                temperature = chosen_model_config.get("temperature", 0.0)
-                seed = chosen_model_config.get("seed", 42)
+            deployment_name = chosen_model_config.get("deployment_name", "")
+            api_endpoint = chosen_model_config.get("api_endpoint_url", "")
+            deployment_region = chosen_model_config.get("deployment_region", "")
+            temperature = chosen_model_config.get("temperature", 0.0)
+            seed = chosen_model_config.get(
+                "seed", chosen_model_config.get("random_seed", 42)
+            )
 
             # Create the allocation record
-            allocation = await self.create_token_allocation(
+            allocation = await self.create_token_allocation_with_capacity_check(
                 token_request_identifier=token_request_id,
                 user_id=user_id,
                 llm_provider=llm_provider,
                 llm_model_name=llm_model_name,
                 token_count=token_count,
-                allocation_status=allocation_status,
                 expiration_timestamp=expires_at,
                 deployment_name=deployment_name,
                 cloud_provider_name=chosen_model_config.get("cloud_provider"),
                 api_endpoint_url=api_endpoint,
                 deployment_region=deployment_region,
                 request_metadata=request_context,
+                temperature=temperature,
+                top_p=chosen_model_config.get("top_p"),
+                seed=seed,
             )
 
             # Add additional fields for response
@@ -1283,13 +1277,14 @@ class LLMTokenAllocationPersistence(BasePersistence):
             raise
 
     async def get_least_loaded_deployment(
-        self, llm_model_name: str
+        self, llm_provider: str, llm_model_name: str
     ) -> tuple[int, dict[str, Any]]:
         """
-        Get the least loaded deployment for a model
+        Get the least loaded deployment for a provider/model pair.
         Similar to MongoDB's _get_total_allocated_tokens
 
         Args:
+            llm_provider: Provider name to constrain deployment selection
             llm_model_name: Name of the model to get deployments for
 
         Returns:
@@ -1299,23 +1294,34 @@ class LLMTokenAllocationPersistence(BasePersistence):
             ValueError: If no deployments found for model
 
         """
+        self.validate_string_not_empty(llm_provider, "llm_provider")
+        self.validate_string_not_empty(llm_model_name, "llm_model_name")
+
         try:
-            # Get all active deployments for this model
+            # Get all active deployments for this provider/model pair.
             async with self.get_session() as session:
-                # First, get all active deployments for this model
-                deployments_query = """
-                    SELECT *
-                    FROM llm_models
-                    WHERE llm_model_name = :llm_model_name AND is_active_status = TRUE
-                """
                 result = await session.execute(
-                    text(deployments_query), {"llm_model_name": llm_model_name}
+                    text(LIST_ACTIVE_MODEL_DEPLOYMENTS_SQL),
+                    {
+                        "llm_provider": llm_provider,
+                        "llm_model_name": llm_model_name,
+                    },
                 )
-                model_deployments = [dict(row) for row in result.mappings().all()]
+                model_deployments = []
+                for row in result.mappings().all():
+                    deployment = dict(row)
+                    # Support older fixtures that still expose api_base instead of
+                    # api_endpoint_url while normalizing downstream logic.
+                    deployment["api_endpoint_url"] = deployment.get(
+                        "api_endpoint_url"
+                    ) or deployment.get("api_base")
+                    model_deployments.append(deployment)
 
                 if not model_deployments:
                     raise ValueError(
-                        f"No model deployments found for llm_model_name = {llm_model_name}"
+                        "No model deployments found for "
+                        f"llm_provider = {llm_provider}, "
+                        f"llm_model_name = {llm_model_name}"
                     )
 
                 valid_model_deployments = [
@@ -1332,6 +1338,7 @@ class LLMTokenAllocationPersistence(BasePersistence):
                 for invalid_deployment in invalid_model_deployments:
                     logger.error(
                         "Active deployment is missing max_tokens and is excluded from least-loaded selection",
+                        llm_provider=invalid_deployment.get("llm_provider"),
                         llm_model_name=invalid_deployment.get("llm_model_name"),
                         api_endpoint_url=invalid_deployment.get("api_endpoint_url"),
                         deployment_name=invalid_deployment.get("deployment_name"),
@@ -1339,25 +1346,18 @@ class LLMTokenAllocationPersistence(BasePersistence):
                     )
                 if not valid_model_deployments:
                     raise ValueError(
-                        f"No valid active deployments with max_tokens found for llm_model_name = {llm_model_name}"
+                        "No valid active deployments with max_tokens found for "
+                        f"llm_provider = {llm_provider}, "
+                        f"llm_model_name = {llm_model_name}"
                     )
 
-                # Get current allocations grouped by llm_model_name and api_endpoint_url
-                allocations_query = """
-                    SELECT
-                        llm_model_name,
-                        api_endpoint_url,
-                        SUM(token_count) as total_tokens
-                    FROM token_manager
-                    WHERE
-                        llm_model_name = :llm_model_name
-                        AND allocation_status IN ('ACQUIRED', 'PAUSED')
-                        AND (expires_at IS NULL OR expires_at > NOW())
-                    GROUP BY llm_model_name, api_endpoint_url
-                    ORDER BY total_tokens ASC
-                """
+                # Get current allocations for the same provider/model pair.
                 result = await session.execute(
-                    text(allocations_query), {"llm_model_name": llm_model_name}
+                    text(LIST_LEAST_LOADED_ALLOCATIONS_BY_MODEL_SQL),
+                    {
+                        "llm_provider": llm_provider,
+                        "llm_model_name": llm_model_name,
+                    },
                 )
                 allocation_results = result.mappings().all()
 
@@ -1407,7 +1407,8 @@ class LLMTokenAllocationPersistence(BasePersistence):
 
         except Exception as e:
             logger.error(
-                f"Error finding least loaded deployment for {llm_model_name}: {e}"
+                "Error finding least loaded deployment for "
+                f"{llm_provider}/{llm_model_name}: {e}"
             )
             raise
 

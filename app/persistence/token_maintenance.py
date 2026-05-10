@@ -10,13 +10,13 @@ Architecture:
                                                                 │
                                                                 ▼
     ┌──────────────────────────────────────────────────────────────────────────────┐
-    │ token_maintenance_queries.py + PostgreSQL                                    │
+    │ queries/token_maintenance_queries.py + PostgreSQL                            │
     └──────────────────────────────────────────────────────────────────────────────┘
 
 Dependencies:
     - app/models/resilience_models.py - typed maintenance records
     - app/persistence/base.py - session management and shared validation
-    - app/persistence/token_maintenance_queries.py - raw SQL text
+    - app/persistence/queries/token_maintenance_queries.py - raw SQL text
 
 Author: Engineering Team
 Last Updated: 2026-05-10
@@ -32,7 +32,7 @@ from app.models.resilience_models import (
     InvalidActiveDeploymentRecord,
 )
 from app.persistence.base import BasePersistence
-from app.persistence.token_maintenance_queries import (
+from app.persistence.queries.token_maintenance_queries import (
     DELETE_EXPIRED_ALLOCATIONS_SQL,
     LIST_ACTIVE_DEPLOYMENT_CAPACITY_SNAPSHOTS_SQL,
     LIST_INVALID_ACTIVE_MODELS_WITHOUT_CAPACITY_SQL,

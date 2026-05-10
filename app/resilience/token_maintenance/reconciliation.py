@@ -14,7 +14,7 @@ Architecture:
 
 Dependencies:
     - app/core/config.py - reconciliation interval and warning threshold
-    - app/persistence/token_maintenance_persistence.py - authoritative PG snapshots
+    - app/persistence/token_maintenance.py - authoritative PG snapshots
     - app/resilience/redis_token_counter - shared Redis counter service
 
 Author: Engineering Team
@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from app.core.config import settings
-from app.persistence.token_maintenance_persistence import TokenMaintenancePersistence
+from app.persistence.token_maintenance import TokenMaintenancePersistence
 from app.resilience.redis_token_counter import (
     CounterReconciliationResult,
     get_shared_redis_token_counter_service,

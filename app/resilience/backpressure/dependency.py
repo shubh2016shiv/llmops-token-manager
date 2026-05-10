@@ -26,13 +26,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from fastapi import Request
+
 from app.resilience.backpressure.decision_to_http import (
     raise_for_backpressure_decision,
 )
 from app.resilience.backpressure.evaluator import evaluate_backpressure
-
-if TYPE_CHECKING:
-    from fastapi import Request
 
 
 async def backpressure_dependency(_request: Request) -> None:

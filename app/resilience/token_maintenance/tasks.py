@@ -14,7 +14,7 @@ Architecture:
 
 Dependencies:
     - app/llm_client_provisioning/llm_client_request_queue.py - shared Celery app
-    - app/persistence/token_maintenance_persistence.py - cleanup persistence
+    - app/persistence/token_maintenance.py - cleanup persistence
     - app/resilience/backpressure/queue_depth_publisher.py - Layer 1 telemetry write
     - app/resilience/token_maintenance/reconciliation.py - reconciliation orchestration
 
@@ -30,7 +30,7 @@ from celery.utils.log import get_task_logger
 
 from app.core.config import settings
 from app.llm_client_provisioning.llm_client_request_queue import celery_app
-from app.persistence.token_maintenance_persistence import TokenMaintenancePersistence
+from app.persistence.token_maintenance import TokenMaintenancePersistence
 from app.resilience.backpressure.constants import QUEUE_DEPTH_PUBLISH_TASK_NAME
 from app.resilience.backpressure.queue_depth_publisher import (
     publish_queue_depth_snapshot,

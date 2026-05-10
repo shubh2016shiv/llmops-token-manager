@@ -72,9 +72,20 @@ class DatabaseSessionManager:
 
         # Use provided config or settings
         if config is None:
+            # Route through PgBouncer when enabled;
+            # connect to PostgreSQL directly otherwise.
+            # In Docker, DATABASE_HOST is overridden to "pgbouncer"
+            # via docker-compose env.
+            # When running locally, pgbouncer_enabled=True routes to localhost:6432.
+            if settings.pgbouncer_enabled:
+                host = settings.pgbouncer_host
+                port = settings.pgbouncer_port
+            else:
+                host = settings.database_host
+                port = settings.database_port
             config = {
-                "host": settings.database_host,
-                "port": settings.database_port,
+                "host": host,
+                "port": port,
                 "dbname": settings.database_name,
                 "user": settings.database_user,
                 "password": settings.database_password,

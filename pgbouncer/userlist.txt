@@ -1,0 +1,16 @@
+# PgBouncer userlist.txt
+#
+# Format: "username" "md5<md5(password+username)>" or "username" "password"
+#
+# For production, use md5 hashes or SCRAM-SHA-256.
+# For laptop development, plain passwords with auth_type=md5 are acceptable.
+#
+# Generate md5 hash (Linux/macOS):
+#   echo -n "mypasswordmyuser" | md5sum  → prefix result with "md5"
+#   echo -n "pgbouncer_adminpgbouncer_admin" | md5sum → prefix result with "md5"
+#
+# NOTE: These credentials MUST match POSTGRES_USER/POSTGRES_PASSWORD in .env
+# PgBouncer uses these to authenticate connections TO PostgreSQL.
+
+"myuser" "mypassword"
+"pgbouncer_admin" "pgbouncer_admin_password"

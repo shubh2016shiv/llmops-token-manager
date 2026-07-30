@@ -1,29 +1,18 @@
 """
-Redis token counter service - atomic Redis operations for fast-path token flow.
+Redis token counter service — the plumbing around the Lua algorithm.
 
-Architecture:
--------------
-    API and worker callers delegate fast-path token accounting to
-    `RedisTokenCounterService`.
+The actual logic is the Lua in `lua_script_definitions.py`. This file's job is to:
+  1. build the two Redis keys for a deployment,
+  2. register + run the right Lua script,
+  3. wrap hot-path calls in the Redis circuit breaker, and
+  4. FAIL THROUGH (return a safe "miss") so Redis trouble degrades to the DB path
+     instead of hard-failing the request.
 
-    The service coordinates three concerns in one place:
-    - Lua scripts from `lua_script_definitions.py` for atomic Redis mutations
-    - the Redis circuit breaker for fail-through behavior under infrastructure failure
-    - Redis key construction, script registration, and lifecycle management
-
-    This module owns the operational counter workflow:
-    - reserve tokens atomically against the current counter and configured limit
-    - release tokens defensively without ever allowing negative balances
-    - seed cold counters from a database snapshot during startup
-    - reconcile active counters with atomic delta correction during runtime
-
-Dependencies:
-    - app/core/config.py - TTL settings
-    - app/resilience/circuit_breaker - Redis circuit breaker
-    - redis.asyncio - async Redis client and script runner
+Read README.md in this folder for the end-to-end flow; read the method comments
+below for the step-by-step implementation.
 
 Author: Engineering Team
-Last Updated: 2026-05-09
+Last Updated: 2026-07-24
 """
 
 from __future__ import annotations
@@ -54,12 +43,16 @@ from app.resilience.redis_token_counter.lua_script_definitions import (
     LUA_SEED_COUNTER,
 )
 
+# Stable internal names for the four scripts (used as dict keys + attribute suffixes).
 SCRIPT_NAME_RESERVE = "reserve"
 SCRIPT_NAME_RELEASE = "release"
 SCRIPT_NAME_SEED = "seed"
 SCRIPT_NAME_RECONCILE = "reconcile"
 
 
+# --- Type-checker shims (describe only the slice of each API we use) ---------
+# These Protocols let tests pass lightweight fakes instead of real Redis/breaker
+# objects. They carry no runtime behavior — skip past them; the logic is below.
 class RedisLuaScriptRunner(Protocol):
     """Callable Redis Lua script runner returned by `register_script`."""
 
@@ -109,6 +102,7 @@ class AsyncRedisClientProtocol(Protocol):
         ...
 
 
+# Maps our internal script name -> the Lua source to register for it.
 SCRIPT_SOURCE_BY_NAME = {
     SCRIPT_NAME_RESERVE: LUA_RESERVE_TOKENS,
     SCRIPT_NAME_RELEASE: LUA_RELEASE_TOKENS,
@@ -122,6 +116,8 @@ class RedisTokenCounterService:
 
     def __init__(self, redis_client: AsyncRedisClientProtocol) -> None:
         self._redis = redis_client
+        # Lazily-registered script runners (Redis remembers a script by hash; we
+        # register each one once, then invoke it many times). None = not yet loaded.
         self._reserve_script: RedisLuaScriptRunner | None = None
         self._release_script: RedisLuaScriptRunner | None = None
         self._seed_script: RedisLuaScriptRunner | None = None
@@ -140,6 +136,7 @@ class RedisTokenCounterService:
         """Close the underlying Redis client idempotently."""
         if self._closed:
             return
+        # aioredis .close() may return a coroutine; await only if it does.
         close_result = self._redis.close()
         if inspect.isawaitable(close_result):
             await close_result
@@ -153,6 +150,13 @@ class RedisTokenCounterService:
         # full Redis API (e.g. reconciliation lock) always pass a real Redis client.
         return cast("aioredis.Redis", self._redis)
 
+    # -----------------------------------------------------------------------
+    # PUBLIC OPERATIONS
+    # Each hot-path op follows the SAME shape: run the raw Lua call under the Redis
+    # circuit breaker, and on ANY failure "fail through" to a safe miss value so the
+    # caller falls back to the PostgreSQL path instead of erroring.
+    # -----------------------------------------------------------------------
+
     async def reserve_tokens(
         self,
         model_name: str,
@@ -161,6 +165,7 @@ class RedisTokenCounterService:
     ) -> TokenReservationResult:
         """Atomically reserve tokens for one model and endpoint."""
         try:
+            # Run the reserve Lua (via _reserve_tokens_raw) under breaker protection.
             reservation_result = await self._call_with_redis_circuit_breaker(
                 self._reserve_tokens_raw,
                 model_name,
@@ -177,11 +182,14 @@ class RedisTokenCounterService:
             )
             return reservation_result
         except aiobreaker.CircuitBreakerError as exc:
+            # Breaker is OPEN (Redis looks unhealthy) -> don't even try Redis.
+            # COUNTER_MISS tells the caller "use the DB path".
             logger.warning(
                 f"[FastPath] reserve_tokens short-circuited by Redis breaker: {exc}"
             )
             return TokenReservationResult.COUNTER_MISS
         except Exception as exc:
+            # Any other Redis error -> also fail through to the DB path.
             logger.error(
                 f"[FastPath] reserve_tokens failed (fail-through to DB): {exc}"
             )
@@ -208,6 +216,7 @@ class RedisTokenCounterService:
             )
             return updated_counter_value
         except aiobreaker.CircuitBreakerError as exc:
+            # Fail through: None means "couldn't update Redis" (caller handles it).
             logger.warning(
                 f"[FastPath] release_tokens short-circuited by Redis breaker: {exc}"
             )
@@ -224,6 +233,7 @@ class RedisTokenCounterService:
         max_limit: int,
     ) -> None:
         """Seed counter and limit keys atomically from a DB snapshot."""
+        # Not breaker-wrapped: seeding is startup/warm-up work, not hot-path traffic.
         try:
             counter_key, limit_key = self._build_counter_keys(
                 model_name,
@@ -250,6 +260,8 @@ class RedisTokenCounterService:
         max_tokens_from_db: int,
     ) -> CounterReconciliationResult:
         """Atomically reconcile Redis counter state to the latest DB snapshot."""
+        # Not breaker-wrapped: the reconciliation job already runs under its own
+        # Redis lock, and it WANTS the raw error to surface if Redis is unreachable.
         counter_key, limit_key = self._build_counter_keys(
             model_name,
             api_endpoint_url,
@@ -260,6 +272,7 @@ class RedisTokenCounterService:
             keys=[counter_key, limit_key],
             args=[allocated_tokens_from_db, max_tokens_from_db, ttl_seconds],
         )
+        # The Lua returns 0/1/2/3; turn it into the typed enum for callers.
         return CounterReconciliationResult(reconciliation_result)
 
     async def get_counter(
@@ -284,6 +297,11 @@ class RedisTokenCounterService:
             logger.error(f"[FastPath] get_counter failed: {exc}")
             return None
 
+    # -----------------------------------------------------------------------
+    # RAW OPERATIONS — the actual Redis work, WITHOUT breaker/fail-through.
+    # The public methods above add the breaker + error handling around these.
+    # -----------------------------------------------------------------------
+
     async def _reserve_tokens_raw(
         self,
         model_name: str,
@@ -291,6 +309,7 @@ class RedisTokenCounterService:
         token_count: int,
     ) -> TokenReservationResult:
         """Reserve tokens without outer breaker handling."""
+        # 1. two keys for this deployment; 2. run RESERVE Lua; 3. map int -> enum.
         counter_key, limit_key = self._build_counter_keys(
             model_name,
             api_endpoint_url,
@@ -309,6 +328,7 @@ class RedisTokenCounterService:
         token_count: int,
     ) -> int:
         """Release tokens without outer breaker handling."""
+        # Release only touches the counter key (no limit needed).
         counter_key, _ = self._build_counter_keys(model_name, api_endpoint_url)
         updated_counter_value = await self._execute_lua_script(
             script_name=SCRIPT_NAME_RELEASE,
@@ -327,13 +347,19 @@ class RedisTokenCounterService:
             model_name,
             api_endpoint_url,
         )
+        # A pipeline batches both GETs into ONE round-trip to Redis.
         pipeline = self._redis.pipeline()
         pipeline.get(counter_key)
         pipeline.get(limit_key)
         counter_value, limit_value = await pipeline.execute()
+        # If either key is gone, report "no snapshot" rather than a half answer.
         if counter_value is None or limit_value is None:
             return None
         return int(counter_value), int(limit_value)
+
+    # -----------------------------------------------------------------------
+    # LUA SCRIPT EXECUTION + REGISTRATION
+    # -----------------------------------------------------------------------
 
     async def _execute_lua_script(
         self,
@@ -347,6 +373,9 @@ class RedisTokenCounterService:
             script_result = await script_runner(keys=keys, args=args)
             return int(cast("int | str", script_result))
         except redis_exceptions.NoScriptError:
+            # Redis identifies scripts by hash and runs them by hash (fast). If Redis
+            # RESTARTED, it forgot the script and raises NOSCRIPT. Self-heal: register
+            # the source again (which reloads it) and retry exactly once.
             logger.warning(
                 f"[FastPath] Redis NOSCRIPT encountered for script={script_name}; "
                 "re-registering and retrying once."
@@ -356,6 +385,7 @@ class RedisTokenCounterService:
             return int(cast("int | str", script_result))
 
     def _get_or_register_script(self, script_name: str) -> RedisLuaScriptRunner:
+        # Return the cached runner if we've registered it before; otherwise load it.
         script_attr_name = self._script_attr_name(script_name)
         registered_script = getattr(self, script_attr_name)
         if registered_script is None:
@@ -365,6 +395,7 @@ class RedisTokenCounterService:
         return registered_script
 
     def _register_script(self, script_name: str) -> RedisLuaScriptRunner:
+        # Ask Redis to register the Lua source; cache the returned callable runner.
         script_source = SCRIPT_SOURCE_BY_NAME[script_name]
         script_runner = self._redis.register_script(script_source)
         setattr(self, self._script_attr_name(script_name), script_runner)
@@ -376,6 +407,8 @@ class RedisTokenCounterService:
         *args: object,
     ) -> object:
         """Execute one async Redis operation under breaker protection."""
+        # get_redis_circuit_breaker() returns the shared 'redis' breaker; call_async
+        # runs `operation` through it — raising CircuitBreakerError if it's OPEN.
         redis_circuit_breaker = cast(
             "AsyncCircuitBreakerProtocol",
             get_redis_circuit_breaker(),
@@ -384,6 +417,7 @@ class RedisTokenCounterService:
 
     @staticmethod
     def _script_attr_name(script_name: str) -> str:
+        # Map a script name to the instance attribute that caches its runner.
         if script_name == SCRIPT_NAME_RESERVE:
             return "_reserve_script"
         if script_name == SCRIPT_NAME_RELEASE:
@@ -400,6 +434,8 @@ class RedisTokenCounterService:
         api_endpoint_url: str,
     ) -> tuple[str, str]:
         """Build stable Redis counter and limit keys for a deployment."""
+        # Hash the endpoint so the key stays short/safe no matter the URL, and
+        # sanitize the model name so ':' / '/' can't corrupt the key format.
         endpoint_hash = hashlib.sha256(api_endpoint_url.encode()).hexdigest()[:16]
         safe_model_name = model_name.replace("/", "_").replace(":", "_")
         counter_key = f"token:counter:{safe_model_name}:{endpoint_hash}"

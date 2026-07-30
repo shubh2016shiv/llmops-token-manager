@@ -1,35 +1,30 @@
 """
-Redis counter result enums - public result contracts for token counter flows.
+Redis counter result enums — the typed contract with the Lua scripts.
 
-Architecture:
--------------
-    ┌──────────────────────────────┐     ┌──────────────────────────────┐
-    │ API / worker callers         │────▶│ counter_results.py           │
-    │ compare operation outcomes   │     │ public operation enums       │
-    └──────────────────────────────┘     └──────────────────────────────┘
-
-Dependencies:
-    - Python stdlib enum - enum base types
+Each Lua script in `lua_script_definitions.py` returns a small integer. Rather than
+pass raw numbers around, callers get these named enums. The **integer values here
+match the Lua return codes exactly** — that 1:1 mapping is the clean seam between
+the algorithm (Lua) and the application (Python). If you change a Lua return code,
+change it here too.
 
 Author: Engineering Team
-Last Updated: 2026-05-09
 """
 
 from enum import IntEnum
 
 
 class TokenReservationResult(IntEnum):
-    """Result values returned by token reservation attempts."""
+    """What a reserve attempt did (values mirror the RESERVE Lua's returns)."""
 
-    ALLOCATED = 1
-    EXHAUSTED = 0
-    COUNTER_MISS = -1
+    ALLOCATED = 1  # room existed; tokens were claimed -> success
+    EXHAUSTED = 0  # granting would exceed the limit -> no capacity
+    COUNTER_MISS = -1  # counter/limit not in Redis -> caller falls back to the DB
 
 
 class CounterReconciliationResult(IntEnum):
-    """Result values returned by Redis counter reconciliation."""
+    """What a reconcile did (values mirror the RECONCILE Lua's returns)."""
 
-    UNCHANGED = 0
-    DELTA_APPLIED = 1
-    RESEEDED_PARTIAL = 2
-    INITIALIZED_MISSING = 3
+    UNCHANGED = 0  # Redis already matched the DB -> nothing to do
+    DELTA_APPLIED = 1  # counter and/or limit was corrected toward the DB value
+    RESEEDED_PARTIAL = 2  # one key was missing and had to be re-seeded
+    INITIALIZED_MISSING = 3  # both keys were missing -> cold-start seed

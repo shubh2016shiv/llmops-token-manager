@@ -45,6 +45,9 @@ dump.rdb
 # Jupyter
 .ipynb_checkpoints/
 
+# graphify
+**/graphify-out/
+
 # Obsolete files and directories
 *_OBSELETE*
 *_OBSELETE/

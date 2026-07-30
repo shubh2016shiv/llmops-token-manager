@@ -2,9 +2,11 @@
 JWT Authentication Endpoints
 ----------------------------
 FastAPI endpoints for JWT token management and authentication.
-Provides login, token generation, and refresh capabilities.
 
-The /login endpoint is for production use, while /token/generate is for development/testing only.
+Token manager does not own user identity (that's llm_services' concern) and
+never issues tokens from credentials. It only validates JWTs issued elsewhere,
+plus provides /token/generate (dev/testing only) and /token/refresh for
+working with already-trusted identity (user_id, role, tenant_id).
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -12,9 +14,8 @@ from jose import JWTError
 from loguru import logger
 from pydantic import BaseModel
 
-from app.auth.auth_dependencies import get_current_user, require_admin
+from app.auth.auth_dependencies import CurrentUser
 from app.auth.jwt_auth_token_service import (
-    authenticate_user,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -23,13 +24,11 @@ from app.auth.jwt_auth_token_service import (
     verify_token_type,
 )
 from app.core.config import settings
-from app.core.rate_limiter import (
-    auth_login_rate_limiter,
+from app.core.redis_rate_limiter import (
     auth_token_generate_rate_limiter,
     auth_token_refresh_rate_limiter,
 )
 from app.models.auth_models import (
-    AuthLoginRequest,
     AuthTokenGenerateRequest,
     AuthTokenPayload,
     AuthTokenRefreshRequest,
@@ -59,82 +58,6 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 # ============================================================================
 
 
-@router.post(
-    "/login",
-    response_model=AuthTokenResponse,
-    status_code=status.HTTP_200_OK,
-    dependencies=[Depends(auth_login_rate_limiter())],
-    summary="Authenticate user and get JWT auth token",
-    description="""
-    Authenticate user with username and password.
-    Returns JWT auth token for API access upon successful authentication.
-
-    Use this endpoint to:
-    - Log in with username and password
-    - Get JWT auth token for API access
-    - Authenticate before accessing protected endpoints
-    """,
-)
-async def login(request: AuthLoginRequest):
-    """
-    Authenticate user with username and password and return JWT auth token.
-
-    Args:
-        request: Login request with username and password
-
-    Returns:
-        AuthTokenResponse: JWT auth token response
-
-    Raises:
-        HTTPException 401: If authentication fails
-        HTTPException 500: If token generation fails
-
-    """
-    logger.info(f"Login attempt for user: {request.username}")
-
-    try:
-        # Authenticate user
-        user = await authenticate_user(request.username, request.password)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid username or password",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        # Generate access token
-        access_token = create_access_token(user["user_id"], user["role"])
-
-        # Generate refresh token if enabled
-        refresh_token = None
-        if is_refresh_enabled():
-            refresh_token = create_refresh_token(user["user_id"], user["role"])
-            logger.debug(f"Refresh auth token generated for user {request.username}")
-
-        # Calculate expiration time
-        expires_in = get_token_expiration_seconds()
-
-        response = AuthTokenResponse(
-            access_token=access_token,
-            token_type="bearer",
-            expires_in=expires_in,
-            refresh_token=refresh_token,
-        )
-
-        logger.info(f"User {request.username} authenticated successfully")
-        return response
-
-    except HTTPException:
-        # Re-raise HTTP exceptions
-        raise
-    except Exception as e:
-        logger.error(f"Login error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Authentication failed",
-        )
-
-
 # ============================================================================
 # TOKEN GENERATION ENDPOINTS
 # ============================================================================
@@ -151,9 +74,12 @@ async def login(request: AuthLoginRequest):
 
     ⚠️ DEVELOPMENT/TESTING ONLY ⚠️
 
+    Requires a valid JWT access token (any authenticated caller — no
+    specific role needed since authorization is handled by llm_services).
+
     This endpoint is for development and testing purposes only.
-    Access requires admin/owner authentication and is disabled in production.
-    In production, token generation should be handled by a separate authentication service.
+    In production, token generation should be handled by a separate
+    authentication service.
 
     Use this endpoint to:
     - Generate tokens for API testing
@@ -165,25 +91,26 @@ async def login(request: AuthLoginRequest):
 )
 async def generate_token(
     request: AuthTokenGenerateRequest,
-    current_user: AuthTokenPayload = Depends(require_admin),
+    current_user: CurrentUser,
 ):
     """
     Generate JWT tokens for a user.
 
     Creates both access and refresh tokens (if refresh is enabled).
-    This is a development/testing endpoint and should not be used in production.
+    Requires a valid JWT access token.  This is a development/testing
+    endpoint — in production it returns 403.
 
     Args:
-        request: Token generation parameters (user_id, role)
-        current_user: Authenticated admin/owner user
+        request: Token generation parameters (user_id, role, tenant_id).
+        current_user: Authenticated user (any role — no authorization check).
 
     Returns:
-        AuthTokenResponse: Generated access token and optional refresh token
+        AuthTokenResponse: Generated access token and optional refresh token.
 
     Raises:
-        HTTPException 400: If role is invalid or refresh tokens disabled
-        HTTPException 500: If token generation fails
-
+        HTTPException 400: If role is invalid or refresh tokens disabled.
+        HTTPException 403: If called in production environment.
+        HTTPException 500: If token generation fails.
     """
     logger.info(
         f"Generating tokens for user {request.user_id} with role {request.role}"
@@ -204,12 +131,16 @@ async def generate_token(
 
     try:
         # Generate access token
-        access_token = create_access_token(request.user_id, request.role)
+        access_token = create_access_token(
+            request.user_id, request.role, request.tenant_id
+        )
 
         # Generate refresh token if enabled
         refresh_token = None
         if is_refresh_enabled():
-            refresh_token = create_refresh_token(request.user_id, request.role)
+            refresh_token = create_refresh_token(
+                request.user_id, request.role, request.tenant_id
+            )
             logger.debug("Refresh token generated")
         else:
             logger.debug("Refresh tokens disabled in configuration")
@@ -289,13 +220,17 @@ async def refresh_access_token(request: AuthTokenRefreshRequest):
         payload = decode_token(request.refresh_token)
         verify_token_type(payload, "refresh")
 
-        # Generate new access token with same user_id and role
-        new_access_token = create_access_token(payload.user_id, payload.role)
+        # Generate new access token with same user_id, role, and tenant_id
+        new_access_token = create_access_token(
+            payload.user_id, payload.role, payload.tenant_id
+        )
 
         # Optionally generate new refresh token (rotate refresh token)
         new_refresh_token = None
         if is_refresh_enabled():
-            new_refresh_token = create_refresh_token(payload.user_id, payload.role)
+            new_refresh_token = create_refresh_token(
+                payload.user_id, payload.role, payload.tenant_id
+            )
             logger.debug("New refresh token generated")
 
         # Calculate expiration time
@@ -348,7 +283,7 @@ async def refresh_access_token(request: AuthTokenRefreshRequest):
     """,
 )
 async def validate_token(
-    current_user: AuthTokenPayload = Depends(get_current_user),
+    current_user: CurrentUser,
 ) -> AuthTokenPayload:
     """
     Validate the current JWT token.

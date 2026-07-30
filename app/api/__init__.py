@@ -28,10 +28,15 @@ from fastapi import APIRouter
 
 from app.api.auth_endpoints import router as auth_router
 from app.api.health_endpoints import router as health_router
-from app.api.llm_configuration_endpoints import router as llm_configuration_router
+
+# llm_service concerns, not token management — commented out, module renamed *_OBSELETE.
+# from app.api.llm_configuration_endpoints import router as llm_configuration_router
+# from app.api.llm_inference_endpoints import router as llm_inference_router
 from app.api.token_manager_endpoints import router as token_manager_router
-from app.api.user_endpoints import router as user_router
-from app.api.user_entitlement_endpoints import router as user_entitlement_router
+
+# from app.api.user_endpoints import router as user_router
+# from app.api.user_entitlement_endpoints import router as user_entitlement_router
+# from app.llm_gateway.result_store import result_store_router
 
 api_router = APIRouter()
 
@@ -40,17 +45,21 @@ api_router = APIRouter()
 # care and evaluate path precedence interactions.
 api_router.include_router(health_router)
 api_router.include_router(auth_router)
-api_router.include_router(llm_configuration_router)
-api_router.include_router(user_router)
-api_router.include_router(user_entitlement_router)
+# api_router.include_router(llm_configuration_router)
+# api_router.include_router(user_router)
+# api_router.include_router(user_entitlement_router)
 api_router.include_router(token_manager_router)
+# api_router.include_router(llm_inference_router)   # POST /api/v1/llm/jobs  — submit job
+# api_router.include_router(result_store_router)     # GET  /api/v1/llm/jobs/{id} — poll result
 
 __all__ = [
     "api_router",
     "auth_router",
     "health_router",
-    "llm_configuration_router",
-    "user_router",
-    "user_entitlement_router",
+    # "llm_configuration_router",
+    # "llm_inference_router",
+    # "user_router",
+    # "user_entitlement_router",
     "token_manager_router",
+    # "result_store_router",
 ]

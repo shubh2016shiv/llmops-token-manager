@@ -1,92 +1,120 @@
 """
 Token Management Endpoints
 --------------------------
-Production-ready API endpoints for token allocation management.
-Provides comprehensive token allocation operations with robust error handling.
+Thin FastAPI routers for the four token management operations.
 
-Core Operations:
-- Acquire tokens for LLM usage (immediate or waiting status)
-- Retry acquiring tokens for waiting allocations
-- Release allocated tokens back to pool
-- Pause failing deployments for failover
+Responsibility of this layer:
+- HTTP routing and request/response serialisation (Pydantic models).
+- Authentication and object-level authorisation checks.
+- Mapping domain exceptions from app/services/ to HTTP status codes.
 
-Based on reference Flask service patterns from token_manager_service.py
+What this layer does NOT do:
+- Business logic or orchestration (→ app/services/).
+- Database queries (→ app/persistence/).
+- Redis or RabbitMQ operations (→ app/resilience/).
+
+Architecture:
+-------------
+    ┌────────────────────────────────┐
+    │  token_manager_endpoints.py    │  ← You are here
+    │  (Interface Layer)             │
+    │  auth + routing + HTTP mapping │
+    └──────────────┬─────────────────┘
+                   │  FastAPI Depends()
+    ┌──────────────▼─────────────────┐
+    │  app/services/                 │
+    │  TokenAcquisitionService       │
+    │  TokenReleaseService           │
+    │  TokenRetryService             │
+    └────────────────────────────────┘
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from loguru import logger
 
-from app.auth import AuthTokenPayload, require_developer, require_operator
+from app.auth import AuthTokenPayload, CurrentUser
+from app.core.exceptions import (
+    AllocationNotFoundError,
+    AllocationStateError,
+    DatabaseUnavailableError,
+    DeploymentConfigurationError,
+    TokenLimitExceededError,
+)
+from app.core.redis_rate_limiter import token_acquire_rate_limiter
 from app.models.request_models import (
     PauseDeploymentRequest,
     TokenAllocationClientRequest,
-    TokenReleaseRequest,
     TokenRetryRequest,
 )
 from app.models.response_models import (
+    PauseDeploymentAllocationResponse,
     TokenAllocationResponse,
-    TokenReleaseResponse,
 )
-from app.persistence.llm_token_allocations import LLMTokenAllocationPersistence
-from app.persistence.users import UserPersistence
+from app.persistence.allocations import LLMTokenAllocationPersistence
+from app.persistence.deployed_llm_endpoints import DeployedLLMReadPersistence
+from app.resilience.backpressure import backpressure_dependency
+from app.resilience.circuit_breaker import get_db_circuit_breaker
+from app.resilience.redis_token_counter import get_shared_redis_token_counter_service
+from app.resilience.token_queue import TokenAllocationPublisher
+from app.services.deployment_load_balancer import DeploymentLoadBalancer
+from app.services.token_acquisition_service import TokenAcquisitionService
+from app.services.token_retry_service import TokenRetryService
 
-# Services
-from app.utils.token_count_estimation import estimate_tokens
+# ---------------------------------------------------------------------------
+# Module-level stateless infrastructure singletons (safe to share across
+# requests — no mutable state between calls).
+# ---------------------------------------------------------------------------
+_shared_token_counter_service = get_shared_redis_token_counter_service()
+_publisher = TokenAllocationPublisher()
 
 # ============================================================================
-# ROUTER INITIALIZATION
+# ROUTER
 # ============================================================================
 
 router = APIRouter(prefix="/api/v1/tokens", tags=["Token Management"])
 
-# ----------------------------------------------------------------------------
-# Enterprise pattern note: avoid module-level service singletons
+# ============================================================================
+# FastAPI dependency providers (composition root)
 #
-# Why this matters:
-# - Hidden shared state: a module-level instance can accidentally accumulate
-#   state across requests/tests (caches, connection handles, mutated attributes).
-# - Testability: patching a global instance is brittle; it couples tests to a
-#   specific module variable name and import timing.
-# - Lifecycle clarity: FastAPI already provides a clean lifecycle model via
-#   dependency injection (`Depends`), which makes it explicit how a service is
-#   created and how it can be overridden in tests.
-#
-# Preferred pattern (FastAPI DI):
-#
-#   def get_users_service() -> UsersService:
-#       return UsersService()
-#
-#   @router.post("/...", ...)
-#   async def endpoint(..., users_service: UsersService = Depends(get_users_service)):
-#       user = await users_service.get_user_by_id(...)
-#
-# In tests, you patch `get_users_service` (the seam) and control the returned
-# service instance:
-#
-#   @patch("app.api.token_manager_endpoints.get_users_service")
-#   def test_...(mock_get_users_service, ...):
-#       mock_get_users_service.return_value.get_user_by_id = AsyncMock(...)
-#
-# We keep the old singleton line commented out for learning/reference:
-# users_service = UsersService()  # ❌ Avoid: module-level singleton service instance
+# Enterprise/testing note:
+# - FastAPI's Depends() captures the callable at definition time.
+# - Tests patch these get_*_service() functions to inject fakes without
+#   rebuilding the router/app dependency graph.
+# ============================================================================
 
 
-def get_users_service() -> UserPersistence:
-    """FastAPI dependency provider for `UsersService` instances."""
-    return UserPersistence()
+def get_deployment_load_balancer() -> DeploymentLoadBalancer:
+    """Factory for the deployment load balancer; overridable in tests."""
+    return DeploymentLoadBalancer(endpoint_reads=DeployedLLMReadPersistence())
 
 
-def _users_service_dependency() -> UserPersistence:
-    """
-    Indirection wrapper for dependency injection.
+def get_token_acquisition_service() -> TokenAcquisitionService:
+    """Factory for TokenAcquisitionService with all injected dependencies."""
+    return TokenAcquisitionService(
+        allocation_persistence=LLMTokenAllocationPersistence(),
+        load_balancer=get_deployment_load_balancer(),
+        redis_counter=_shared_token_counter_service,
+        publisher=_publisher,
+        db_circuit_breaker=get_db_circuit_breaker(),
+    )
 
-    Enterprise/testing note:
-    - FastAPI's `Depends()` captures the callable object at definition time.
-    - By depending on this wrapper (and having it call `get_users_service()`),
-      unit tests can patch `get_users_service` cleanly without rebuilding the
-      router/app dependency graph.
-    """
-    return get_users_service()
+
+def get_token_retry_service() -> TokenRetryService:
+    """Factory for TokenRetryService with all injected dependencies."""
+    return TokenRetryService(
+        allocation_persistence=LLMTokenAllocationPersistence(),
+        load_balancer=get_deployment_load_balancer(),
+    )
+
+
+def get_allocation_persistence() -> LLMTokenAllocationPersistence:
+    """Factory for LLMTokenAllocationPersistence; overridable in tests."""
+    return LLMTokenAllocationPersistence()
+
+
+# ============================================================================
+# Object-level authorisation helper
+# ============================================================================
 
 
 def _is_authorized_for_token_request(
@@ -94,19 +122,24 @@ def _is_authorized_for_token_request(
     current_user: AuthTokenPayload,
 ) -> bool:
     """
-    Check object-level authorization for token request operations.
+    Check object-level authorisation for token request operations.
 
     Access policy:
-    - Token owner can operate on their own token request.
-    - Admin/owner roles can operate on any token request.
+    - Token owner can operate on their own request.
+    - admin / owner roles can operate on any request.
+
+    Args:
+        allocation: The allocation record dict (must contain 'user_id').
+        current_user: JWT payload of the authenticated requester.
+
+    Returns:
+        True if the requester is authorised, False otherwise.
     """
     if current_user.role in {"admin", "owner"}:
         return True
-
     owner_id = allocation.get("user_id")
     if owner_id is None:
         return False
-
     return str(owner_id) == str(current_user.user_id)
 
 
@@ -120,92 +153,54 @@ def _is_authorized_for_token_request(
     response_model=TokenAllocationResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Acquire tokens for LLM usage",
-    description="Reserve token capacity for LLM calls. Returns immediate allocation if capacity available, otherwise creates waiting allocation.",
+    description=(
+        "Reserve token capacity for LLM calls. "
+        "Fast path: Redis atomic reservation + async RabbitMQ persistence (~1ms). "
+        "Fallback: synchronous PostgreSQL path wrapped with circuit breaker."
+    ),
 )
 async def acquire_tokens(
     request: TokenAllocationClientRequest,
-    current_user: AuthTokenPayload = Depends(require_developer),
-    users_service: UserPersistence = Depends(_users_service_dependency),
+    current_user: CurrentUser,
+    # Layer 0: per-service rate limit (X-Service-Id bucketing)
+    _rate_limit: None = Depends(token_acquire_rate_limiter()),
+    # Layer 1: back pressure — fail-fast 503 when system is saturated
+    _backpressure: None = Depends(backpressure_dependency),
+    service: TokenAcquisitionService = Depends(get_token_acquisition_service),
 ):
     """
-    Acquire tokens for LLM usage.
+    Acquire tokens for LLM usage — 5-layer resilience hot path.
 
-    Process:
-    1. Validate input (handled by Pydantic)
-    2. Find least loaded deployment for the model
-    3. Check if capacity is available
-    4. Create allocation (ACQUIRED if immediate, WAITING if capacity full)
-    5. Return allocation details with deployment configuration
-
-    Args:
-        request: Token allocation parameters (user_id, model_name, token_count, etc.)
+    Execution path:
+    1. Pydantic validation (automatic)
+    2. Per-service rate limit check  (Layer 0 — X-Service-Id sliding window)
+    3. Back pressure check           (Layer 1 — queue depth + DB pool + CB state)
+    4–7. TokenAcquisitionService     (user guard → estimation → Redis → RMQ → DB)
 
     Returns:
-        TokenAllocationResponse: Allocation details with status and deployment info
-
-    Raises:
-        HTTPException 400: If validation fails or token count exceeds limit
-        HTTPException 404: If no deployments found for model
-        HTTPException 500: On internal server error
-
+        201 ACQUIRED — tokens reserved (fast-path or DB-path)
+        201 WAITING  — capacity full; client should retry via /acquire/retry
+        429          — rate limit exceeded
+        503          — system saturated or circuit breaker open
     """
-    # 1. Get user_id from JWT token
-    user_id_uuid = current_user.user_id
-
-    # 2. validate if user is active (optional - for extra security)
-    user = await users_service.get_user_by_id(user_id_uuid)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-        )
-    if user["status"] != "active":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="User is not active"
-        )
-
-    # 3. get the estimated token count from the request
-    token_count_estimation = estimate_tokens(request.input_data, request.llm_model_name)
-    estimated_token_count = token_count_estimation.total_tokens
-
-    logger.info(
-        f"Acquiring tokens: user={user_id_uuid}, provider={request.llm_provider}, model={request.llm_model_name}, tokens={estimated_token_count}"
-    )
-    allocation_service = LLMTokenAllocationPersistence()
-
     try:
-        # Acquire tokens
-        allocation = await allocation_service.acquire_tokens(
-            user_id=user_id_uuid,
-            llm_provider=request.llm_provider,
-            llm_model_name=request.llm_model_name,
-            token_count=estimated_token_count,
-            request_context=request.request_context,
+        return await service.acquire_tokens(
+            current_user.user_id, current_user.tenant_id, request
         )
 
-        # Check for errors in response
-        if "error" in allocation:
-            error_msg = allocation["error"]
-            logger.warning(f"Token allocation failed: {error_msg}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg
-            )
-
-        logger.info(
-            f"Token allocation successful: {allocation['token_request_id']} - {allocation['allocation_status']}"
+    except (DatabaseUnavailableError, DeploymentConfigurationError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+            headers={"Retry-After": "30"},
         )
-        return TokenAllocationResponse(**allocation)
-
-    except ValueError as e:
-        # Handle validation errors from service layer
-        logger.warning(f"Validation error acquiring tokens: {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-    except HTTPException:
-        raise
-
+    except TokenLimitExceededError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except ValueError as exc:
+        logger.warning("[acquire] Validation error", extra={"error": str(exc)})
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except Exception:
-        # Handle unexpected errors
-        logger.exception("Error acquiring tokens:")
+        logger.exception("[acquire] Unexpected error acquiring tokens")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to acquire tokens. Please try again later.",
@@ -216,214 +211,99 @@ async def acquire_tokens(
     "/acquire/retry",
     response_model=TokenAllocationResponse,
     status_code=status.HTTP_200_OK,
-    summary="Retry acquiring tokens for waiting allocation",
-    description="Retry acquiring tokens for a WAITING allocation. Checks if capacity is now available.",
+    summary="Retry acquiring tokens for a WAITING allocation",
+    description="Check if capacity is now available for a WAITING allocation.",
 )
 async def retry_acquire_tokens(
     request: TokenRetryRequest,
     response: Response,
-    current_user: AuthTokenPayload = Depends(require_developer),
+    current_user: CurrentUser,
+    service: TokenRetryService = Depends(get_token_retry_service),
 ):
     """
     Retry acquiring tokens for a WAITING allocation.
 
-    Process:
-    1. Validate token_request_id
-    2. Find the waiting allocation
-    3. Check if capacity is now available
-    4. Update to ACQUIRED if possible, otherwise keep WAITING
-    5. Return updated allocation status
+    Returns 200 if successfully promoted to ACQUIRED, or 202 if still WAITING.
 
     Args:
-        request: Token retry parameters (token_request_id)
+        request: Contains the token_request_id to retry.
 
     Returns:
-        TokenAllocationResponse: Updated allocation details
-        Status 200: If successfully acquired
-        Status 202: If still waiting for capacity
-
-    Raises:
-        HTTPException 404: If token_request_id not found
-        HTTPException 400: If allocation is not in WAITING status
-        HTTPException 500: On internal server error
-
+        TokenAllocationResponse with allocation_status ACQUIRED (200)
+        or WAITING (202).
     """
-    logger.info(f"Retrying token acquisition: {request.token_request_id}")
-    allocation_service = LLMTokenAllocationPersistence()
-
     try:
-        # Retry acquiring tokens
-        allocation = await allocation_service.retry_acquire_tokens(
-            request.token_request_id
+        allocation_response = await service.retry_acquire(request.token_request_id)
+
+    except AllocationNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except AllocationStateError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except DeploymentConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         )
-
-        # Check if allocation is None
-        if allocation is None:
-            logger.warning(f"Token request not found: {request.token_request_id}")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Token request '{request.token_request_id}' not found",
-            )
-
-        if not _is_authorized_for_token_request(allocation, current_user):
-            logger.warning(
-                f"Unauthorized retry attempt by user {current_user.user_id} "
-                f"for token request {request.token_request_id}"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not authorized to operate on this token request",
-            )
-
-        # Check for errors in response
-        if "error" in allocation:
-            error_msg = allocation["error"]
-            logger.warning(f"Token retry failed: {error_msg}")
-
-            # Determine appropriate status code based on error type
-            if "not found" in error_msg.lower():
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail=error_msg
-                )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg
-                )
-
-        # Check if still waiting
-        if allocation.get("allocation_status") == "WAITING":
-            logger.info(f"Token allocation still waiting: {request.token_request_id}")
-            # ----------------------------------------------------------------
-            # Enterprise FastAPI pattern: return a single model, set status code
-            #
-            # Returning `(payload, status_code)` tuples "works" but is fragile:
-            # - It obscures response contracts in OpenAPI/Swagger (status_code is
-            #   not declared on the decorator).
-            # - It mixes response styles across endpoints, making maintenance and
-            #   testing harder.
-            #
-            # Preferred patterns for variable success status codes:
-            # 1) Inject `Response` and set `response.status_code`, then return a
-            #    single response model.
-            # 2) Return an explicit `JSONResponse` when you need full control.
-            #
-            # Example:
-            #   async def handler(..., response: Response):
-            #       response.status_code = status.HTTP_202_ACCEPTED
-            #       return Model(...)
-            #
-            # Legacy tuple return kept for reference:
-            # return TokenAllocationResponse(**allocation), status.HTTP_202_ACCEPTED
-            response.status_code = status.HTTP_202_ACCEPTED
-            return TokenAllocationResponse(**allocation)
-
-        # Successfully acquired
-        logger.info(f"Token allocation acquired: {request.token_request_id}")
-        return TokenAllocationResponse(**allocation)
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        # Handle unexpected errors
-        logger.error(f"Error retrying token acquisition: {e}", exc_info=True)
+    except Exception:
+        logger.exception("[retry] Unexpected error retrying token acquisition")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retry token acquisition. Please try again later.",
         )
 
+    if not _is_authorized_for_token_request(
+        allocation_response.model_dump(), current_user
+    ):
+        logger.warning(
+            "[retry] Unauthorised retry attempt",
+            extra={
+                "requester": str(current_user.user_id),
+                "token_request_id": request.token_request_id,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorised to operate on this token request",
+        )
+
+    # Enterprise FastAPI pattern: inject Response to vary success status code
+    # rather than returning a (payload, status_code) tuple which is fragile.
+    if allocation_response.allocation_status == "WAITING":
+        response.status_code = status.HTTP_202_ACCEPTED
+
+    return allocation_response
+
 
 @router.put(
     "/release",
-    response_model=TokenReleaseResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Release allocated tokens",
-    description="Release allocated tokens back to the pool. Idempotent operation - safe to call multiple times.",
+    status_code=status.HTTP_410_GONE,
+    summary="[REMOVED] Manual token release is no longer available",
+    description=(
+        "Token release is now handled automatically by the LLM worker after "
+        "each job completes (SUCCESS or FAILURE). Calling this endpoint is no "
+        "longer necessary and will return 410 Gone. "
+        "Submit a job via POST /api/v1/llm/jobs — the worker releases tokens for you."
+    ),
+    include_in_schema=True,
 )
-async def release_tokens(
-    request: TokenReleaseRequest,
-    current_user: AuthTokenPayload = Depends(require_developer),
-):
+async def release_tokens_removed() -> dict:
     """
-    Release allocated tokens back to the pool.
+    Endpoint retired: manual token release is no longer available.
 
-    Process:
-    1. Validate token_request_id exists
-    2. Delete the token allocation record
-    3. Return confirmation with appropriate status code
-
-    Args:
-        request: Token release parameters (token_request_id)
+    Tokens are released automatically by the gateway worker when an LLM job
+    reaches a terminal state (SUCCESS or FAILURE). The caller does not need to
+    release manually — doing so would break the lifecycle guarantee.
 
     Returns:
-        TokenReleaseResponse: Release confirmation with status
-
-    Raises:
-        HTTPException 404: If token_request_id not found
-        HTTPException 500: On internal server error
-
+        HTTP 410 Gone with an explanation.
     """
-    logger.info(f"Releasing tokens: {request.token_request_id}")
-    allocation_service = LLMTokenAllocationPersistence()
-
-    try:
-        # Check if allocation exists
-        allocation = await allocation_service.get_allocation_by_request_id(
-            request.token_request_id
-        )
-
-        # If allocation doesn't exist, it might have been already released
-        if allocation is None:
-            logger.info(
-                f"Token request {request.token_request_id} not found, may have been already released"
-            )
-            # Return success for idempotency
-            return TokenReleaseResponse(
-                token_request_id=request.token_request_id,
-                allocation_status="RELEASED",
-                message="Tokens released successfully",
-            )
-
-        if not _is_authorized_for_token_request(allocation, current_user):
-            logger.warning(
-                f"Unauthorized release attempt by user {current_user.user_id} "
-                f"for token request {request.token_request_id}"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not authorized to operate on this token request",
-            )
-
-        # Delete the allocation record
-        deleted = await allocation_service.delete_allocation(request.token_request_id)
-
-        if deleted:
-            logger.info(f"Tokens released successfully: {request.token_request_id}")
-            return TokenReleaseResponse(
-                token_request_id=request.token_request_id,
-                allocation_status="RELEASED",
-                message="Tokens released successfully",
-            )
-        else:
-            # This should rarely happen since we checked existence above
-            logger.warning(f"Failed to release tokens: {request.token_request_id}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to release tokens: {request.token_request_id}",
-            )
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        # Log error and return 500 error
-        logger.error(
-            f"Error releasing tokens {request.token_request_id}: {e}", exc_info=True
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to release tokens due to an internal error",
-        )
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "Manual token release has been removed. "
+            "Tokens are released automatically by the LLM worker when the job finishes. "
+            "Submit your job via POST /api/v1/llm/jobs."
+        ),
+    )
 
 
 # ============================================================================
@@ -433,154 +313,94 @@ async def release_tokens(
 
 @router.put(
     "/pause-deployment",
-    response_model=TokenAllocationResponse,
+    response_model=PauseDeploymentAllocationResponse,
     status_code=status.HTTP_200_OK,
     summary="Pause a failing deployment",
-    description="Pause a failing deployment for emergency failover. Blocks all new allocations to the specified deployment.",
+    description=(
+        "Pause a failing deployment for emergency failover. "
+        "Creates a PAUSED capacity-blocker allocation so the load balancer "
+        "routes all new traffic away from the problematic endpoint. "
+        "Returns 409 if the deployment is already paused."
+    ),
 )
 async def pause_deployment(
     request: PauseDeploymentRequest,
-    current_user: AuthTokenPayload = Depends(require_operator),
-    users_service: UserPersistence = Depends(_users_service_dependency),
+    current_user: CurrentUser,
+    allocation_persistence: LLMTokenAllocationPersistence = Depends(
+        get_allocation_persistence
+    ),
 ):
     """
-    Pause a failing deployment for emergency failover and capacity management.
+    Pause a failing deployment for emergency failover.
 
-    This function implements a sophisticated circuit breaker mechanism that temporarily blocks all new token allocations
-    to a specific deployment endpoint when that deployment is experiencing issues, degraded performance, or needs
-    maintenance. The pause mechanism works by creating a strategic "capacity blocker" - a PAUSED allocation record that
-    artificially consumes the entire available capacity of the target deployment, making it appear fully utilized to the
-    load balancing system. When the load balancer calculates available capacity for new requests, it includes both active
-    ACQUIRED allocations and PAUSED allocations in its computation, ensuring that any deployment with a pause allocation
-    will always appear at 100% capacity utilization, effectively routing all new traffic away from the problematic
-    deployment to healthier alternatives. This approach provides automatic failover without requiring manual intervention
-    in routing logic, maintains system availability during partial outages, and allows for graceful recovery when the
-    pause duration expires or is manually lifted. The mechanism is particularly valuable in production environments
-    where maintaining service continuity is critical, as it enables rapid response to deployment-specific issues like
-    provider outages, rate limiting problems, high error rates, or planned maintenance windows, while ensuring users
-    experience seamless operation as their requests are transparently redirected to functional deployments.
+    Mechanism: Creates a PAUSED allocation consuming the full capacity of
+    the target deployment.  The load balancer sees 100% utilisation and
+    routes all new traffic to other deployments.  The underlying persistence
+    call is atomic — the deployment row is locked before the duplicate check
+    and the INSERT, so concurrent pause requests cannot produce duplicate
+    capacity-blocker rows.
 
-    Process:
-    1. Validate input parameters
-    2. Find the deployment configuration
-    3. Create a PAUSED allocation to block the deployment
-    4. Return pause confirmation
+    Identity (user_id, tenant_id) comes from the verified JWT.
 
     Args:
-        request: Pause deployment parameters (model_name, api_endpoint_url, pause_reason, etc.)
+        request: Pause parameters (model, endpoint, reason, duration).
 
     Returns:
-        Dictionary with pause status and details
-
-    Raises:
-        HTTPException 400: If validation fails
-        HTTPException 404: If deployment not found
-        HTTPException 500: On internal server error
-
+        PauseDeploymentAllocationResponse with allocation_status = 'PAUSED'.
+        409 if the deployment is already paused.
+        404 if the deployment does not exist.
     """
-    logger.info(
-        f"Pausing deployment: provider={request.llm_provider}, model={request.llm_model_name}, endpoint={request.api_endpoint_url}, reason={request.pause_reason}"
-    )
-    allocation_service = LLMTokenAllocationPersistence()
-
     try:
-        # 1. Get user_id from JWT token
-        user_id_uuid = current_user.user_id
-
-        # 2. validate if user is active (optional - for extra security)
-        user = await users_service.get_user_by_id(user_id_uuid)
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-            )
-        if user["status"] != "active":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User is not active",
-            )
-
-        # --------------------------------------------------------------------
-        # Enterprise validation pattern: validate request shape in the schema layer
-        #
-        # This endpoint used to manually validate `api_endpoint_url` and raise 400.
-        # We now enforce `api_endpoint_url` as a required, non-blank field in the
-        # `PauseDeploymentRequest` Pydantic model.
-        #
-        # Benefits:
-        # - Consistent FastAPI behavior: invalid/missing inputs result in 422 with
-        #   a standard validation error payload.
-        # - Accurate OpenAPI: clients can see `api_endpoint_url` is required.
-        # - Cleaner handlers: endpoint logic stays focused on business operations.
-        #
-        # Example (model layer):
-        #   class PauseDeploymentRequest(BaseModel):
-        #       api_endpoint_url: str = Field(..., min_length=1)
-        #       @field_validator("api_endpoint_url")
-        #       def strip_and_reject_blank(cls, v): ...
-        #
-        # We keep the legacy handler-level validation commented for learning:
-        #
-        # # Validate api_endpoint_url is not None
-        # if not request.api_endpoint_url:
-        #     logger.warning(
-        #         f"Missing api_endpoint_url for pause deployment: {request.llm_model_name}"
-        #     )
-        #     raise HTTPException(
-        #         status_code=status.HTTP_400_BAD_REQUEST,
-        #         detail="api_endpoint_url parameter is required for pause deployment operation",
-        #     )
-
-        # Pause the deployment
         if request.api_endpoint_url is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="api_endpoint_url parameter is required for pause deployment operation",
+                detail="api_endpoint_url is required for pause deployment",
             )
 
-        result = await allocation_service.pause_deployment(
-            user_id=user_id_uuid,
-            llm_provider=request.llm_provider,
-            llm_model_name=request.llm_model_name,
+        result = await allocation_persistence.pause_deployment(
+            tenant_id=current_user.tenant_id,
+            user_id=current_user.user_id,
+            provider_name=request.llm_provider.value,
+            model_name=request.llm_model_name,
             api_endpoint=request.api_endpoint_url,
             pause_reason=request.pause_reason,
             pause_duration_minutes=request.pause_duration_minutes or 30,
         )
 
-        # Check for errors in response
-        if "error" in result:
-            error_msg = result["error"]
-            logger.warning(f"Deployment pause failed: {error_msg}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg
-            )
-
-        # Check if deployment not found
-        if result.get("alloc_status") == "NOT_FOUND":
-            logger.warning(
-                f"Deployment not found: {request.llm_provider}/{request.llm_model_name} at {request.api_endpoint_url}"
-            )
+        alloc_status = result.get("alloc_status")
+        if alloc_status == "NOT_FOUND":
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Deployment '{request.llm_provider}/{request.llm_model_name}' at '{request.api_endpoint_url}' not found",
+                detail=(
+                    f"Deployment '{request.llm_provider}/{request.llm_model_name}' "
+                    f"at '{request.api_endpoint_url}' not found"
+                ),
+            )
+        if alloc_status == "ALREADY_PAUSED":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Deployment '{request.llm_provider}/{request.llm_model_name}' "
+                    f"at '{request.api_endpoint_url}' is already paused"
+                ),
             )
 
         logger.info(
-            f"Deployment paused successfully: {request.llm_provider}/{request.llm_model_name} at {request.api_endpoint_url}"
+            "[pause] Deployment paused",
+            extra={
+                "provider": str(request.llm_provider),
+                "model": request.llm_model_name,
+                "endpoint": request.api_endpoint_url,
+            },
         )
-        return result
+        return PauseDeploymentAllocationResponse(**result)
 
     except HTTPException:
         raise
-
-    except ValueError as e:
-        # Handle validation errors
-        error_msg = str(e)
-        logger.warning(f"Validation error pausing deployment: {error_msg}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg)
-
-    except Exception as e:
-        # Handle unexpected errors
-        logger.error(f"Error pausing deployment: {e}", exc_info=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception:
+        logger.exception("[pause] Unexpected error pausing deployment")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to pause deployment. Please try again later.",

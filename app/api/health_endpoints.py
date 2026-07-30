@@ -2,7 +2,7 @@
 Health Check Endpoints
 ---------------------
 Health monitoring endpoints for service and dependencies.
-Provides status checks for database, Redis, RabbitMQ, Celery worker readiness,
+Provides status checks for database, Redis, RabbitMQ,
 and token-maintenance runtime readiness.
 """
 
@@ -15,14 +15,11 @@ from app.core.config import settings
 from app.core.service_health import (
     ServiceStatus,
     verify_database_connectivity,
+    verify_rabbitmq_connectivity,
     verify_redis_connectivity,
 )
-from app.llm_client_provisioning.service_health import (
-    verify_celery_worker_readiness,
-    verify_rabbitmq_connectivity,
-)
 from app.models.response_models import DependencyHealth, HealthStatus
-from app.resilience.token_maintenance.service_health import (
+from app.resilience.token_maintenance.health import (
     verify_token_maintenance_readiness,
 )
 
@@ -52,7 +49,7 @@ async def health_check() -> HealthStatus:
 async def check_dependencies() -> DependencyHealth:
     """
     Check health of all service dependencies.
-    Tests connectivity to PostgreSQL, Redis, RabbitMQ, Celery worker readiness,
+    Tests connectivity to PostgreSQL, Redis, RabbitMQ,
     and token-maintenance runtime readiness.
 
     Returns a 200 OK status with the health status of each component.
@@ -79,9 +76,6 @@ async def check_dependencies() -> DependencyHealth:
     # Check RabbitMQ message broker
     rabbitmq_healthy = await _check_rabbitmq()
 
-    # Check Celery worker readiness
-    celery_worker_healthy = await _check_celery_worker()
-
     # Check token-maintenance runtime readiness
     token_maintenance_healthy = await _check_token_maintenance()
 
@@ -90,7 +84,6 @@ async def check_dependencies() -> DependencyHealth:
         postgresql_healthy
         and redis_healthy
         and rabbitmq_healthy
-        and celery_worker_healthy
         and token_maintenance_healthy
     )
     status = "healthy" if all_healthy else "unhealthy"
@@ -101,7 +94,6 @@ async def check_dependencies() -> DependencyHealth:
             f"Infrastructure health check detected issues: "
             "postgresql="
             f"{postgresql_healthy}, redis={redis_healthy}, rabbitmq={rabbitmq_healthy}, "
-            f"celery_worker={celery_worker_healthy}, "
             f"token_maintenance={token_maintenance_healthy}"
         )
     else:
@@ -113,7 +105,6 @@ async def check_dependencies() -> DependencyHealth:
         postgresql=postgresql_healthy,
         redis=redis_healthy,
         rabbitmq=rabbitmq_healthy,
-        celery_worker=celery_worker_healthy,
         token_maintenance=token_maintenance_healthy,
         status=status,
         timestamp=datetime.now(timezone.utc),
@@ -146,26 +137,19 @@ async def _check_redis() -> bool:
 
 async def _check_rabbitmq() -> bool:
     """
-    Check RabbitMQ broker connectivity via Celery.
+    Check RabbitMQ broker connectivity.
+
+    RabbitMQ remains a real, live dependency of the token manager
+    (token_queue_consumer depends on it) even though the LLM-job Celery
+    app that used to own this check was decoupled into llm_gateway. This
+    probes RabbitMQ directly instead, same pattern as _check_database/_check_redis.
 
     Returns:
-        bool: True if RabbitMQ broker is accessible
+        bool: True if RabbitMQ is accessible
 
     """
     result = await verify_rabbitmq_connectivity()
-    return _is_service_connected(result, "RabbitMQ broker")
-
-
-async def _check_celery_worker() -> bool:
-    """
-    Check Celery worker readiness separately from broker connectivity.
-
-    Returns:
-        bool: True if a Celery worker is ready to process tasks
-
-    """
-    result = await verify_celery_worker_readiness()
-    return _is_service_connected(result, "Celery worker")
+    return _is_service_connected(result, "RabbitMQ")
 
 
 async def _check_token_maintenance() -> bool:

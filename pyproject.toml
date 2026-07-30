@@ -37,6 +37,7 @@ dependencies = [
     # --- CONFIGURATION & DATA VALIDATION ---
     "pydantic[email]>=2.9.2",
     "pydantic-settings>=2.6.1",
+    "pyyaml>=6.0.3",
     # --- LOGGING & MONITORING ---
     "loguru>=0.7.2",
     # --- UTILITIES & NETWORKING ---
@@ -49,8 +50,12 @@ dependencies = [
     # --- JWT AUTHENTICATION ---
     "python-jose[cryptography]>=3.3.0",
     # --- RATE LIMITING ---
-    "limits>=5.8.0",
-    "pybreaker>=1.4.1",
+    # `limits` async Redis backend runs on coredis. limits 5.x supports
+    # coredis<6 ONLY; coredis>=6 changed pool lifecycle (requires an async
+    # context manager) and breaks limits' storage, so pin it explicitly.
+    "limits[async-redis]>=5.8.0",
+    "coredis>=3.4,<6",
+    "aiobreaker==1.2.0",
 ]
 
 [project.optional-dependencies]
@@ -90,6 +95,9 @@ dev = [
     "pyright>=1.1.396",
     "rich>=13.0",
     "ipython>=8.0",
+]
+graphify = [
+    "graphifyy>=0.9.20",
 ]
 
 # ================================================================

@@ -25,6 +25,8 @@ Last Updated: 2026-05-10
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class TokenManagerError(Exception):
     """Base exception for all LLM token manager domain errors."""
@@ -139,6 +141,27 @@ class TokenLimitExceededError(TokenManagerError):
         self.token_count = token_count
         self.max_limit = max_limit
         self.model_name = model_name
+
+
+class RateLimitExceededError(TokenManagerError):
+    """
+    Raised when a request is blocked by the rate limiter.
+
+    Carries a structured payload ready for an HTTP 429 response and the
+    number of seconds the caller should wait before retrying.
+
+    Args:
+        payload: A dictionary matching the 429 error response body.
+        retry_after: Seconds until the client may retry.
+
+    Example:
+        >>> raise RateLimitExceededError({"message": "slow down"}, retry_after=30)
+    """
+
+    def __init__(self, payload: dict[str, Any], retry_after: int) -> None:
+        super().__init__(payload.get("message", "Rate limit exceeded"))
+        self.payload: dict[str, Any] = payload
+        self.retry_after = retry_after
 
 
 class DeploymentConfigurationError(TokenManagerError):

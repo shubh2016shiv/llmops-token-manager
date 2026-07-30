@@ -26,6 +26,7 @@ class AuthTokenPayload(BaseModel):
     role: str = Field(
         ..., description="User role: developer, operator, admin, or owner"
     )
+    tenant_id: UUID = Field(..., description="Tenant the user is acting within")
     expire_at_time: datetime = Field(..., description="Token expiration timestamp")
     issued_at_time: datetime = Field(..., description="Token issued at timestamp")
     type: str = Field(..., description="Token type: 'access' or 'refresh'")
@@ -35,6 +36,7 @@ class AuthTokenPayload(BaseModel):
             "example": {
                 "user_id": "550e8400-e29b-41d4-a716-446655440000",
                 "role": "developer",
+                "tenant_id": "660e8400-e29b-41d4-a716-446655440000",
                 "expire_at_time": "2025-10-21T10:30:00Z",
                 "issued_at_time": "2025-10-20T10:30:00Z",
                 "type": "access",
@@ -96,28 +98,13 @@ class AuthTokenGenerateRequest(BaseModel):
 
     user_id: UUID = Field(..., description="User ID to generate token for")
     role: str = Field(..., description="User role for the token")
+    tenant_id: UUID = Field(..., description="Tenant the token should act within")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "user_id": "550e8400-e29b-41d4-a716-446655440000",
                 "role": "developer",
+                "tenant_id": "660e8400-e29b-41d4-a716-446655440000",
             }
-        }
-
-
-class AuthLoginRequest(BaseModel):
-    """
-    Request model for user authentication login.
-
-    Used to authenticate users with username/password credentials
-    and generate JWT auth tokens upon successful authentication.
-    """
-
-    username: str = Field(..., description="User's username")
-    password: str = Field(..., description="User's password")
-
-    class Config:
-        json_schema_extra = {
-            "example": {"username": "johndoe", "password": "SecurePass123"}
         }

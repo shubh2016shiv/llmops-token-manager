@@ -124,11 +124,12 @@ class TokenAllocationResponse(BaseModel):
         ..., description="Unique identifier for this allocation"
     )
     user_id: UUID = Field(..., description="User who received the allocation")
-    llm_provider: str = Field(
+    tenant_id: UUID = Field(..., description="Tenant this allocation belongs to")
+    provider_name: str = Field(
         ..., description="LLM provider (e.g., openai, anthropic, gemini)"
     )
     # -- Model & Deployment Configuration: Specifies the target LLM and deployment
-    llm_model_name: str = Field(..., description="Name of the LLM model (e.g., GPT-4)")
+    model_name: str = Field(..., description="Name of the LLM model (e.g., GPT-4)")
     deployment_name: str | None = Field(
         default=None, description="Specific deployment of the model, if applicable"
     )
@@ -138,7 +139,7 @@ class TokenAllocationResponse(BaseModel):
     api_endpoint_url: str | None = Field(
         default=None, description="API endpoint URL to use"
     )
-    deployment_region: str | None = Field(
+    cloud_region: str | None = Field(
         default=None, description="Deployment region where model is deployed"
     )
     # -- Token Allocation Management: Tracks allocated tokens and their status
@@ -167,9 +168,9 @@ class TokenAllocationResponse(BaseModel):
         default=None, description="Seed value for reproducible LLM outputs"
     )
 
-    @field_validator("llm_provider")
+    @field_validator("provider_name")
     @classmethod
-    def validate_llm_provider(cls, v: str) -> str:
+    def validate_provider_name(cls, v: str) -> str:
         """Validate LLM provider matches database schema."""
         if v not in VALID_LLM_PROVIDERS:
             raise ValueError(f"Invalid LLM provider: {v}")
@@ -206,12 +207,12 @@ class TokenAllocationResponse(BaseModel):
                     "value": {
                         "token_request_id": "req_pqr789stu",
                         "user_id": "a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6",
-                        "llm_provider": "openai",
-                        "llm_model_name": "gpt-4o",
+                        "provider_name": "openai",
+                        "model_name": "gpt-4o",
                         "deployment_name": None,
                         "cloud_provider": None,
                         "api_endpoint_url": "https://api.openai.com/v1",
-                        "deployment_region": "us-east-1",
+                        "cloud_region": "us-east-1",
                         "token_count": 1500,
                         "allocation_status": "ACQUIRED",  # Changed from "ACTIVE" to "ACQUIRED"
                         "allocated_at": "2025-10-19T17:19:00Z",  # 10:49 PM IST = 5:19 PM UTC
@@ -233,12 +234,12 @@ class TokenAllocationResponse(BaseModel):
                     "value": {
                         "token_request_id": "req_xyz987qwe",
                         "user_id": "a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c8",
-                        "llm_provider": "openai",
-                        "llm_model_name": "gpt-4o",
+                        "provider_name": "openai",
+                        "model_name": "gpt-4o",
                         "deployment_name": "gpt4o-eastus-prod",
                         "cloud_provider": "Azure",
                         "api_endpoint_url": "https://my-resource.openai.azure.com/openai/deployments/gpt4o-eastus-prod",
-                        "deployment_region": "eastus",
+                        "cloud_region": "eastus",
                         "token_count": 2500,
                         "allocation_status": "ACQUIRED",  # Changed from "ACTIVE" to "ACQUIRED"
                         "allocated_at": "2025-10-19T17:19:00Z",  # Same UTC time
@@ -282,12 +283,17 @@ class PauseDeploymentAllocationResponse(BaseModel):
         ..., description="Token request ID for pause allocation"
     )
     user_id: UUID = Field(..., description="User who requested the pause")
-    llm_provider: str = Field(..., description="LLM provider")
-    llm_model_name: str = Field(..., description="Model name paused")
+    tenant_id: UUID = Field(..., description="Tenant this pause allocation belongs to")
+    provider_name: str = Field(..., description="LLM provider (e.g. openai, anthropic)")
+    model_name: str = Field(..., description="Model name paused")
     deployment_name: str | None = Field(default=None, description="Deployment name")
-    cloud_provider: str | None = Field(default=None, description="Cloud provider")
+    cloud_provider: str | None = Field(
+        default=None, description="Cloud infra hosting the deployment (e.g. azure, aws)"
+    )
     api_endpoint_url: str = Field(..., description="Paused API endpoint URL")
-    deployment_region: str | None = Field(default=None, description="Deployment region")
+    cloud_region: str | None = Field(
+        default=None, description="Cloud infra region (e.g. us-east-1)"
+    )
     token_count: int = Field(
         ..., description="Token count consumed by pause allocation"
     )
@@ -443,8 +449,8 @@ class LLMModelListResponse(BaseModel):
             "example": {
                 "models": [
                     {
-                        "llm_provider": "openai",
-                        "llm_model_name": "gpt-4o",
+                        "provider_name": "openai",
+                        "model_name": "gpt-4o",
                         "deployment_name": "gpt-4o-eastus",
                         "api_key_variable_name": "OPENAI_API_KEY_GPT4O",
                         "api_endpoint_url": "https://api.openai.com/v1",
@@ -562,7 +568,6 @@ class DependencyHealth(BaseModel):
     - PostgreSQL database
     - Redis cache
     - RabbitMQ message broker
-    - Celery worker readiness
     - Token-maintenance runtime readiness
 
     Each component is represented as a boolean indicating if it's operational.
@@ -571,7 +576,6 @@ class DependencyHealth(BaseModel):
     postgresql: bool = Field(..., description="PostgreSQL database health status")
     redis: bool = Field(..., description="Redis cache health status")
     rabbitmq: bool = Field(..., description="RabbitMQ message broker health status")
-    celery_worker: bool = Field(..., description="Celery worker readiness status")
     token_maintenance: bool = Field(
         ..., description="Token-maintenance runtime readiness status"
     )
@@ -588,7 +592,6 @@ class DependencyHealth(BaseModel):
                 "postgresql": True,
                 "redis": True,
                 "rabbitmq": True,
-                "celery_worker": True,
                 "token_maintenance": True,
                 "status": "healthy",
                 "timestamp": "2025-10-13T10:30:00Z",
@@ -828,12 +831,12 @@ class UserEntitlementListResponse(BaseModel):
                     {
                         "entitlement_id": 1,
                         "user_id": "550e8400-e29b-41d4-a716-446655440000",
-                        "llm_provider": "openai",
-                        "llm_model_name": "gpt-4o",
+                        "provider_name": "openai",
+                        "model_name": "gpt-4o",
                         "api_endpoint_url": "https://api.openai.com/v1",
                         "cloud_provider": None,
                         "deployment_name": None,
-                        "deployment_region": "us-east-1",
+                        "cloud_region": "us-east-1",
                         "created_at": "2025-10-21T10:00:00Z",
                         "updated_at": "2025-10-21T10:00:00Z",
                         "created_by_user_id": "a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6",

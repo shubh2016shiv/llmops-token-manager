@@ -13,6 +13,13 @@ This package provides validated data models for:
 All models include field validation matching database CHECK constraints.
 """
 
+# Rate limit models (Redis-backed)
+from app.models.redis_rate_limit_models import (
+    RateLimitedErrorDetail,
+    RateLimitedResponse,
+    RateLimitRule,
+)
+
 # Core database models
 # Request models
 from app.models.request_models import (
@@ -61,10 +68,15 @@ from app.models.response_models import (
     # User responses
     UserResponse,
 )
+from app.models.service_health_models import ServiceStatus
 from app.models.token_manager_models import InputType, TokenAllocation, TokenEstimation
 from app.models.users_models import User
 
 __all__ = [
+    # Rate limit models
+    "RateLimitRule",
+    "RateLimitedErrorDetail",
+    "RateLimitedResponse",
     # Core database models
     "User",
     "TokenAllocation",
@@ -105,4 +117,5 @@ __all__ = [
     "HealthStatus",
     "DependencyHealth",
     "ErrorResponse",
+    "ServiceStatus",
 ]

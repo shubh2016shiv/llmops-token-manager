@@ -52,9 +52,14 @@ class TokenAllocationPersistPayload(BaseModel):
     token_request_id: str = Field(
         ..., min_length=1, description="Unique token allocation request identifier"
     )
+    tenant_id: UUID = Field(..., description="Tenant that owns the allocation")
     user_id: UUID = Field(..., description="User that owns the token allocation")
-    llm_provider: str = Field(..., min_length=1, description="LLM provider name")
-    llm_model_name: str = Field(..., min_length=1, description="Target LLM model name")
+    deployment_id: UUID = Field(
+        ..., description="Chosen deployment (tenant_deployments)"
+    )
+    provider_name: str = Field(..., min_length=1, description="LLM provider name")
+    model_name: str = Field(..., min_length=1, description="Target LLM model name")
+    deployment_key: str = Field(..., min_length=1, description="Tenant route key")
     token_count: int = Field(..., gt=0, description="Reserved token count")
     api_endpoint_url: str = Field(
         default="", description="Resolved API endpoint for the chosen deployment"
@@ -66,11 +71,14 @@ class TokenAllocationPersistPayload(BaseModel):
     deployment_name: str | None = Field(
         default=None, description="Chosen deployment name"
     )
+    provider_deployment_name: str | None = Field(
+        default=None, description="Provider-side deployment name"
+    )
     cloud_provider: str | None = Field(
         default=None, description="Cloud provider that hosts the deployment"
     )
-    deployment_region: str | None = Field(
-        default=None, description="Region of the chosen deployment"
+    cloud_region: str | None = Field(
+        default=None, description="Cloud region of the chosen deployment"
     )
     request_context: dict[str, Any] | None = Field(
         default=None, description="Request metadata persisted alongside the allocation"
@@ -93,12 +101,14 @@ class TokenAllocationPersistPayload(BaseModel):
 
     @field_validator(
         "token_request_id",
-        "llm_provider",
-        "llm_model_name",
+        "provider_name",
+        "model_name",
+        "deployment_key",
         "api_endpoint_url",
         "deployment_name",
+        "provider_deployment_name",
         "cloud_provider",
-        "deployment_region",
+        "cloud_region",
         "message_id",
     )
     @classmethod
@@ -108,7 +118,9 @@ class TokenAllocationPersistPayload(BaseModel):
             return value
         return value.strip()
 
-    @field_validator("token_request_id", "llm_provider", "llm_model_name")
+    @field_validator(
+        "token_request_id", "provider_name", "model_name", "deployment_key"
+    )
     @classmethod
     def validate_required_non_empty_strings(cls, value: str) -> str:
         """Ensure required string fields remain non-empty after normalization."""

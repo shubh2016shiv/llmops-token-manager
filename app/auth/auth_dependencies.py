@@ -1,25 +1,92 @@
 """
-FastAPI Authentication Dependencies.
+FastAPI Authentication Dependency — enterprise JWT validation, no authorization.
 
--------------------------------------
+----
+What this module does (and does NOT do)
+----------------------------------------
+This module answers exactly ONE question about every protected request:
 
-FastAPI dependencies for JWT-based authorization and role-based access control.
-Provides reusable dependencies for protecting endpoints with different
-permission levels.
+    "Is the Bearer token in the Authorization header real?"
 
-Role Hierarchy (from request_models.py):
-OWNER > ADMIN > OPERATOR > DEVELOPER
+It verifies the JWT's cryptographic signature and checks that it hasn't expired.
+That's authentication — confirming WHO you are.
 
-Security Best Practices:
-- Stateless authorization using JWT tokens
-- Hierarchical role checking (higher roles inherit lower permissions)
-- Minimal database queries (only when user validation is required)
-- Clear error messages for debugging without exposing sensitive information
+It does NOT check whether the caller is allowed to perform a specific action.
+That's authorization — and in this architecture, authorization is owned by
+`llm_services`, the upstream microservice that issues the tokens. The token
+manager is a resource server: it trusts that if you have a valid JWT, you
+were already authorized by the service that minted it.
+
+----
+The enterprise pattern: how FastAPI authentication actually works
+-----------------------------------------------------------------
+Authentication in FastAPI follows a 3-step pipeline built entirely from
+standard library primitives (no middleware, no monkey-patching):
+
+    STEP 1 — Extract the token from the HTTP request
+    ─────────────────────────────────────────────────
+    ``OAuth2PasswordBearer`` is a FastAPI utility that reads the
+    ``Authorization: Bearer <token>`` header from every incoming request.
+    It returns the raw token string, or None if the header is missing.
+
+        Client sends:  Authorization: Bearer eyJhbGciOi...
+                       ─────────────── ───────────────────
+                       scheme           token (what we get)
+
+    STEP 2 — Validate the token cryptographically
+    ──────────────────────────────────────────────
+    ``get_current_user()`` takes the raw token, decodes it using the
+    shared secret key, and verifies:
+      - The signature is valid (the token wasn't tampered with).
+      - The expiration time hasn't passed.
+      - The token type is "access" (not "refresh" — prevents confusion).
+    If any check fails → HTTP 401 Unauthorized. The route handler never runs.
+
+    STEP 3 — Inject the validated payload into the route handler
+    ─────────────────────────────────────────────────────────────
+    If the token passes, ``get_current_user()`` returns an
+    ``AuthTokenPayload`` object (user_id, role, tenant_id, etc.).
+    FastAPI injects this into the route handler's parameters — your
+    handler code receives a fully-validated user without writing a
+    single line of auth logic.
+
+----
+How to protect an endpoint (one line)
+--------------------------------------
+    from app.auth import CurrentUser
+
+    @router.get("/protected")
+    async def my_endpoint(current_user: CurrentUser):
+        # `current_user` is guaranteed to be a valid, non-expired JWT payload.
+        # If the token was missing or invalid, this line never runs —
+        # FastAPI already returned a 401.
+        return {"user_id": str(current_user.user_id)}
+
+That's the entire pattern. No role checks, no database queries, no
+middleware — just annotate the parameter with ``CurrentUser``.
+
+----
+Why no role-based authorization here?
+--------------------------------------
+This service is the LLM Token Manager. Its job is to allocate and track
+token capacity, not to decide who gets to use which model. The upstream
+``llm_services`` microservice already handles:
+
+    - User login (username/password → JWT)
+    - Role assignment (is this user an admin? a developer?)
+    - Model access policy (can this tenant use GPT-4?)
+
+By the time a request reaches the token manager, the caller has already
+been authenticated AND authorized by llm_services. Double-checking roles
+here would be redundant — and, worse, it would couple the token manager
+to a role model that it doesn't own. If llm_services adds a new role
+("viewer"), every downstream service would need updating. That's the
+anti-pattern: authorization should live in ONE place.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -27,42 +94,69 @@ from jose import JWTError
 from loguru import logger
 
 from app.auth.jwt_auth_token_service import decode_token, verify_token_type
-from app.persistence.users import UserPersistence
 
-# Enterprise pattern:
-# Import the payload model only for static type checking. At runtime, postponed
-# annotations let us reference `AuthTokenPayload` without importing the model
-# eagerly, which reduces import-time coupling and helps prevent circular imports.
-if TYPE_CHECKING:
-    from app.models.auth_models import AuthTokenPayload
+# Runtime import, deliberately NOT under `if TYPE_CHECKING:`.
+# The `CurrentUser` alias at the bottom of this module is a plain assignment,
+# so `Annotated[AuthTokenPayload, ...]` is evaluated the moment this module is
+# imported. A TYPE_CHECKING-only import would leave the name undefined at
+# runtime and raise NameError. (Function *annotations* can stay lazy thanks to
+# `from __future__ import annotations`; a module-level assignment cannot.)
+from app.models.auth_models import AuthTokenPayload
 
-# OAuth2 scheme for extracting Bearer tokens from Authorization header
+# ---------------------------------------------------------------------------
+# Step 1: the token extractor
+# ---------------------------------------------------------------------------
+# ``OAuth2PasswordBearer`` is FastAPI's built-in parser for the standard
+# ``Authorization: Bearer <token>`` HTTP header.  You configure it with:
+#
+#   tokenUrl  — the URL shown in Swagger's "Authorize" dialog (UI only).
+#   auto_error — False means "return None if the header is missing" instead
+#                of auto-raising 401.  We handle the missing case ourselves
+#                in get_current_user() so we control the error message.
+#
+# The ``tokenUrl`` points at our dev-only /token/generate endpoint so
+# developers can click "Authorize" in Swagger, paste credentials, and get
+# a token for testing.  In production this endpoint is disabled.
 oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/auth/login",  # Production login endpoint
-    auto_error=False,  # Don't auto-raise 401, let us handle it
+    tokenUrl="/api/v1/auth/token/generate",
+    auto_error=False,
 )
 
 
+# ---------------------------------------------------------------------------
+# Step 2: the validator — turns a raw token string into a trusted payload
+# ---------------------------------------------------------------------------
 async def get_current_user(
     token: Annotated[str | None, Depends(oauth2_scheme)],
 ) -> AuthTokenPayload:
     """
-    Extract and validate JWT token from Authorization header.
+    Validate the JWT from the Authorization header and return its payload.
 
-    Performs cryptographic validation of the JWT token without database queries.
-    This is the core dependency for all authenticated endpoints.
+    This is the ONE authentication dependency for the entire service.  Every
+    protected endpoint chains through this function.  The validation is
+    purely cryptographic — no database query, no network call, just a
+    signature check against the shared secret key.
 
-    Args:
-        token: JWT token from Authorization header (extracted by OAuth2PasswordBearer)
+    How it's used (FastAPI wires this automatically):
+        @router.get("/protected")
+        async def endpoint(current_user: CurrentUser):
+            # current_user is an AuthTokenPayload — guaranteed valid
+
+    The flow through this function:
+        1. Extract the Bearer token from the header (via oauth2_scheme).
+        2. If missing → 401 immediately.
+        3. Decode the JWT signature using the shared secret.
+        4. Check the token type is "access" (not "refresh").
+        5. Return the payload → FastAPI injects it into the route handler.
 
     Returns:
-        AuthTokenPayload: Decoded and validated token payload with user_id and role
+        AuthTokenPayload with user_id, role, tenant_id, and expiration info.
 
     Raises:
-        HTTPException 401: If token is missing, invalid, or expired
-
+        HTTPException 401: Token missing, expired, or signature invalid.
     """
     if not token:
+        # No Authorization header at all.  The caller didn't even try.
         logger.warning("Missing authorization token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -71,10 +165,17 @@ async def get_current_user(
         )
 
     try:
-        # Decode and validate token cryptographically
+        # ---- Cryptographic validation ----
+        # decode_token() verifies the JWT's HMAC signature against the
+        # shared secret and checks the "exp" (expiration) claim.  If either
+        # fails, it raises JWTError — which we catch below and convert to 401.
         payload = decode_token(token)
 
-        # Verify this is an access token (not refresh token)
+        # ---- Token type guard ----
+        # A refresh token is also a valid JWT — same secret, same algorithm.
+        # Without this check, someone could use a refresh token to call
+        # endpoints that expect an access token.  verify_token_type() blocks
+        # that by checking the "type" claim in the payload.
         verify_token_type(payload, "access")
 
         logger.debug(
@@ -83,6 +184,8 @@ async def get_current_user(
         return payload
 
     except JWTError as e:
+        # The token's signature is invalid, or it's expired, or the
+        # algorithm doesn't match.  Either way — 401.
         logger.warning(f"JWT validation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -90,6 +193,8 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         ) from e
     except ValueError as e:
+        # The token decoded successfully but its payload has an unexpected
+        # shape (e.g., missing required fields, wrong token type).  401.
         logger.warning(f"Token validation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -98,199 +203,66 @@ async def get_current_user(
         ) from e
 
 
-current_user_dependency = Depends(get_current_user)
-"""Module-level singleton dependency (Ruff B008-safe)."""
+# ---------------------------------------------------------------------------
+# Step 3: the reusable dependency every protected endpoint declares
+# ---------------------------------------------------------------------------
+# HOW `Depends` WORKS - the mental model worth memorising
+# --------------------------------------------------------
+# `Depends(fn)` does not call `fn`, and does not return a function. It returns
+# an inert marker object. FastAPI scans every route signature, and wherever it
+# finds one of these markers it:
+#
+#     1. reads the callable stored inside the marker,
+#     2. recursively resolves that callable's own dependencies,
+#     3. calls it once per request,
+#     4. injects the return value into the handler.
+#
+# The argument to `Depends()` is therefore always a CALLABLE - something
+# FastAPI can invoke. That is the whole contract.
+#
+# WHY THIS MODULE EXPOSES A TYPE ALIAS
+# -------------------------------------
+# `CurrentUser` binds two things into one reusable name: the type a protected
+# endpoint receives, and the dependency that produces it. Endpoints declare it
+# as a parameter TYPE:
+#
+#     async def endpoint(current_user: CurrentUser):
+#
+# That shape is correct for three concrete reasons:
+#
+#   Single source of wiring. How an authenticated user is produced is stated
+#   once, here. An endpoint declares only the type it needs, so the wiring
+#   cannot drift or be restated inconsistently across dozens of routes.
+#
+#   Signature ergonomics. `CurrentUser` annotates the parameter instead of
+#   supplying a default value. Parameters declared after it are therefore free
+#   to remain required, and route signatures keep their natural order.
+#
+#   Tooling. Type checkers resolve `CurrentUser` to `AuthTokenPayload`, so
+#   editors autocomplete `.user_id`, `.role`, and `.tenant_id`, and a mistyped
+#   attribute is caught statically rather than at request time.
+#
+# Markers still appear directly in one other place in this codebase: a route's
+# `dependencies=[...]` list, where a dependency runs for its side effect and
+# its return value is discarded. The rate limiters use that form, because a
+# limiter enforces a rule rather than producing a value the handler consumes.
 
-
-async def get_active_user(
-    payload: Annotated[AuthTokenPayload, Depends(get_current_user)],
-) -> AuthTokenPayload:
-    """
-    Verify user exists and is active in database.
-
-    This dependency performs a database query to ensure the user still exists
-    and is active. Only use this for endpoints that require user validation.
-    For high-performance endpoints, use get_current_user instead.
-
-    Args:
-        payload: Token payload from get_current_user dependency
-
-    Returns:
-        AuthTokenPayload: Validated token payload if user is active
-
-    Raises:
-        HTTPException 403: If user not found or not active
-        HTTPException 500: If database query fails
-
-    """
-    try:
-        # Query database to verify user exists and is active
-        users_service = UserPersistence()
-        user = await users_service.get_user_by_id(payload.user_id)
-
-        if not user:
-            logger.warning(f"User not found: {payload.user_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="User not found"
-            )
-
-        if user["status"] != "active":
-            logger.warning(
-                f"User not active: {payload.user_id}, status: {user['status']}"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User account is not active",
-            )
-
-        logger.debug(f"User {payload.user_id} verified as active")
-        return payload
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Database error during user validation: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="User validation failed",
-        ) from e
-
-
-class RoleChecker:
-    """
-    Dependency class for role-based authorization.
-
-    Implements hierarchical role checking where higher roles inherit
-    permissions from lower roles:
-    OWNER > ADMIN > OPERATOR > DEVELOPER
-
-    Usage:
-        require_admin = RoleChecker(["admin", "owner"])
-        @app.get("/admin-only", dependencies=[Depends(require_admin)])
-    """
-
-    def __init__(self, allowed_roles: list[str]):
-        """
-        Initialize role checker with allowed roles.
-
-        Args:
-            allowed_roles: List of roles that can access the endpoint
-
-        """
-        self.allowed_roles = allowed_roles
-
-        # Validate roles
-        valid_roles = ["developer", "operator", "admin", "owner"]
-        for role in allowed_roles:
-            if role not in valid_roles:
-                raise ValueError(
-                    f"Invalid role '{role}'. Must be one of: {', '.join(valid_roles)}"
-                )
-
-    def __call__(
-        self, payload: AuthTokenPayload = current_user_dependency
-    ) -> AuthTokenPayload:
-        """
-        Check if user's role is authorized for the endpoint.
-
-        Args:
-            payload: Token payload from get_current_user dependency
-
-        Returns:
-            AuthTokenPayload: Authorized token payload
-
-        Raises:
-            HTTPException 403: If user's role is not authorized
-
-        """
-        if payload.role not in self.allowed_roles:
-            logger.warning(
-                f"Access denied for user {payload.user_id} with role {payload.role}"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    "Insufficient permissions. Required roles: "
-                    f"{', '.join(self.allowed_roles)}"
-                ),
-            )
-
-        logger.debug(
-            f"Access granted for user {payload.user_id} with role {payload.role}"
-        )
-        return payload
-
-
-# Convenience role checkers for common permission levels
-# These implement the hierarchical role system
-
-require_developer = RoleChecker(["developer", "operator", "admin", "owner"])
+CurrentUser = Annotated[AuthTokenPayload, Depends(get_current_user)]
 """
-Allow any authenticated user (developer, operator, admin, or owner).
-Use for basic authenticated endpoints.
+The single authentication dependency for this service.
+
+Declare it as a parameter type:
+
+    from app.auth import CurrentUser
+
+    @router.get("/protected")
+    async def endpoint(current_user: CurrentUser):
+        return {"user_id": str(current_user.user_id)}
+
+By the time the handler body runs, `current_user` is guaranteed to be a valid,
+non-expired access-token payload. If the token was missing, malformed, or
+expired, FastAPI already returned 401 and the body never executed.
+
+This establishes WHO the caller is. It does not decide what they may do -
+authorization is owned upstream by llm_services, which issued the token.
 """
-
-require_operator = RoleChecker(["operator", "admin", "owner"])
-"""
-Allow operators, admins, and owners.
-Use for operational endpoints like pausing deployments.
-"""
-
-require_admin = RoleChecker(["admin", "owner"])
-"""
-Allow admins and owners only.
-Use for configuration management endpoints.
-"""
-
-require_owner = RoleChecker(["owner"])
-"""
-Allow owners only.
-Use for system administration endpoints.
-"""
-
-
-# Specialized dependencies for specific use cases
-
-
-async def require_active_developer(
-    payload: Annotated[AuthTokenPayload, Depends(require_developer)],
-) -> AuthTokenPayload:
-    """
-    Require developer role or higher AND verify user is active.
-
-    Use for endpoints that need both role checking and user validation.
-    """
-    return await get_active_user(payload)
-
-
-async def require_active_operator(
-    payload: Annotated[AuthTokenPayload, Depends(require_operator)],
-) -> AuthTokenPayload:
-    """
-    Require operator role or higher AND verify user is active.
-
-    Use for operational endpoints that need user validation.
-    """
-    return await get_active_user(payload)
-
-
-async def require_active_admin(
-    payload: Annotated[AuthTokenPayload, Depends(require_admin)],
-) -> AuthTokenPayload:
-    """
-    Require admin role or higher AND verify user is active.
-
-    Use for admin endpoints that need user validation.
-    """
-    return await get_active_user(payload)
-
-
-async def require_active_owner(
-    payload: Annotated[AuthTokenPayload, Depends(require_owner)],
-) -> AuthTokenPayload:
-    """
-    Require owner role AND verify user is active.
-
-    Use for owner-only endpoints that need user validation.
-    """
-    return await get_active_user(payload)

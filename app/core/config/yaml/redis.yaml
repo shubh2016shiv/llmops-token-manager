@@ -1,0 +1,30 @@
+# Default values for RedisSettings (app/core/config/redis_configs.py).
+# Edit these directly for baseline behavior. Anything set in .env overrides
+# the value here — use .env for secrets and per-environment overrides only.
+#
+# redis_password is a secret and intentionally has no entry here — it is
+# sourced from .env only.
+
+redis_host: "localhost"
+
+# 6380, NOT 6379. This is load-bearing, not a typo.
+#
+# The token manager has its OWN Redis, published on host port 6380. Port 6379
+# on a machine running llm_services is THEIR Redis, which runs
+# maxmemory-policy=allkeys-lru. Pointing token counters at it means eviction can
+# silently delete allocation counters, which then read back as zero, and the
+# system over-allocates capacity with no error anywhere.
+#
+# Must stay equal to REDIS_HOST_PORT in the PORT REGISTRY at the top of .env.
+# `infra/scripts/infra.ps1 doctor` verifies that automatically.
+redis_port: 6380
+
+redis_db: 1
+redis_max_connections: 50
+
+redis_token_counter_ttl_secs: 3600
+redis_token_counter_db: 1
+redis_token_counter_max_connections: 20
+
+cache_enabled: true
+cache_ttl_seconds: 300

@@ -1,0 +1,17 @@
+# Default values for RateLimitSettings (app/core/config/rate_limit_configs.py).
+# Edit these directly for baseline behavior. Anything set in .env overrides
+# the value here — use .env for secrets and per-environment overrides only.
+#
+# These are traffic-policy thresholds, not Redis connection config — Redis is
+# only the storage backend the rate limiter happens to use. See
+# app/core/config/redis_configs.py for Redis connection settings.
+
+rate_limit_requests_per_minute: 100
+rate_limit_window_seconds: 60
+
+rate_limit_token_generate_per_minute: 30
+rate_limit_token_refresh_per_minute: 60
+
+rate_limit_token_acquire_per_minute: 500
+
+rate_limit_trusted_proxy_hops: 1

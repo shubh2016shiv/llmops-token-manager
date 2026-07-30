@@ -1,0 +1,27 @@
+# Default values for DatabaseSettings (app/core/config/database_configs.py).
+# Edit these directly for baseline behavior. Anything set in .env overrides
+# the value here — use .env for secrets and per-environment overrides only.
+#
+# database_password is a secret and is intentionally absent here — it is
+# sourced from .env only.
+
+database_host: "localhost"
+database_port: 5432
+# The shared llm_services database (ADR-001): this project's
+# llm_token_allocations table has FOREIGN KEYs into llm_services-owned tables,
+# and PostgreSQL cannot enforce a foreign key across two servers, so there is no
+# separate token-manager database.
+#
+# These were "myuser"/"mydb" — a stale default from before that consolidation,
+# which pointed at a database that does not exist. .env always overrode them, so
+# it never surfaced; it would have bitten anyone running without those .env keys.
+database_user: "llm_user"
+database_name: "llm_services"
+database_pool_size: 20
+database_max_overflow: 10
+
+# PgBouncer — connection pooler. The app connects here instead of PostgreSQL
+# directly when enabled; PgBouncer multiplexes onto a smaller PostgreSQL pool.
+pgbouncer_enabled: true
+pgbouncer_host: "localhost"
+pgbouncer_port: 6432

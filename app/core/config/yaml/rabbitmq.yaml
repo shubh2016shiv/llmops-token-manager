@@ -1,0 +1,28 @@
+# Default values for RabbitMQSettings (app/core/config/rabbitmq_configs.py).
+# Edit these directly for baseline behavior. Anything set in .env overrides
+# the value here — use .env for secrets and per-environment overrides only.
+#
+# rabbitmq_password and celery_broker_url are secret/secret-adjacent and are
+# intentionally absent here — they are sourced from .env only.
+
+rabbitmq_host: "localhost"
+rabbitmq_port: 5672
+rabbitmq_user: "rmq_user"
+rabbitmq_vhost: "/"
+
+# RabbitMQ token allocation queue topology
+rabbitmq_token_exchange_name: "token.allocation"
+rabbitmq_token_exchange_type: "direct"
+rabbitmq_token_dlx_name: "token.allocation.dlx"
+rabbitmq_token_work_queue_name: "token.allocation.work"
+rabbitmq_token_dlq_queue_name: "token.allocation.dlq"
+rabbitmq_token_allocate_routing_key: "token.allocate"
+rabbitmq_token_allocate_dead_routing_key: "token.allocate.dead"
+rabbitmq_token_queue_message_ttl_ms: 300000
+rabbitmq_token_queue_delivery_limit: 6
+rabbitmq_token_heartbeat_seconds: 60
+token_queue_connection_pool_limit: 10
+token_queue_retry_schedule_seconds: [5, 10, 20, 40, 60]
+token_queue_consumer_prefetch_count: 20
+token_queue_consumer_concurrency: 8
+token_queue_consumer_requeue_backoff_seconds: 1

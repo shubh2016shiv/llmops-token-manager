@@ -1,0 +1,27 @@
+# Default values for ResiliencySettings (app/core/config/resiliency_configs.py).
+# Edit these directly for baseline behavior. Anything set in .env overrides
+# the value here — use .env for secrets and per-environment overrides only.
+
+# Circuit breaker — three independent breakers: DB, Redis, RabbitMQ.
+cb_db_failure_threshold: 5
+cb_db_recovery_timeout: 30
+cb_redis_failure_threshold: 3
+cb_redis_recovery_timeout: 10
+cb_rmq_failure_threshold: 3
+cb_rmq_recovery_timeout: 15
+
+# Backpressure — fail-fast 503 when the system is demonstrably saturated.
+bp_max_queue_depth: 10000
+bp_db_pool_saturation_pct: 90
+bp_drain_rate_per_second: 400
+bp_retry_after_cap_seconds: 60
+bp_queue_safe_depth_ratio: 0.8
+bp_db_pool_retry_after_seconds: 5
+bp_queue_depth_publish_interval_secs: 5
+
+# Reconciliation — corrects Redis/PostgreSQL token counter drift.
+# Named for the concern, not the execution vehicle: these are periodic-run
+# parameters, independent of whatever scheduler invokes them.
+reconcile_interval_secs: 60
+reconcile_drift_warning_threshold: 100
+cleanup_interval_secs: 300

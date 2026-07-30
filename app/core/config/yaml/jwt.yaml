@@ -1,0 +1,11 @@
+# Default values for JWTSettings (app/core/config/jwt_configs.py).
+# Edit these directly for baseline behavior. Anything set in .env overrides
+# the value here — use .env for secrets and per-environment overrides only.
+#
+# jwt_secret_key is a secret and is intentionally absent here — it is
+# sourced from .env only.
+
+jwt_algorithm: "HS256"
+jwt_access_token_expire_hours: 24
+jwt_refresh_enabled: false
+jwt_refresh_token_expire_days: 7

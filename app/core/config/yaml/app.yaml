@@ -1,0 +1,11 @@
+# Default values for AppSettings (app/core/config/app_configs.py).
+# Edit these directly for baseline behavior. Anything set in .env overrides
+# the value here — use .env for secrets and per-environment overrides only.
+
+app_name: "LLM Token Manager"
+app_version: "1.0.0"
+app_environment: "development"
+debug: false
+log_level: "INFO"
+fastapi_host: "localhost"
+fastapi_port: 8000

@@ -37,10 +37,13 @@ from loguru import logger
 
 from app.core.config import settings
 
-TOKEN_RETRY_ATTEMPT_HEADER = "x-token-retry-attempt"
-TOKEN_RETRY_REASON_HEADER = "x-token-retry-reason"
+# Message headers that carry retry state alongside every message body.
+TOKEN_RETRY_ATTEMPT_HEADER = "x-token-retry-attempt"  # which attempt this is
+TOKEN_RETRY_REASON_HEADER = "x-token-retry-reason"  # why the last attempt failed
 TOKEN_MESSAGE_ID_HEADER = "message_id"
 
+# The normal-traffic exchange (the "router" for work + retry messages).
+# delivery_mode=2 = persistent: messages survive a broker restart.
 TOKEN_EXCHANGE = Exchange(
     settings.rabbitmq_token_exchange_name,
     type=settings.rabbitmq_token_exchange_type,
@@ -48,6 +51,7 @@ TOKEN_EXCHANGE = Exchange(
     delivery_mode=2,
 )
 
+# The dead-letter exchange (DLX): routes terminally-failed messages to the DLQ.
 TOKEN_DLX = Exchange(
     settings.rabbitmq_token_dlx_name,
     type=settings.rabbitmq_token_exchange_type,
@@ -55,20 +59,27 @@ TOKEN_DLX = Exchange(
     delivery_mode=2,
 )
 
+# The WORK queue — where the API publishes allocations to be persisted.
 TOKEN_ALLOCATION_QUEUE = Queue(
     settings.rabbitmq_token_work_queue_name,
     exchange=TOKEN_EXCHANGE,
     routing_key=settings.rabbitmq_token_allocate_routing_key,
     durable=True,
     queue_arguments={
+        # quorum = replicated across broker nodes -> a node dying loses no messages.
         "x-queue-type": "quorum",
+        # A message that sits here too long expires and dead-letters (safety net).
         "x-message-ttl": settings.rabbitmq_token_queue_message_ttl_ms,
+        # Where expired / rejected messages go: the DLX -> DLQ.
         "x-dead-letter-exchange": settings.rabbitmq_token_dlx_name,
         "x-dead-letter-routing-key": settings.rabbitmq_token_allocate_dead_routing_key,
+        # Quorum queues also route to the DLX after this many failed deliveries.
         "x-delivery-limit": settings.rabbitmq_token_queue_delivery_limit,
     },
 )
 
+# The DEAD-LETTER queue — terminal failures land here for the DLQ consumer to
+# alert on and compensate for (release the Redis reservation). No retries beyond.
 TOKEN_ALLOCATION_DLQ = Queue(
     settings.rabbitmq_token_dlq_queue_name,
     exchange=TOKEN_DLX,
@@ -105,8 +116,19 @@ class BrokerConnectionProtocol(Protocol):
 
 
 def _build_retry_stages() -> tuple[RetryStage, ...]:
-    """Build the configured retry-stage queue set."""
+    """
+    Build one delayed-retry "parking-lot" queue per configured delay.
+
+    THE DELAYED-RETRY TRICK (no scheduler needed):
+    Each retry queue has NO consumer. A failed message published here just SITS
+    until its `x-message-ttl` expires, at which point RabbitMQ dead-letters it —
+    and because the dead-letter target is the MAIN exchange + work routing key, it
+    lands back on the work queue for another attempt. So "wait N seconds, then
+    retry" is achieved purely by a message expiring in a queue. Elegant and
+    scheduler-free.
+    """
     retry_stages: list[RetryStage] = []
+    # One stage per delay in the configured schedule, e.g. [30, 120, 600] seconds.
     for attempt, delay_seconds in enumerate(
         settings.token_queue_retry_schedule_seconds,
         start=1,
@@ -122,7 +144,9 @@ def _build_retry_stages() -> tuple[RetryStage, ...]:
             durable=True,
             queue_arguments={
                 "x-queue-type": "quorum",
+                # Hold the message for exactly this delay (ms), then expire it...
                 "x-message-ttl": delay_seconds * 1000,
+                # ...and on expiry, dead-letter it BACK to the work queue to retry.
                 "x-dead-letter-exchange": settings.rabbitmq_token_exchange_name,
                 "x-dead-letter-routing-key": (
                     settings.rabbitmq_token_allocate_routing_key
@@ -165,7 +189,7 @@ def get_max_retry_attempts() -> int:
 
 
 def declare_token_queues() -> None:
-    """Declare token allocation exchanges and queues at startup."""
+    """Declare token allocation exchanges and queues at startup (idempotent)."""
     try:
         with Connection(
             settings.broker_url,
@@ -173,6 +197,9 @@ def declare_token_queues() -> None:
         ) as conn:
             channel = cast("BrokerConnectionProtocol", conn).channel()
             try:
+                # ORDER MATTERS: exchanges first, then queues — a queue binds to an
+                # exchange, so the exchange must already exist. (The test suite
+                # asserts this exchange-before-queue order.)
                 TOKEN_EXCHANGE.declare(channel=channel)
                 TOKEN_DLX.declare(channel=channel)
                 for queue in ALL_TOKEN_QUEUES:

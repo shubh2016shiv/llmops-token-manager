@@ -66,49 +66,72 @@ class TokenQueueConsumerService(ConsumerMixin):
     def get_consumers(
         self, consumer_cls: type[Consumer], channel: object
     ) -> list[Consumer]:
-        """Register work and DLQ consumers on the shared channel."""
-        return [
-            consumer_cls(
-                channel,
-                queues=[TOKEN_ALLOCATION_QUEUE],
-                callbacks=[self._on_work_message],
-                accept=["json"],
-                prefetch_count=self._prefetch_count,
-            ),
-            consumer_cls(
-                channel,
-                queues=[TOKEN_ALLOCATION_DLQ],
-                callbacks=[self._on_dlq_message],
-                accept=["json"],
-                prefetch_count=1,
-            ),
-        ]
+        """
+        Register two consumers: one for the work queue, one for the DLQ.
+
+        `consumer_cls` is already bound to the channel by ConsumerMixin, so the
+        channel must NOT be passed again. Prefetch (QoS) is applied on each
+        consumer rather than passed to the constructor.
+        """
+        # Work consumer: pull up to `prefetch_count` unacked messages at once
+        # (higher throughput). Each message runs through _on_work_message.
+        work_consumer = consumer_cls(
+            queues=[TOKEN_ALLOCATION_QUEUE],
+            callbacks=[self._on_work_message],
+            accept=["json"],
+        )
+        work_consumer.qos(prefetch_count=self._prefetch_count)
+
+        # DLQ consumer: prefetch 1 — terminal failures are rare and each does
+        # alerting/compensation, so we handle them one at a time.
+        dlq_consumer = consumer_cls(
+            queues=[TOKEN_ALLOCATION_DLQ],
+            callbacks=[self._on_dlq_message],
+            accept=["json"],
+        )
+        dlq_consumer.qos(prefetch_count=1)
+
+        return [work_consumer, dlq_consumer]
 
     def _on_work_message(self, body: dict[str, Any], message: Any) -> None:
-        """Persist a work message or transition it to retry / DLQ."""
+        """
+        Persist a work message, or transition it to retry / DLQ. THE decision tree.
+
+        Outcomes (each ends by ack-ing or requeueing the message so nothing is lost):
+          • persist succeeds            -> ack (done)
+          • persist fails, retries left -> publish to next retry stage, then ack
+          • persist fails, retries out  -> publish to DLQ, then ack
+          • can't publish (breaker open)-> backoff + requeue (try again later)
+        """
+        # How many times has this message already been attempted? (0 on first delivery)
         retry_attempt = int((message.headers or {}).get(TOKEN_RETRY_ATTEMPT_HEADER, 0))
         try:
+            # --- Happy path: write to PostgreSQL and acknowledge. ---
             persist_payload = persist_allocation_message(body)
             logger.info(
                 "[TokenQueue] Persisted allocation "
                 f"token_request_id={persist_payload.token_request_id} "
                 f"retry_attempt={retry_attempt}"
             )
-            message.ack()
+            message.ack()  # tell RabbitMQ it's safely handled -> drop it from the queue
         except Exception as exc:
             logger.error(
                 "[TokenQueue] Persistence failure "
                 f"retry_attempt={retry_attempt} error={exc}"
             )
+            # --- Failure branch A: still have retry stages left -> schedule retry. ---
             if retry_attempt < get_max_retry_attempts():
                 next_attempt = retry_attempt + 1
                 try:
+                    # Send to the next delayed retry queue (it comes back later).
                     self._publisher.publish_retry_request(
                         body,
                         attempt=next_attempt,
                         reason=str(exc),
                     )
                 except aiobreaker.CircuitBreakerError as publish_exc:
+                    # Broker breaker open -> can't publish the retry. Don't lose the
+                    # message: pause and requeue so it's redelivered later.
                     self._backoff_requeue(
                         message=message,
                         retry_attempt=next_attempt,
@@ -116,15 +139,18 @@ class TokenQueueConsumerService(ConsumerMixin):
                     )
                     return
                 except Exception as publish_exc:
+                    # Any other publish error -> requeue this original message.
                     logger.error(
                         "[TokenQueue] Retry publish failed; requeueing work message "
                         f"attempt={next_attempt} error={publish_exc}"
                     )
                     message.reject(requeue=True)
                     return
+                # Retry safely enqueued -> ack THIS delivery (its clone lives on).
                 message.ack()
                 return
 
+            # --- Failure branch B: retries exhausted -> route to the DLQ. ---
             try:
                 self._publisher.publish_dlq_notification(
                     body,
@@ -132,6 +158,7 @@ class TokenQueueConsumerService(ConsumerMixin):
                     retry_attempts=retry_attempt,
                 )
             except aiobreaker.CircuitBreakerError as publish_exc:
+                # Same "don't lose it" handling if the breaker blocks the DLQ publish.
                 self._backoff_requeue(
                     message=message,
                     retry_attempt=retry_attempt,
@@ -145,10 +172,18 @@ class TokenQueueConsumerService(ConsumerMixin):
                 )
                 message.reject(requeue=True)
                 return
+            # DLQ notification enqueued -> ack this delivery.
             message.ack()
 
     def _on_dlq_message(self, body: dict[str, Any], message: Any) -> None:
-        """Process terminal DLQ side effects and acknowledge the message."""
+        """
+        Process terminal DLQ side effects and acknowledge the message.
+
+        process_dlq_alert both ALERTS a human and RELEASES the Redis reservation
+        for this terminally-failed allocation (so capacity isn't leaked). If that
+        handling itself fails, requeue so we don't drop a message that still needs
+        its compensation applied.
+        """
         try:
             process_dlq_alert(body, headers=message.headers or {})
         except Exception as exc:

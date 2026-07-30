@@ -53,16 +53,27 @@ from app.resilience.token_queue.topology import (
 
 
 class TokenAllocationPublisher:
-    """Publish typed token allocation messages to RabbitMQ."""
+    """
+    Publish typed token allocation messages to RabbitMQ.
+
+    Three publish paths, all guarded by the RabbitMQ circuit breaker:
+      - publish_allocation_request : the hot-path handoff (work queue)
+      - publish_retry_request      : a failed message into the next delayed stage
+      - publish_dlq_notification   : a terminally-failed message into the DLQ
+    """
 
     def __init__(self) -> None:
         """Initialize the publisher with the RabbitMQ circuit breaker."""
+        # The shared 'rmq' breaker (from the circuit_breaker module). Every publish
+        # runs through it, so if RabbitMQ is down we fail fast instead of hanging.
         self._rmq_cb = get_rmq_circuit_breaker()
 
     def publish_allocation_request(
         self, payload: TokenAllocationPersistPayload | dict[str, Any]
     ) -> str:
-        """Publish a validated token allocation persistence request."""
+        """Publish a validated token allocation persistence request (the handoff)."""
+        # 1. Validate the payload and pin a stable message_id (falls back to the
+        #    token_request_id) so retries/DLQ can be correlated to this request.
         persist_payload = TokenAllocationPersistPayload.model_validate(payload)
         message_id = persist_payload.message_id or persist_payload.token_request_id
         message_payload = persist_payload.model_copy(
@@ -70,6 +81,7 @@ class TokenAllocationPublisher:
         ).model_dump(mode="json")
 
         try:
+            # 2. Publish through the breaker. attempt header = 0 (first delivery).
             self._rmq_cb.call(
                 self._publish_sync,
                 message_payload,
@@ -81,10 +93,13 @@ class TokenAllocationPublisher:
             )
             logger.info(
                 f"[TokenQueue] Published allocation request "
-                f"msg_id={message_id} model={persist_payload.llm_model_name}"
+                f"msg_id={message_id} model={persist_payload.model_name}"
             )
             return message_id
         except aiobreaker.CircuitBreakerError:
+            # 3. Breaker OPEN = RabbitMQ unhealthy. We re-raise so the caller
+            #    (token_acquisition_service) can fall back to a SYNCHRONOUS DB write
+            #    instead of losing the allocation.
             logger.warning(
                 f"[TokenQueue] RMQ circuit breaker OPEN - "
                 f"caller should use DB fallback for msg_id={message_id}"
@@ -97,8 +112,15 @@ class TokenAllocationPublisher:
         attempt: int,
         reason: str,
     ) -> None:
-        """Publish a failed work message into the next TTL-backed retry stage."""
+        """
+        Publish a failed work message into the next TTL-backed retry stage.
+
+        The message is sent to the `retry.{delay}s` parking-lot queue; it will sit
+        there for the delay, then dead-letter back to the work queue (see
+        topology._build_retry_stages). `attempt` selects which delay stage to use.
+        """
         persist_payload = TokenAllocationPersistPayload.model_validate(payload)
+        # Pick the retry queue/routing-key for this attempt number.
         retry_stage = get_retry_stage(attempt)
         message_id = (
             persist_payload.message_id
@@ -182,8 +204,15 @@ class TokenAllocationPublisher:
         exchange: Any,
         headers: dict[str, Any] | None = None,
     ) -> None:
-        """Publish a single JSON message using a pooled Kombu connection."""
+        """
+        Publish a single JSON message using a pooled Kombu connection.
+
+        This is the low-level "put bytes on the broker" step shared by all three
+        publish paths. It runs synchronously inside the circuit breaker's `.call`.
+        """
         publish_headers = {TOKEN_MESSAGE_ID_HEADER: message_id, **(headers or {})}
+        # Borrow a connection from the shared pool (cheap) and open a channel on it.
+        # Both are returned/closed automatically by the `with` block.
         with (
             pools.connections[TOKEN_BROKER_CONNECTION].acquire(block=True) as conn,
             conn.channel() as channel,
@@ -193,17 +222,16 @@ class TokenAllocationPublisher:
                 payload,
                 exchange=exchange,
                 routing_key=routing_key,
-                declare=[queue],
-                retry=True,
+                declare=[queue],  # ensure the target queue exists before publishing
+                retry=True,  # retry the PUBLISH itself on a transient broker hiccup
                 retry_policy={
                     "interval_start": 0,
                     "interval_step": 0.5,
                     "interval_max": 2,
                     "max_retries": settings.rabbitmq_token_queue_delivery_limit,
                 },
-                content_type="application/json",
-                content_encoding="utf-8",
+                serializer="json",
                 headers=publish_headers,
                 correlation_id=message_id,
-                delivery_mode=2,
+                delivery_mode=2,  # persistent: the message survives a broker restart
             )

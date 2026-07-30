@@ -46,26 +46,39 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: 'pip'
+
+      # pyproject.toml + uv.lock are this project's ONLY dependency manifest
+      # (matches ../llm_services, which has no requirements.txt at all).
+      # requirements.txt / requirements-dev.txt were a hand-maintained second
+      # manifest that had already drifted from uv.lock — aiobreaker, coredis,
+      # and pyyaml were declared in pyproject.toml and imported by live code,
+      # but missing from requirements.txt, so anything built from it crashed
+      # with ModuleNotFoundError. See infra/docs/04-decisions.md ADR-010.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          # Install remaining tools (Ruff replaces most formatters/linters)
-          pip install ruff mypy bandit safety radon
+          # --frozen: fail rather than silently re-resolve if uv.lock does
+          # not match pyproject.toml, instead of installing an incomplete set.
+          uv sync --frozen
+          # radon has no pyproject.toml entry (used only for the duplication
+          # report below, never imported by application code).
+          uv pip install radon bandit safety
 
       - name: Code Quality Analysis
         run: |
           # Apply fixes and formatting with Ruff (replaces autoflake, pyupgrade, add-trailing-comma, black, isort)
-          ruff check --fix app/ tests/
-          ruff format app/ tests/
+          uv run ruff check --fix app/ tests/
+          uv run ruff format app/ tests/
 
           # Verify no remaining lint issues (replaces flake8 checks; use --output-format=github for annotations)
-          ruff check --output-format=github app/ tests/
+          uv run ruff check --output-format=github app/ tests/
 
           # Type checking (unchanged)
-          mypy app/ --config-file=mypy.ini
+          uv run mypy app/ --config-file=mypy.ini
 
       - name: Commit formatting changes
         if: github.event_name == 'pull_request'
@@ -88,10 +101,24 @@ jobs:
 
       - name: Code Duplication Analysis
         run: |
-          radon cc app/ -a -s
-          radon mi app/ -s
-          radon raw app/ -s
+          uv run radon cc app/ -a -s
+          uv run radon mi app/ -s
+          uv run radon raw app/ -s
 
+      # ------------------------------------------------------------------
+      # KNOWN PRE-EXISTING ISSUE, NOT FIXED HERE (out of scope for a
+      # dependency-manifest cleanup — flagged rather than silently patched):
+      #
+      # `postgres_schema/initial_schema.sql` in THIS repo is an empty
+      # DIRECTORY, not a file (see infra/docs/04-decisions.md ADR-008), so
+      # the `psql -f` line below currently fails. It predates this change.
+      #
+      # It also predates ADR-001: this project no longer owns its schema —
+      # llm_services does, via its own postgres_schema/*.sql in creation-
+      # order. Whether CI should keep spinning up a throwaway local Postgres
+      # seeded from a copy of llm_services' schema, or something else
+      # entirely, is a real decision this cleanup does not make unilaterally.
+      # ------------------------------------------------------------------
       - name: Run Tests with Coverage
         env:
           DATABASE_HOST: localhost
@@ -105,28 +132,20 @@ jobs:
           # Initialize test database
           PGPASSWORD=mypassword psql -h localhost -U myuser -d mydb -f postgres_schema/initial_schema.sql
 
-          # Run tests with coverage
-          # pytest tests/ \
-          #   --cov=app \
-          #   --cov-report=xml \
-          #   --cov-report=term \
-          #   --cov-report=html \
-          #   --durations=10 \
-          #   -v
           # Run tests with coverage, excluding app/models/* and */__init__.py
-          coverage run --omit="app/models/*,*/__init__.py,app/app.py,index.py" -m pytest tests/ \
+          uv run coverage run --omit="app/models/*,*/__init__.py,app/app.py,index.py" -m pytest tests/ \
             --durations=10 \
             -v
 
           # Generate reports (xml for codecov, term for console, html for local viewing)
-          coverage report --show-missing  # Adds missing line details like term-missing
-          coverage html
+          uv run coverage report --show-missing  # Adds missing line details like term-missing
+          uv run coverage html
 
       - name: Verify Coverage Threshold
         run: |
           echo "Verifying minimum coverage threshold of 80%"
           coverage_threshold=80
-          coverage_result=$(coverage report | grep "TOTAL" | awk '{print $NF}' | sed 's/%//')
+          coverage_result=$(uv run coverage report | grep "TOTAL" | awk '{print $NF}' | sed 's/%//')
           echo "Current coverage: $coverage_result%"
 
           if (( $(echo "$coverage_result < $coverage_threshold" | bc -l) )); then

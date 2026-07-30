@@ -64,8 +64,12 @@ mypy.ini
 .flake8
 .pylintrc
 .pre-commit-config.yaml
-uv.lock
-pyproject.toml
+# uv.lock and pyproject.toml are NOT excluded: app/Dockerfile now installs
+# via `uv sync --frozen` against them (see ADR-010). They were excluded here
+# from when the build read requirements.txt instead — that exclusion is what
+# made `COPY pyproject.toml uv.lock ./` fail with "not found" the moment the
+# Dockerfile was switched, since .dockerignore filters the build context
+# before COPY ever sees it.
 check_infra_service_health.py
 code_formatter.py
 index.py

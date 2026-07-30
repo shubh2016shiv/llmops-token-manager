@@ -39,11 +39,13 @@ Author: Engineering Team
 Last Updated: 2026-05-10
 """
 
+from app.services.deployment_load_balancer import DeploymentLoadBalancer
 from app.services.token_acquisition_service import TokenAcquisitionService
 from app.services.token_release_service import TokenReleaseService
 from app.services.token_retry_service import TokenRetryService
 
 __all__ = [
+    "DeploymentLoadBalancer",
     "TokenAcquisitionService",
     "TokenReleaseService",
     "TokenRetryService",

@@ -50,7 +50,7 @@ import aiobreaker
 from app.core.exceptions import AllocationNotFoundError, DatabaseUnavailableError
 
 if TYPE_CHECKING:
-    from app.persistence.llm_token_allocations import LLMTokenAllocationPersistence
+    from app.persistence.allocations import LLMTokenAllocationPersistence
     from app.resilience.redis_token_counter import RedisTokenCounterService
 
 logger = logging.getLogger(__name__)
@@ -197,7 +197,7 @@ class TokenReleaseService:
             )
             return False
 
-        model = allocation.get("llm_model_name", "")
+        model = allocation.get("model_name", "")
         endpoint = allocation.get("api_endpoint_url", "")
         token_count: int = allocation.get("token_count", 0)
 

@@ -1,5 +1,13 @@
 """
-FastAPI Application Entry Point.
+FastAPI Application Entry Point — the composition root.
+
+PRODUCTION PATTERN: this is the ONLY place the FastAPI() instance is built.
+Everything that runs the app — the local dev launcher (`index.py`, not
+shipped to production) and the container's `uvicorn` CMD (see
+`app/Dockerfile`) — both target the same object: `app.app:app`. Centralizing
+assembly here means there is exactly one wiring of middleware/routers/
+lifespan to reason about; dev and prod are structurally guaranteed to run
+the identical app, not two hand-maintained copies that can drift apart.
 
 Main application initialization and configuration.
 Registers routers, middleware, and lifecycle handlers.
@@ -15,8 +23,11 @@ from loguru import logger
 from app.api import api_router
 from app.core.config import settings
 from app.core.database import db_manager
-from app.core.rate_limiter import register_rate_limit_exception_handler
 from app.core.redis import redis_manager
+from app.core.redis_rate_limiter import (
+    rate_limiter_manager,
+    register_rate_limit_exception_handler,
+)
 from app.core.request_tracing import correlation_id_middleware
 from app.core.service_health import (
     display_service_info,
@@ -24,20 +35,22 @@ from app.core.service_health import (
     verify_database_connectivity,
     verify_redis_connectivity,
 )
-from app.llm_client_provisioning.llm_client_request_queue import celery_app
-from app.llm_client_provisioning.service_health import (
-    display_provisioning_service_info,
-    verify_celery_worker_readiness,
-    verify_rabbitmq_connectivity,
-)
-from app.persistence.token_maintenance_persistence import TokenMaintenancePersistence
+
+# Gateway-owned Celery app/health checks disabled: the token manager is a
+# ledger — it never fires LLM calls and no longer shares llm_gateway's Celery app.
+# from app.llm_client_provisioning.llm_client_request_queue import celery_app
+# from app.llm_client_provisioning.service_health import (
+#     display_provisioning_service_info,
+#     verify_celery_worker_readiness,
+#     verify_rabbitmq_connectivity,
+# )
+from app.persistence.token_maintenance import TokenMaintenancePersistence
 from app.resilience.circuit_breaker import close_circuit_breaker_redis_client
 from app.resilience.redis_token_counter import (
     close_shared_redis_token_counter_service,
     get_shared_redis_token_counter_service,
 )
-from app.resilience.token_maintenance.schedule_registry import register_beat_schedule
-from app.resilience.token_maintenance.service_health import (
+from app.resilience.token_maintenance.health import (
     verify_token_maintenance_readiness,
 )
 from app.resilience.token_queue import declare_token_queues
@@ -99,32 +112,22 @@ async def lifespan(app: FastAPI):
     else:
         logger.error(f"[FAILED] Redis: {redis_status.error_message}")
 
-    # Check RabbitMQ
-    logger.info("Checking RabbitMQ connectivity...")
-    rabbitmq_status = await verify_rabbitmq_connectivity()
-    service_statuses.append(rabbitmq_status)
-
-    if rabbitmq_status.status == "connected":
-        logger.info("[SUCCESS] RabbitMQ broker connected and ready")
-    else:
-        logger.error(f"[FAILED] RabbitMQ: {rabbitmq_status.error_message}")
-
-    # Check Celery worker readiness separately from broker connectivity.
-    logger.info("Checking Celery worker readiness...")
-    celery_worker_status = await verify_celery_worker_readiness()
-    service_statuses.append(celery_worker_status)
-
-    if celery_worker_status.status == "connected":
-        logger.info("[SUCCESS] Celery worker ready for async execution")
-    elif settings.require_celery_worker_on_startup:
-        logger.error(f"[FAILED] Celery worker: {celery_worker_status.error_message}")
-    else:
-        logger.warning(
-            "[DEGRADED] Celery worker unavailable: "
-            f"{celery_worker_status.error_message}. "
-            "FastAPI will continue startup because "
-            "REQUIRE_CELERY_WORKER_ON_STARTUP is false."
+    # Initialize the rate limiter INSIDE the serving event loop.
+    # This binds the coredis connection pool to the loop that will handle
+    # requests (see RateLimiterManager). A failure here is a permanent
+    # misconfiguration (missing/incompatible coredis driver, bad DSN), never a
+    # transient outage — so we let it abort startup rather than boot an app
+    # whose rate limiter silently fails open on every request.
+    logger.info("Initializing rate limiter...")
+    try:
+        rate_limiter_manager.initialize()
+        logger.info("[SUCCESS] Rate limiter initialized")
+    except Exception as e:
+        logger.error(
+            "[FAILED] Rate limiter initialization failed. This is a deploy-time "
+            f"driver/config fault, not a transient outage: {e}"
         )
+        raise
 
     logger.info("Checking token maintenance readiness...")
     token_maintenance_status = await verify_token_maintenance_readiness()
@@ -133,17 +136,18 @@ async def lifespan(app: FastAPI):
     if token_maintenance_status.status == "connected":
         logger.info("[SUCCESS] Token maintenance runtime ready")
     else:
-        logger.error(
-            f"[FAILED] Token maintenance: {token_maintenance_status.error_message}"
+        logger.warning(
+            "[DEGRADED] Token maintenance readiness check reported not-ready "
+            f"({token_maintenance_status.error_message}). Maintenance jobs are "
+            "declared in token_maintenance/scheduler.py; the in-process runner "
+            "that executes them on their timers is a separate wiring step."
         )
 
     startup_blockers = [
         service
         for service in service_statuses
         if service.status == "failed"
-        and (
-            service.name != "Celery worker" or settings.require_celery_worker_on_startup
-        )
+        and service.name not in {"Celery worker", "Token maintenance"}
     ]
 
     if startup_blockers:
@@ -158,7 +162,6 @@ async def lifespan(app: FastAPI):
 
     # All services connected - display success info
     display_service_info()
-    display_provisioning_service_info()
 
     # ----------------------------------------------------------------
     # Resilience layer startup
@@ -182,9 +185,8 @@ async def lifespan(app: FastAPI):
             f"will self-correct on first reconcile run): {e}"
         )
 
-    # 3. Register Celery beat schedule for periodic reconciliation tasks
-    register_beat_schedule(celery_app)
-    logger.info("[SUCCESS] Celery beat schedule registered")
+    # 3. Celery beat schedule registration is disabled along with the shared
+    # Celery app (see note above) — reconciliation beat is currently inactive.
 
     logger.info("[SUCCESS] Application startup complete")
 
@@ -193,6 +195,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down application")
     try:
+        await rate_limiter_manager.close()
         await db_manager.close()
         await redis_manager.close()
         await close_shared_redis_token_counter_service()
@@ -247,9 +250,7 @@ async def _seed_token_counters() -> None:
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description=(
-        "Production-ready LLM token management system with multi-provider support"
-    ),
+    description=("LLM token management system with multi-provider support"),
     lifespan=lifespan,
     debug=settings.debug,
     # Enable Swagger UI and ReDoc in development, configurable for production

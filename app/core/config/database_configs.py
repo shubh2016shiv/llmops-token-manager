@@ -38,6 +38,18 @@ class DatabaseSettings(BaseSettings):
     database_name: str = Field(..., description="PostgreSQL database name")
     database_pool_size: int = Field(..., description="Connection pool size")
     database_max_overflow: int = Field(..., description="Max overflow connections")
+    database_pool_recycle_seconds: int = Field(
+        ...,
+        description=(
+            "Recycle a pooled SQLAlchemy connection after this many seconds. "
+            "Should match PgBouncer's server_lifetime "
+            "(infra/config/pgbouncer/pgbouncer.ini) so neither side outlives "
+            "the other's assumption about connection freshness."
+        ),
+    )
+    database_pool_timeout_seconds: int = Field(
+        ..., description="Seconds to wait for a pooled connection before erroring"
+    )
 
     pgbouncer_enabled: bool = Field(
         ..., description="Route DB connections through PgBouncer when True"

@@ -19,6 +19,10 @@ database_user: "llm_user"
 database_name: "llm_services"
 database_pool_size: 20
 database_max_overflow: 10
+# Must match PgBouncer's server_lifetime (infra/config/pgbouncer/pgbouncer.ini)
+# -- both sides recycle a connection at the same age, on purpose.
+database_pool_recycle_seconds: 3600
+database_pool_timeout_seconds: 30
 
 # PgBouncer — connection pooler. The app connects here instead of PostgreSQL
 # directly when enabled; PgBouncer multiplexes onto a smaller PostgreSQL pool.

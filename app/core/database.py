@@ -9,7 +9,6 @@ import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 import logging
-import os
 import sys
 from typing import Any
 
@@ -25,10 +24,14 @@ from sqlalchemy.pool import Pool
 
 from app.core.config import settings
 
-# Add parent directory to path for direct script execution
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-
 logger = logging.getLogger(__name__)
+
+# Fallback values used only when a caller passes an explicit `config` override
+# dict that omits these keys (see `initialize()`). Not application config: the
+# settings-driven path always supplies database_pool_size/database_max_overflow
+# from app/core/config, so these never apply to real (non-override) startup.
+_DEFAULT_MIN_CONNECTIONS = 5
+_DEFAULT_MAX_CONNECTIONS = 10
 
 
 class DatabaseSessionManager:
@@ -58,6 +61,31 @@ class DatabaseSessionManager:
             cls._instance = super().__new__(cls)
         return cls._instance
 
+    @staticmethod
+    def _resolve_connection_config() -> dict[str, Any]:
+        """
+        Build connection config from settings when no explicit override is given.
+
+        Routes through PgBouncer when enabled; connects to PostgreSQL directly
+        otherwise. In Docker, DATABASE_HOST is overridden to "pgbouncer" via
+        docker-compose env. When running locally, pgbouncer_enabled=True routes
+        to localhost:6432.
+        """
+        if settings.pgbouncer_enabled:
+            host, port = settings.pgbouncer_host, settings.pgbouncer_port
+        else:
+            host, port = settings.database_host, settings.database_port
+        return {
+            "host": host,
+            "port": port,
+            "dbname": settings.database_name,
+            "user": settings.database_user,
+            "password": settings.database_password,
+            "min_connections": settings.database_pool_size,
+            "max_connections": settings.database_pool_size
+            + settings.database_max_overflow,
+        }
+
     async def initialize(self, config: dict[str, Any] | None = None) -> None:
         """
         Initialize SQLAlchemy async engine.
@@ -70,29 +98,18 @@ class DatabaseSessionManager:
             logger.warning("Database engine already initialized")
             return
 
-        # Use provided config or settings
         if config is None:
-            # Route through PgBouncer when enabled;
-            # connect to PostgreSQL directly otherwise.
-            # In Docker, DATABASE_HOST is overridden to "pgbouncer"
-            # via docker-compose env.
-            # When running locally, pgbouncer_enabled=True routes to localhost:6432.
-            if settings.pgbouncer_enabled:
-                host = settings.pgbouncer_host
-                port = settings.pgbouncer_port
-            else:
-                host = settings.database_host
-                port = settings.database_port
-            config = {
-                "host": host,
-                "port": port,
-                "dbname": settings.database_name,
-                "user": settings.database_user,
-                "password": settings.database_password,
-                "min_connections": settings.database_pool_size,
-                "max_connections": settings.database_pool_size
-                + settings.database_max_overflow,
-            }
+            # No override: reuse the config's own PgBouncer-aware URL builder
+            # instead of re-deriving the same routing decision here.
+            config = self._resolve_connection_config()
+            database_url = settings.effective_database_url
+        else:
+            database_url = (
+                f"postgresql+asyncpg://"
+                f"{config['user']}:{config['password']}@"
+                f"{config['host']}:{config['port']}/"
+                f"{config['dbname']}"
+            )
 
         logger.info(
             "Initializing database connection to "
@@ -100,24 +117,34 @@ class DatabaseSessionManager:
         )
 
         try:
-            # Initialize SQLAlchemy async engine with asyncpg driver
-            db_url = (
-                f"postgresql+asyncpg://"
-                f"{config['user']}:{config['password']}@"
-                f"{config['host']}:{config['port']}/"
-                f"{config['dbname']}"
+            # asyncpg caches prepared statements per logical connection, naming
+            # them sequentially (__asyncpg_stmt_1__, _2__, ...). In PgBouncer
+            # transaction mode, a single SQLAlchemy-pooled connection can be
+            # handed to a DIFFERENT real PostgreSQL backend between queries --
+            # that is the whole point of transaction-mode pooling. If the new
+            # backend already has a different session's statement registered
+            # under that same auto-generated name, asyncpg raises
+            # DuplicatePreparedStatementError. statement_cache_size=0 disables
+            # asyncpg's client-side cache so it never assumes a name survives
+            # across queries. Only needed when routing through PgBouncer --
+            # a direct connection has a stable 1:1 mapping to one real backend,
+            # so caching there is safe and worth keeping for performance.
+            connect_args = (
+                {"statement_cache_size": 0} if settings.pgbouncer_enabled else {}
             )
 
             # Configure SQLAlchemy engine for high performance
+            min_connections = config.get("min_connections", _DEFAULT_MIN_CONNECTIONS)
+            max_connections = config.get("max_connections", _DEFAULT_MAX_CONNECTIONS)
             self._engine = create_async_engine(
-                db_url,
-                pool_size=config.get("min_connections", 5),
-                max_overflow=config.get("max_connections", 10)
-                - config.get("min_connections", 5),
+                database_url,
+                pool_size=min_connections,
+                max_overflow=max_connections - min_connections,
                 pool_pre_ping=True,  # Health checks
-                pool_recycle=3600,  # Recycle connections every hour
-                pool_timeout=30,  # Wait time for connection
+                pool_recycle=settings.database_pool_recycle_seconds,
+                pool_timeout=settings.database_pool_timeout_seconds,
                 echo=False,  # Disable SQL echo in production
+                connect_args=connect_args,
             )
 
             self._sessionmaker = async_sessionmaker(

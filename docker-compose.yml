@@ -1,623 +1,164 @@
-# ============================================================
-#  Docker Compose: LLM Token Manager
-# ============================================================
-#  Architecture (Resilience Layer):
+# =============================================================================
+#  BASE / CHASSIS  —  llm_token_manager
+# =============================================================================
+#  This file deliberately declares NO services.
 #
-#    MS-1..4  ─────►  FastAPI  (rate limit, back pressure, CB)
-#                        │
-#               ┌────────┴────────┐
-#               ▼                 ▼
-#         Redis Fast Path    RabbitMQ Quorum
-#         (Lua counters)     (Queue absorption)
-#               │                 │
-#               │           Celery Workers
-#               │                 │
-#               └────────┬────────┘
-#                        ▼
-#                   PgBouncer (port 6432, transaction mode)
-#                        │
-#                   PostgreSQL (port 5432, internal only)
+#  It holds only the things every service plugs INTO:
+#     1. the project name      (what Docker prefixes resources with)
+#     2. the networks          (the wires)
+#     3. the volumes           (the disks)
 #
-#  Profiles (selective startup):
-#    docker compose --profile infra up -d      # DB + PgBouncer + Redis + RabbitMQ
-#    docker compose --profile worker up -d     # Infra + Celery workers
-#    docker compose --profile all up -d        # Everything
+#  Services live in one file per tier, under infra/compose/:
 #
-#  Quick reference:
-#    PostgreSQL      → localhost:5433   (direct, for admin only)
-#    PgBouncer       → localhost:6432   (app connection pooler)
-#    Redis           → localhost:6379
-#    RabbitMQ AMQP   → localhost:5672
-#    RabbitMQ Mgmt   → http://localhost:15672
+#     infra/compose/compose.data.yml       -> pgbouncer          (data access)
+#     infra/compose/compose.messaging.yml  -> redis, rabbitmq     (transport)
+#     infra/compose/compose.app.yml        -> api, consumer       (compute)
+#     infra/compose/compose.dev.yml        -> local-dev overrides
+#     infra/compose/compose.prod.yml       -> hardened overrides
 #
-#  Environment:
-#    Copy .env.example → .env and adjust values for your environment.
-#    Secrets (passwords) are read from .env via variable substitution.
-# ============================================================
-#  Profiles (selective startup):
-#    docker compose --profile infra up -d      # DB + Redis + RabbitMQ only
-#    docker compose --profile worker up -d     # Infra + Celery worker
-#    docker compose --profile all up -d        # Everything (future: + FastAPI)
+#  Those files are chained together by COMPOSE_FILE in .env, so you just run:
 #
-#  Quick reference:
-#    PostgreSQL      → localhost:5433
-#    Redis           → localhost:6379
-#    RabbitMQ AMQP   → localhost:5672
-#    RabbitMQ Mgmt   → http://localhost:15672
+#     docker compose up -d
 #
-#  Environment:
-#    Copy .env.example → .env and adjust values for your environment.
-#    Secrets (passwords) are read from .env via variable substitution.
-# ============================================================
+#  ---------------------------------------------------------------------------
+#  WHY IS THIS FILE AT THE REPO ROOT AND NOT IN infra/compose/ ?
+#  ---------------------------------------------------------------------------
+#  Compose sets the "project directory" to the directory of the FIRST file in
+#  the chain. Every relative path (build.context, bind-mount sources, env_file)
+#  is resolved from that directory.
+#
+#  Keeping the base file here means the project directory is the repo root, so
+#  paths read naturally everywhere:  ./app,  ./infra/config/redis/redis.conf.
+#  If the base file lived in infra/compose/, every path would need ../../ .
+#
+#  ---------------------------------------------------------------------------
+#  WHY ARE LOGGING/LABEL ANCHORS REPEATED IN EACH TIER FILE?
+#  ---------------------------------------------------------------------------
+#  YAML anchors (&name) and aliases (*name) are resolved by the YAML parser
+#  WITHIN A SINGLE DOCUMENT, before Compose ever merges files together. An
+#  anchor defined here is therefore invisible to infra/compose/*.yml.
+#
+#  So each tier file defines its own small anchor block. That is not sloppy
+#  duplication — it is what makes each tier file readable standalone, which is
+#  the whole point of splitting them. (The cross-file alternative is `extends`,
+#  discussed in infra/docs/00-mental-model.md.)
+# =============================================================================
 
-x-common-logging: &common-logging
-  driver: "json-file"
-  options:
-    max-size: "20m"
-    max-file: "5"
+# The project name prefixes every container, network, and volume Docker creates
+# and is what keeps this stack distinct from llm_services on the same daemon.
+name: llm_token_manager
 
-x-common-labels: &common-labels
-  com.llm_token_manager.project: "llm-token-manager"
-  com.llm_token_manager.managed_by: "docker-compose"
-
-services:
-  # ==================================================================
-  #  PostgreSQL — relational persistence
-  # ==================================================================
-  postgres:
-    image: postgres:14.19-alpine3.21
-    container_name: llm_postgres
-    restart: unless-stopped
-    profiles: ["infra", "worker", "all"]
-    labels:
-      <<: *common-labels
-      com.llm_token_manager.service: "database"
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-myuser}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mypassword}
-      POSTGRES_DB: ${POSTGRES_DB:-mydb}
-    ports:
-      - "${POSTGRES_HOST_PORT:-5433}:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./postgres_schema/initial_schema.sql:/docker-entrypoint-initdb.d/initial_schema.sql:ro
-    networks:
-      - token_manager_network
-    healthcheck:
-      test:
-        ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    logging: *common-logging
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-          cpus: "1.0"
-        reservations:
-          memory: 128m
-          cpus: "0.25"
-    stop_grace_period: 30s
-
-  # ==================================================================
-  #  PgBouncer — connection pooler (transaction mode)
-  # ==================================================================
-  # PgBouncer sits between the application and PostgreSQL.
-  # In transaction mode, one PostgreSQL backend connection serves
-  # hundreds of short-lived async app connections round-robin.
-  # This is critical for high-write async workloads (asyncpg + SQLAlchemy).
-  #
-  # pool_size=25 (pgbouncer.ini) matches SQLAlchemy's pool ceiling (20+10=30).
-  # App connects to localhost:6432 instead of localhost:5432.
-  pgbouncer:
-    image: edoburu/pgbouncer:1.22.1
-    container_name: llm_pgbouncer
-    restart: unless-stopped
-    profiles: ["infra", "worker", "all"]
-    labels:
-      <<: *common-labels
-      com.llm_token_manager.service: "connection-pooler"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      # PgBouncer reads DB connection params from environment when not using ini file
-      # We mount the ini file directly for full control.
-      DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_USER: ${POSTGRES_USER:-myuser}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-mypassword}
-      DB_NAME: ${POSTGRES_DB:-mydb}
-      # These env vars are informational only — the mounted pgbouncer.ini takes
-      # precedence when the edoburu image finds the file at /etc/pgbouncer/pgbouncer.ini.
-      # They are kept here as documentation of the effective configuration.
-      POOL_MODE: transaction
-      MAX_CLIENT_CONN: "500"
-      DEFAULT_POOL_SIZE: "25"
-      MIN_POOL_SIZE: "5"
-      RESERVE_POOL_SIZE: "5"
-      RESERVE_POOL_TIMEOUT: "5"
-      SERVER_IDLE_TIMEOUT: "60"
-      LOG_CONNECTIONS: "1"
-      LOG_DISCONNECTIONS: "1"
-      IGNORE_STARTUP_PARAMETERS: "extra_float_digits,statement_timeout,lock_timeout"
-      ADMIN_USERS: pgbouncer_admin
-    ports:
-      - "${PGBOUNCER_HOST_PORT:-6432}:6432"
-    volumes:
-      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
-      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
-    networks:
-      - token_manager_network
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -h 127.0.0.1 -p 6432 -U ${POSTGRES_USER:-myuser} || exit 1"
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    logging: *common-logging
-    deploy:
-      resources:
-        limits:
-          memory: 64m
-          cpus: "0.25"
-        reservations:
-          memory: 16m
-          cpus: "0.05"
-    stop_grace_period: 10s
-
-  # ==================================================================
-  #  Redis — caching and rate-limiting
-  # ==================================================================
-  redis:
-    image: redis:7.4-alpine
-    container_name: llm_redis
-    restart: unless-stopped
-    profiles: ["infra", "worker", "all"]
-    labels:
-      <<: *common-labels
-      com.llm_token_manager.service: "cache"
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_password}
-    ports:
-      - "${REDIS_HOST_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - token_manager_network
-    command:
-      - redis-server
-      - --requirepass
-      - ${REDIS_PASSWORD:-redis_password}
-      - --appendonly
-      - "yes"
-      - --maxmemory
-      - 512mb
-      - --maxmemory-policy
-      - allkeys-lru
-      - --save
-      - "900 1"
-      - --save
-      - "300 10"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "redis-cli",
-          "--no-auth-warning",
-          "-a",
-          "${REDIS_PASSWORD:-redis_password}",
-          "ping",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    logging: *common-logging
-    deploy:
-      resources:
-        limits:
-          memory: 256m
-          cpus: "0.5"
-        reservations:
-          memory: 64m
-          cpus: "0.1"
-    stop_grace_period: 10s
-
-  # ==================================================================
-  #  RabbitMQ — message broker for Celery task queuing
-  # ==================================================================
-  rabbitmq:
-    image: rabbitmq:3.13.7-management-alpine
-    container_name: llm_rabbitmq
-    restart: unless-stopped
-    profiles: ["infra", "worker", "all"]
-    labels:
-      <<: *common-labels
-      com.llm_token_manager.service: "message-broker"
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-rmq_user}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-rmq_password}
-    ports:
-      - "${RABBITMQ_AMQP_PORT:-5672}:5672"
-      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    networks:
-      - token_manager_network
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    logging: *common-logging
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-          cpus: "1.0"
-        reservations:
-          memory: 128m
-          cpus: "0.25"
-    stop_grace_period: 30s
-
-  # ==================================================================
-  #  Celery Worker — async task processor
-  # ==================================================================
-  celery_worker:
-    build:
-      context: .
-      dockerfile: app/Dockerfile
-    container_name: llm_celery_worker
-    restart: unless-stopped
-    init: true # Properly forward signals and reap zombies
-    profiles: ["worker", "all"]
-    labels:
-      <<: *common-labels
-      com.llm_token_manager.service: "task-worker"
-    depends_on:
-      pgbouncer:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      # Connect through PgBouncer (port 6432), not PostgreSQL directly (port 5432).
-      # PgBouncer is the intended ingress for all app DB traffic per system design.
-      DATABASE_HOST: pgbouncer
-      DATABASE_PORT: "6432"
-      PGBOUNCER_HOST: pgbouncer
-      PGBOUNCER_PORT: "6432"
-      PGBOUNCER_ENABLED: "true"
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: "5672"
-      RABBITMQ_VHOST: "/"
-      CELERY_RESULT_BACKEND: "rpc://"
-    command:
-      - "celery"
-      - "-A"
-      - "app.llm_client_provisioning.llm_client_request_queue.celery_app"
-      - "worker"
-      - "--loglevel=${LOG_LEVEL:-info}"
-      - "--concurrency=${CELERY_WORKER_CONCURRENCY:-4}"
-      - "--queues=priority_requests_quorum_v1,llm_requests_quorum_v1"
-      - "--without-gossip"
-      - "--without-mingle"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-m",
-          "app.llm_client_provisioning.celery_healthcheck",
-        ]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
-    networks:
-      - token_manager_network
-    logging: *common-logging
-    deploy:
-      resources:
-        limits:
-          memory: 1024m
-          cpus: "2.0"
-        reservations:
-          memory: 256m
-          cpus: "0.5"
-    stop_grace_period: 60s
-
-  # ==================================================================
-  #  Celery Token Maintenance Worker — reconciliation, cleanup, telemetry
-  # ==================================================================
-  celery_token_maintenance_worker:
-    build:
-      context: .
-      dockerfile: app/Dockerfile
-    container_name: llm_celery_token_maintenance_worker
-    restart: unless-stopped
-    init: true
-    profiles: ["worker", "all"]
-    labels:
-      <<: *common-labels
-      com.llm_token_manager.service: "token-maintenance-worker"
-    depends_on:
-      pgbouncer:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      DATABASE_HOST: pgbouncer
-      DATABASE_PORT: "6432"
-      PGBOUNCER_HOST: pgbouncer
-      PGBOUNCER_PORT: "6432"
-      PGBOUNCER_ENABLED: "true"
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: "5672"
-      RABBITMQ_VHOST: "/"
-      CELERY_RESULT_BACKEND: "rpc://"
-    command:
-      - "celery"
-      - "-A"
-      - "app.llm_client_provisioning.llm_client_request_queue.celery_app"
-      - "worker"
-      - "--loglevel=${LOG_LEVEL:-info}"
-      - "--concurrency=${CELERY_TOKEN_WORKER_CONCURRENCY:-4}"
-      - "--queues=token.maintenance"
-      - "--without-gossip"
-      - "--without-mingle"
-      - "--hostname=token-maintenance@%h"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-m",
-          "app.resilience.token_worker_healthcheck",
-        ]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
-    networks:
-      - token_manager_network
-    logging: *common-logging
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-          cpus: "1.0"
-        reservations:
-          memory: 128m
-          cpus: "0.25"
-    stop_grace_period: 60s
-
-  # ==================================================================
-  #  Celery Beat — periodic resilience scheduler
-  # ==================================================================
-  celery_beat:
-    build:
-      context: .
-      dockerfile: app/Dockerfile
-    container_name: llm_celery_beat
-    restart: unless-stopped
-    init: true
-    profiles: ["worker", "all"]
-    labels:
-      <<: *common-labels
-      com.llm_token_manager.service: "scheduler"
-    depends_on:
-      pgbouncer:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      DATABASE_HOST: pgbouncer
-      DATABASE_PORT: "6432"
-      PGBOUNCER_HOST: pgbouncer
-      PGBOUNCER_PORT: "6432"
-      PGBOUNCER_ENABLED: "true"
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: "5672"
-      RABBITMQ_VHOST: "/"
-      CELERY_RESULT_BACKEND: "rpc://"
-    command:
-      - "celery"
-      - "-A"
-      - "app.llm_client_provisioning.llm_client_request_queue.celery_app"
-      - "beat"
-      - "--loglevel=${LOG_LEVEL:-info}"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-m",
-          "app.resilience.token_worker_healthcheck",
-        ]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
-    networks:
-      - token_manager_network
-    logging: *common-logging
-    deploy:
-      resources:
-        limits:
-          memory: 256m
-          cpus: "0.5"
-        reservations:
-          memory: 64m
-          cpus: "0.1"
-    stop_grace_period: 60s
-
-  # ==================================================================
-  #  Token Queue Consumer — raw Kombu Layer 4 queue processor
-  # ==================================================================
-  token_queue_consumer:
-    build:
-      context: .
-      dockerfile: app/Dockerfile
-    container_name: llm_token_queue_consumer
-    restart: unless-stopped
-    init: true
-    profiles: ["worker", "all"]
-    labels:
-      <<: *common-labels
-      com.llm_token_manager.service: "token-queue-consumer"
-    depends_on:
-      pgbouncer:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      DATABASE_HOST: pgbouncer
-      DATABASE_PORT: "6432"
-      PGBOUNCER_HOST: pgbouncer
-      PGBOUNCER_PORT: "6432"
-      PGBOUNCER_ENABLED: "true"
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: "5672"
-      RABBITMQ_VHOST: "/"
-      CELERY_RESULT_BACKEND: "rpc://"
-    command:
-      - "python"
-      - "-m"
-      - "app.resilience.token_queue.consumer"
-      - "--concurrency=${TOKEN_QUEUE_CONSUMER_CONCURRENCY:-8}"
-      - "--prefetch-count=${TOKEN_QUEUE_CONSUMER_PREFETCH_COUNT:-20}"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-m",
-          "app.resilience.token_queue.healthcheck",
-        ]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
-    networks:
-      - token_manager_network
-    logging: *common-logging
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-          cpus: "1.0"
-        reservations:
-          memory: 128m
-          cpus: "0.25"
-    stop_grace_period: 60s
-
-  # ==================================================================
-  #  FastAPI Server (future — activate when ready)
-  # ==================================================================
-  #
-  #  Uncomment the block below and run:
-  #    docker compose --profile all up -d
-  #
-  # fastapi:
-  #   build:
-  #     context: .
-  #     dockerfile: app/Dockerfile
-  #   container_name: llm_fastapi
-  #   restart: unless-stopped
-  #   init: true
-  #   profiles: ["all"]
-  #   labels:
-  #     <<: *common-labels
-  #     com.llm_token_manager.service: "api-server"
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #     rabbitmq:
-  #       condition: service_healthy
-  #   env_file:
-  #     - .env
-  #   ports:
-  #     - "${FASTAPI_HOST_PORT:-8000}:8000"
-  #   networks:
-  #     - token_manager_network
-  #   healthcheck:
-  #     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
-  #     interval: 15s
-  #     timeout: 5s
-  #     retries: 5
-  #     start_period: 10s
-  #   logging: *common-logging
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: 512m
-  #         cpus: "1.0"
-  #       reservations:
-  #         memory: 128m
-  #         cpus: "0.25"
-  #   stop_grace_period: 15s
-
-# ==================================================================
-#  Named Volumes
-# ==================================================================
-volumes:
-  pgdata:
-    name: llm_pgdata
-    labels:
-      <<: *common-labels
-      com.llm_token_manager.volume: "postgres-data"
-  redis_data:
-    name: llm_redis_data
-    labels:
-      <<: *common-labels
-      com.llm_token_manager.volume: "redis-data"
-  rabbitmq_data:
-    name: llm_rabbitmq_data
-    labels:
-      <<: *common-labels
-      com.llm_token_manager.volume: "rabbitmq-data"
-
-# ==================================================================
-#  Network
-# ==================================================================
+# =============================================================================
+#  NETWORKS — "where is the network defined?" Right here. This is the only
+#             place in the whole stack that creates a network.
+# =============================================================================
+#
+#  Two networks, on purpose. This is least-privilege applied to networking:
+#  a container can only open a TCP connection to something it shares a network
+#  with. Anything not on a shared network is unreachable, full stop.
+#
+#      ┌──────────────────── platform_net (owned by llm_services) ───────────┐
+#      │                                                                     │
+#      │   llm_services postgres  ◄────────────┐                             │
+#      │                                       │                             │
+#      └───────────────────────────────────────┼─────────────────────────────┘
+#                                              │ only pgbouncer crosses over
+#      ┌──────────────── token_manager_net ────┼─────────────────────────────┐
+#      │                                       │                             │
+#      │   api ──┬──► pgbouncer ───────────────┘                             │
+#      │         ├──► redis                                                  │
+#      │         └──► rabbitmq                                               │
+#      │   consumer ─┴─► (same three)                                        │
+#      │                                                                     │
+#      └─────────────────────────────────────────────────────────────────────┘
+#
+#  PgBouncer is the ONLY service attached to both. That makes it a deliberate
+#  chokepoint: the API and the consumer physically cannot reach PostgreSQL
+#  except through the pooler. It is enforced by network topology rather than by
+#  developer discipline, so it cannot be forgotten or bypassed later.
+#
 networks:
-  token_manager_network:
-    name: token_manager_network
+  # ---------------------------------------------------------------------------
+  # platform_net — NOT created here. Created and owned by llm_services.
+  # ---------------------------------------------------------------------------
+  # `external: true` means "this network already exists; attach, do not create".
+  # If it is missing, Compose fails fast with a clear error instead of silently
+  # creating an empty network your database is not on.
+  #
+  # WHY THIS NAME: llm_services/docker-compose.yml declares `networks: llm_net:`
+  # with no `name:` key, so Compose prefixes it with ITS project name
+  # (the directory, llm_services) producing the real network `llm_services_llm_net`.
+  # `external` needs that real on-daemon name, not the short alias.
+  #
+  # Start order therefore matters: llm_services must be up first.
+  #   cd ../llm_services && docker compose up -d postgres
+  platform_net:
+    external: true
+    name: ${PLATFORM_NETWORK_NAME:-llm_services_llm_net}
+
+  # ---------------------------------------------------------------------------
+  # token_manager_net — this stack's own private network. We DO create this.
+  # ---------------------------------------------------------------------------
+  # `driver: bridge` is the standard single-host driver. Its most useful
+  # property is the built-in DNS server: every service name becomes a
+  # resolvable hostname on this network. That is why compose.app.yml can say
+  # REDIS_HOST: redis and it simply works — no IP addresses anywhere.
+  token_manager_net:
     driver: bridge
     labels:
-      <<: *common-labels
-      com.llm_token_manager.network: "backend"
+      com.llm-token-manager.project: llm-token-manager
+      com.llm-token-manager.network: token-manager-internal
+
+# =============================================================================
+#  VOLUMES — durable disks that outlive containers
+# =============================================================================
+#
+#  A container's own filesystem is deleted with the container. Anything that
+#  must survive `docker compose down` needs a named volume mounted over the
+#  path where the process writes its state.
+#
+#  NOTE WHAT IS ABSENT: there is no postgres volume here. This stack does not
+#  own a database — see infra/docs/04-decisions.md, ADR-001. The token manager
+#  reads and writes llm_services' PostgreSQL through PgBouncer.
+#
+volumes:
+  # Redis persistence (appendonly file + snapshots). This holds live token
+  # allocation counters, so losing it is a correctness event, not just a
+  # cold-cache event. See ADR-003 for why this Redis runs `noeviction`.
+  redis_data:
+    name: llm_tm_redis_data
+    labels:
+      com.llm-token-manager.project: llm-token-manager
+      com.llm-token-manager.volume: redis-data
+
+  # RabbitMQ persistence: durable queue definitions and persisted messages.
+  # Without this, a restart silently discards queued allocation work.
+  rabbitmq_data:
+    name: llm_tm_rabbitmq_data
+    labels:
+      com.llm-token-manager.project: llm-token-manager
+      com.llm-token-manager.volume: rabbitmq-data
+
+  # ---------------------------------------------------------------------------
+  # Application log volumes — used ONLY by infra/compose/compose.prod.yml
+  # ---------------------------------------------------------------------------
+  # They are declared here rather than in the prod overlay because volumes are a
+  # base-level concern: this file is the single answer to "what disks exist?".
+  # Declaring them here costs nothing when the prod overlay is not loaded —
+  # Compose creates a volume only when a service actually mounts it.
+  #
+  # WHY THEY EXIST AT ALL: compose.prod.yml sets `read_only: true` on api and
+  # token_queue_consumer, but app/core/logging.py writes logs/app_{time}.log
+  # relative to WORKDIR /app. With a read-only root, /app/logs must be mounted
+  # writable or the app dies on its first log line.
+  api_logs:
+    name: llm_tm_api_logs
+    labels:
+      com.llm-token-manager.project: llm-token-manager
+      com.llm-token-manager.volume: api-logs
+
+  consumer_logs:
+    name: llm_tm_consumer_logs
+    labels:
+      com.llm-token-manager.project: llm-token-manager
+      com.llm-token-manager.volume: consumer-logs

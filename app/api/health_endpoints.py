@@ -6,6 +6,8 @@ Provides status checks for database, Redis, RabbitMQ,
 and token-maintenance runtime readiness.
 """
 
+import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
@@ -24,6 +26,7 @@ from app.resilience.token_maintenance.health import (
 )
 
 router = APIRouter(prefix="/api/v1/health", tags=["Health"])
+_READINESS_PROBE_TIMEOUT_SECONDS = 3.0
 
 
 @router.get("/", response_model=HealthStatus)
@@ -67,17 +70,19 @@ async def check_dependencies() -> DependencyHealth:
     """
     logger.debug("Dependency health check requested")
 
-    # Check PostgreSQL database
-    postgresql_healthy = await _check_database()
-
-    # Check Redis cache
-    redis_healthy = await _check_redis()
-
-    # Check RabbitMQ message broker
-    rabbitmq_healthy = await _check_rabbitmq()
-
-    # Check token-maintenance runtime readiness
-    token_maintenance_healthy = await _check_token_maintenance()
+    # Each probe has its own deadline so an unavailable dependency cannot
+    # leave readiness requests hanging. Independent probes run concurrently.
+    (
+        postgresql_healthy,
+        redis_healthy,
+        rabbitmq_healthy,
+        token_maintenance_healthy,
+    ) = await asyncio.gather(
+        _bounded_check("PostgreSQL", _check_database),
+        _bounded_check("Redis", _check_redis),
+        _bounded_check("RabbitMQ", _check_rabbitmq),
+        _bounded_check("Token maintenance", _check_token_maintenance),
+    )
 
     # Determine overall health status
     all_healthy = (
@@ -173,6 +178,19 @@ def _is_service_connected(result: ServiceStatus, service_name: str) -> bool:
     """
     is_connected = result.status == "connected"
     if not is_connected:
-        error_message = result.error_message or "Unknown health check failure"
-        logger.error(f"{service_name} health check failed: {error_message}")
+        # Probe exceptions can include DSNs and connection strings. Keep
+        # public readiness logs limited to the stable dependency name.
+        logger.error("{} health check failed", service_name)
     return is_connected
+
+
+async def _bounded_check(name: str, check: Callable[[], Awaitable[bool]]) -> bool:
+    """Return false when a dependency probe fails or exceeds its deadline."""
+    try:
+        return await asyncio.wait_for(check(), _READINESS_PROBE_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.warning("{} health check timed out", name)
+        return False
+    except Exception:
+        logger.warning("{} health check raised an error", name)
+        return False

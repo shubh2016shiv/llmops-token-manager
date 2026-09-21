@@ -74,8 +74,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
     ⚠️ DEVELOPMENT/TESTING ONLY ⚠️
 
-    Requires a valid JWT access token (any authenticated caller — no
-    specific role needed since authorization is handled by llm_services).
+    Requires a valid administrator or owner JWT access token.
 
     This endpoint is for development and testing purposes only.
     In production, token generation should be handled by a separate
@@ -97,12 +96,12 @@ async def generate_token(
     Generate JWT tokens for a user.
 
     Creates both access and refresh tokens (if refresh is enabled).
-    Requires a valid JWT access token.  This is a development/testing
+    Requires an administrator or owner JWT access token. This is a development/testing
     endpoint — in production it returns 403.
 
     Args:
         request: Token generation parameters (user_id, role, tenant_id).
-        current_user: Authenticated user (any role — no authorization check).
+        current_user: Authenticated administrator or owner.
 
     Returns:
         AuthTokenResponse: Generated access token and optional refresh token.
@@ -119,14 +118,21 @@ async def generate_token(
         f"Token generation requested by privileged user: {current_user.user_id}"
     )
 
-    app_environment = getattr(settings, "app_environment", "development")
-    if app_environment == "production":
+    # Token minting from caller-supplied identity is strictly a local/test
+    # facility. An unknown or newly added environment must fail closed.
+    if settings.app_environment not in {"development", "testing"}:
         logger.warning(
-            "Token generation endpoint is disabled in production environment"
+            "Token generation endpoint is disabled outside development and testing"
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Token generation endpoint is disabled in production",
+            detail="Token generation endpoint is disabled in this environment",
+        )
+
+    if current_user.role not in {"admin", "owner"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token generation requires an administrator",
         )
 
     try:

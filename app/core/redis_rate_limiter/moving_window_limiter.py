@@ -110,7 +110,7 @@ def _redis_dsn() -> str:
     if settings.redis_password:
         # quote(..., safe='') means "encode EVERYTHING that isn't a letter or
         # digit" — no characters slip through unencoded.
-        auth = f":{quote(settings.redis_password, safe='')}@"
+        auth = f":{quote(settings.redis_password.get_secret_value(), safe='')}@"
     else:
         # No password configured — don't include the ":password@" section at all.
         auth = ""

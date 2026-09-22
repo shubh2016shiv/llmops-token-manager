@@ -32,7 +32,7 @@ Architecture:
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from loguru import logger
 
-from app.auth import AuthTokenPayload, CurrentUser
+from app.auth.auth_dependencies import CurrentUser
 from app.core.exceptions import (
     AllocationNotFoundError,
     AllocationStateError,
@@ -41,6 +41,7 @@ from app.core.exceptions import (
     TokenLimitExceededError,
 )
 from app.core.redis_rate_limiter import token_acquire_rate_limiter
+from app.models.auth_models import AuthTokenPayload
 from app.models.request_models import (
     PauseDeploymentRequest,
     TokenAllocationClientRequest,

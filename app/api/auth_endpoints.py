@@ -118,9 +118,12 @@ async def generate_token(
         f"Token generation requested by privileged user: {current_user.user_id}"
     )
 
-    # Token minting from caller-supplied identity is strictly a local/test
-    # facility. An unknown or newly added environment must fail closed.
-    if settings.app_environment not in {"development", "testing"}:
+    # Token minting from caller-supplied identity is strictly a local/dev
+    # facility. app_environment is validated (AppSettings.validate_app_environment)
+    # to one of {"development", "staging", "production"} — "staging" and
+    # "production" both fail closed here, which is the intent: this endpoint
+    # must never be reachable outside a developer's own machine.
+    if settings.app_environment != "development":
         logger.warning(
             "Token generation endpoint is disabled outside development and testing"
         )

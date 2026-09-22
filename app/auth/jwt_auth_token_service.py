@@ -46,7 +46,7 @@ Production path vs dev path
                  the full auth infrastructure.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from jose import JWTError, jwt
@@ -80,7 +80,8 @@ def create_access_token(user_id: UUID, role: str, tenant_id: UUID) -> str:
     Raises:
         JWTError: If the cryptographic signing operation fails.
     """
-    expire = datetime.utcnow() + timedelta(hours=settings.jwt_access_token_expire_hours)
+    issued_at = datetime.now(timezone.utc)
+    expire = issued_at + timedelta(hours=settings.jwt_access_token_expire_hours)
 
     # The JWT payload is a simple dictionary.  Claims follow the standard
     # JWT naming conventions:
@@ -92,19 +93,21 @@ def create_access_token(user_id: UUID, role: str, tenant_id: UUID) -> str:
         "role": role,
         "tenant_id": str(tenant_id),
         "exp": expire,
-        "iat": datetime.utcnow(),
+        "iat": issued_at,
         "type": "access",
     }
 
     try:
         token: str = jwt.encode(
-            payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+            payload,
+            settings.jwt_secret_key.get_secret_value(),
+            algorithm=settings.jwt_algorithm,
         )
         logger.debug(f"Access token created for user {user_id} with role {role}")
         return token
     except JWTError as e:
-        logger.error(f"Failed to create access token: {e}")
-        raise JWTError(f"Token creation failed: {str(e)}") from e
+        logger.error("Access token signing failed")
+        raise JWTError("Token creation failed") from e
 
 
 def create_refresh_token(user_id: UUID, role: str, tenant_id: UUID) -> str:
@@ -134,26 +137,29 @@ def create_refresh_token(user_id: UUID, role: str, tenant_id: UUID) -> str:
     if not settings.jwt_refresh_enabled:
         raise ValueError("Refresh tokens are disabled in configuration")
 
-    expire = datetime.utcnow() + timedelta(days=settings.jwt_refresh_token_expire_days)
+    issued_at = datetime.now(timezone.utc)
+    expire = issued_at + timedelta(days=settings.jwt_refresh_token_expire_days)
 
     payload = {
         "user_id": str(user_id),
         "role": role,
         "tenant_id": str(tenant_id),
         "exp": expire,
-        "iat": datetime.utcnow(),
+        "iat": issued_at,
         "type": "refresh",
     }
 
     try:
         token: str = jwt.encode(
-            payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+            payload,
+            settings.jwt_secret_key.get_secret_value(),
+            algorithm=settings.jwt_algorithm,
         )
         logger.debug(f"Refresh token created for user {user_id} with role {role}")
         return token
     except JWTError as e:
-        logger.error(f"Failed to create refresh token: {e}")
-        raise JWTError(f"Refresh token creation failed: {str(e)}") from e
+        logger.error("Refresh token signing failed")
+        raise JWTError("Refresh token creation failed") from e
 
 
 # ===========================================================================
@@ -188,8 +194,13 @@ def decode_token(token: str) -> AuthTokenPayload:
         ValueError: Required claims missing from the payload.
     """
     try:
+        if len(token) > 8192:
+            raise ValueError("Token is too large")
         payload = jwt.decode(
-            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+            token,
+            settings.jwt_secret_key.get_secret_value(),
+            algorithms=[settings.jwt_algorithm],
+            options={"require_exp": True, "require_iat": True},
         )
 
         # Structural validation: every required claim must be present.
@@ -200,8 +211,20 @@ def decode_token(token: str) -> AuthTokenPayload:
             if field not in payload:
                 raise ValueError(f"Token missing '{field}'")
 
-        exp_datetime = datetime.utcfromtimestamp(payload["exp"])
-        iat_datetime = datetime.utcfromtimestamp(payload["iat"])
+        if payload["type"] not in {"access", "refresh"}:
+            raise ValueError("Invalid token type")
+        if not isinstance(payload["role"], str) or not (
+            1 <= len(payload["role"]) <= 128
+        ):
+            raise ValueError("Invalid role claim")
+        if not isinstance(payload["exp"], int) or not isinstance(payload["iat"], int):
+            raise ValueError("Invalid timestamp claims")
+        exp_datetime = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+        iat_datetime = datetime.fromtimestamp(payload["iat"], tz=timezone.utc)
+        if iat_datetime > datetime.now(timezone.utc) + timedelta(seconds=60):
+            raise ValueError("Token issued in the future")
+        if exp_datetime <= iat_datetime:
+            raise ValueError("Token expiration precedes issuance")
 
         token_payload = AuthTokenPayload(
             user_id=UUID(payload["user_id"]),
@@ -216,11 +239,11 @@ def decode_token(token: str) -> AuthTokenPayload:
         return token_payload
 
     except JWTError as e:
-        logger.warning(f"JWT decode failed: {e}")
-        raise JWTError(f"Invalid token: {str(e)}") from e
-    except (ValueError, TypeError) as e:
-        logger.warning(f"Token payload validation failed: {e}")
-        raise ValueError(f"Invalid token payload: {str(e)}") from e
+        logger.warning("JWT decode failed")
+        raise JWTError("Invalid token") from e
+    except (ValueError, TypeError, OverflowError, OSError) as e:
+        logger.warning("Token payload validation failed")
+        raise ValueError("Invalid token payload") from e
 
 
 def verify_token_type(payload: AuthTokenPayload, expected_type: str) -> None:

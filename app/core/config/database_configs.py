@@ -7,7 +7,7 @@ defaults — it is sourced from .env only. Values set in .env (or the process
 environment) override the YAML defaults for every other field.
 """
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -31,8 +31,12 @@ class DatabaseSettings(BaseSettings):
     database_host: str = Field(..., description="PostgreSQL host")
     database_port: int = Field(..., description="PostgreSQL port")
     database_user: str = Field(..., description="PostgreSQL user")
-    database_password: str = Field(
-        default="mypassword",
+    # SecretStr keeps the password out of repr()/logging/model_dump() by
+    # accident; database_url / database_url_sync unwrap it explicitly with
+    # .get_secret_value() at the one place that legitimately needs the raw
+    # value (building a driver connection string).
+    database_password: SecretStr = Field(
+        default=SecretStr("mypassword"),
         description="PostgreSQL password (secret — set via .env only)",
     )
     database_name: str = Field(..., description="PostgreSQL database name")
@@ -80,16 +84,18 @@ class DatabaseSettings(BaseSettings):
     @property
     def database_url(self) -> str:
         """Construct async PostgreSQL database URL."""
+        password = self.database_password.get_secret_value()
         return (
-            f"postgresql+asyncpg://{self.database_user}:{self.database_password}"
+            f"postgresql+asyncpg://{self.database_user}:{password}"
             f"@{self.database_host}:{self.database_port}/{self.database_name}"
         )
 
     @property
     def database_url_sync(self) -> str:
         """Construct sync PostgreSQL database URL (for postgres_schema)."""
+        password = self.database_password.get_secret_value()
         return (
-            f"postgresql://{self.database_user}:{self.database_password}"
+            f"postgresql://{self.database_user}:{password}"
             f"@{self.database_host}:{self.database_port}/{self.database_name}"
         )
 
@@ -110,8 +116,9 @@ class DatabaseSettings(BaseSettings):
         set SQLAlchemy pool_size=1 and use NullPool to avoid double-pooling.
         """
         if self.pgbouncer_enabled:
+            password = self.database_password.get_secret_value()
             return (
-                f"postgresql+asyncpg://{self.database_user}:{self.database_password}"
+                f"postgresql+asyncpg://{self.database_user}:{password}"
                 f"@{self.pgbouncer_host}:{self.pgbouncer_port}/{self.database_name}"
             )
         return self.database_url

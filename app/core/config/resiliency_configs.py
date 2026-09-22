@@ -127,6 +127,12 @@ class ResiliencySettings(BaseSettings):
         )
 
     @field_validator(
+        "cb_db_failure_threshold",
+        "cb_db_recovery_timeout",
+        "cb_redis_failure_threshold",
+        "cb_redis_recovery_timeout",
+        "cb_rmq_failure_threshold",
+        "cb_rmq_recovery_timeout",
         "bp_max_queue_depth",
         "bp_drain_rate_per_second",
         "bp_retry_after_cap_seconds",
@@ -137,8 +143,16 @@ class ResiliencySettings(BaseSettings):
         "cleanup_interval_secs",
     )
     @classmethod
-    def validate_positive_backpressure_integers(cls, v: int) -> int:
-        """Validate that these backpressure settings are positive."""
+    def validate_positive_resiliency_integers(cls, v: int) -> int:
+        """
+        Validate that these resiliency settings are positive.
+
+        A zero or negative cb_*_recovery_timeout would let a circuit breaker
+        flip straight back to HALF_OPEN with no cooldown, hammering an already
+        failing dependency; a zero cb_*_failure_threshold would trip a breaker
+        on the very first call. Both are configuration mistakes, not valid
+        operating points, so they fail at startup rather than at 3am.
+        """
         if v <= 0:
             raise ValueError("Setting must be greater than 0")
         return v

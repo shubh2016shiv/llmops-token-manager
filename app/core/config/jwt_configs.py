@@ -7,7 +7,7 @@ defaults — it is sourced from .env only. Values set in .env (or the process
 environment) override the YAML defaults for every other field.
 """
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -28,8 +28,12 @@ class JWTSettings(BaseSettings):
         extra="ignore",
     )
 
-    jwt_secret_key: str = Field(
-        default="CHANGE_THIS_IN_PRODUCTION_USE_STRONG_SECRET",
+    # SecretStr (not str): keeps the key out of repr()/str()/logging/model_dump()
+    # by accident. Callers that need the raw value for jose.jwt encode/decode
+    # call .get_secret_value() explicitly at the point of use — an intentional,
+    # greppable seam rather than an implicit string leak.
+    jwt_secret_key: SecretStr = Field(
+        default=SecretStr("CHANGE_THIS_IN_PRODUCTION_USE_STRONG_SECRET"),
         description="JWT secret key for token signing (secret — set via .env only)",
     )
     jwt_algorithm: str = Field(..., description="JWT algorithm")

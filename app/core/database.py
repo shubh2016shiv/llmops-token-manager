@@ -80,7 +80,7 @@ class DatabaseSessionManager:
             "port": port,
             "dbname": settings.database_name,
             "user": settings.database_user,
-            "password": settings.database_password,
+            "password": settings.database_password.get_secret_value(),
             "min_connections": settings.database_pool_size,
             "max_connections": settings.database_pool_size
             + settings.database_max_overflow,

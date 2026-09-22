@@ -7,7 +7,7 @@ it is sourced from .env only. Values set in .env (or the process environment)
 override the YAML defaults for every other field.
 """
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -31,7 +31,9 @@ class RedisSettings(BaseSettings):
     redis_host: str = Field(..., description="Redis host")
     redis_port: int = Field(..., description="Redis port")
     redis_db: int = Field(..., description="Redis database number")
-    redis_password: str | None = Field(
+    # SecretStr keeps the password out of repr()/logging/model_dump() by
+    # accident. Optional because local/dev Redis commonly runs unauthenticated.
+    redis_password: SecretStr | None = Field(
         default=None, description="Redis password (secret — set via .env only)"
     )
     redis_max_connections: int = Field(..., description="Redis max connections")
@@ -92,8 +94,9 @@ class RedisSettings(BaseSettings):
     def redis_url(self) -> str:
         """Construct Redis URL (DB 0 — rate limiting / general cache)."""
         if self.redis_password:
+            password = self.redis_password.get_secret_value()
             return (
-                f"redis://:{self.redis_password}@"
+                f"redis://:{password}@"
                 f"{self.redis_host}:{self.redis_port}/{self.redis_db}"
             )
         return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
@@ -102,8 +105,9 @@ class RedisSettings(BaseSettings):
     def redis_token_counter_url(self) -> str:
         """Construct Redis URL for the token counter fast path on isolated DB 1."""
         if self.redis_password:
+            password = self.redis_password.get_secret_value()
             return (
-                f"redis://:{self.redis_password}@"
+                f"redis://:{password}@"
                 f"{self.redis_host}:{self.redis_port}/{self.redis_token_counter_db}"
             )
         return (

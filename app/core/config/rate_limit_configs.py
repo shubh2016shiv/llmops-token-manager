@@ -13,7 +13,7 @@ cb_redis_recovery_timeout out of redis_configs.py and into
 resiliency_configs.py instead.
 """
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -86,3 +86,23 @@ class RateLimitSettings(BaseSettings):
             ),
             file_secret_settings,
         )
+
+    @field_validator(
+        "rate_limit_requests_per_minute",
+        "rate_limit_window_seconds",
+        "rate_limit_token_generate_per_minute",
+        "rate_limit_token_refresh_per_minute",
+        "rate_limit_token_acquire_per_minute",
+    )
+    @classmethod
+    def validate_positive_rate_limit_integers(cls, v: int) -> int:
+        """
+        Validate that these rate-limit thresholds are positive.
+
+        A zero or negative limit is not "unlimited" to the `limits` library —
+        it either blocks every request or raises at request time deep inside a
+        third-party rate limiter. Reject it at startup instead.
+        """
+        if v <= 0:
+            raise ValueError("Setting must be greater than 0")
+        return v

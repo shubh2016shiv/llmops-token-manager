@@ -13,7 +13,7 @@ business concern — worker/task behavior, not broker connection or queue
 topology — and gets its own domain file.
 """
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -37,8 +37,10 @@ class RabbitMQSettings(BaseSettings):
     rabbitmq_host: str = Field(..., description="RabbitMQ host")
     rabbitmq_port: int = Field(..., description="RabbitMQ port")
     rabbitmq_user: str = Field(..., description="RabbitMQ user")
-    rabbitmq_password: str = Field(
-        default="rmq_password",
+    # SecretStr keeps the password out of repr()/logging/model_dump() by
+    # accident; broker_url unwraps it explicitly with .get_secret_value().
+    rabbitmq_password: SecretStr = Field(
+        default=SecretStr("rmq_password"),
         description="RabbitMQ password (secret — set via .env only)",
     )
     rabbitmq_vhost: str = Field(..., description="RabbitMQ virtual host")
@@ -221,7 +223,8 @@ class RabbitMQSettings(BaseSettings):
         """Construct RabbitMQ broker URL."""
         if self.celery_broker_url:
             return self.celery_broker_url
+        password = self.rabbitmq_password.get_secret_value()
         return (
-            f"amqp://{self.rabbitmq_user}:{self.rabbitmq_password}"
+            f"amqp://{self.rabbitmq_user}:{password}"
             f"@{self.rabbitmq_host}:{self.rabbitmq_port}{self.rabbitmq_vhost}"
         )

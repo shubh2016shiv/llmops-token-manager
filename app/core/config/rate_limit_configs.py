@@ -13,6 +13,8 @@ cb_redis_recovery_timeout out of redis_configs.py and into
 resiliency_configs.py instead.
 """
 
+from ipaddress import ip_network
+
 from pydantic import Field, field_validator
 from pydantic_settings import (
     BaseSettings,
@@ -48,16 +50,15 @@ class RateLimitSettings(BaseSettings):
         ..., description="Max token refresh requests per minute per IP"
     )
 
-    # X-Service-Id header buckets each upstream microservice independently.
     rate_limit_token_acquire_per_minute: int = Field(
-        ..., description="Max /acquire requests per minute per service x IP pair"
+        ..., description="Max /acquire requests per minute per verified client IP"
     )
 
     # Each proxy appends the IP it received from to the RIGHT of
     # X-Forwarded-For, so the real client IP is read this many positions from
     # the right; entries to the left are client-supplied and untrusted.
-    # Default 1 matches a single nginx in front. Set 0 for direct connections
-    # (trust only the TCP peer).
+    # Default 0 trusts only the TCP peer. Nonzero requires an explicit list
+    # of proxy networks below; a hop count alone never grants header trust.
     rate_limit_trusted_proxy_hops: int = Field(
         ...,
         ge=0,
@@ -65,6 +66,10 @@ class RateLimitSettings(BaseSettings):
             "Trusted reverse-proxy hops; client IP is read this many "
             "positions from the right of X-Forwarded-For"
         ),
+    )
+    rate_limit_trusted_proxy_networks: list[str] = Field(
+        default_factory=list,
+        description="TCP peer networks authorized to supply X-Forwarded-For",
     )
 
     @classmethod
@@ -106,3 +111,11 @@ class RateLimitSettings(BaseSettings):
         if v <= 0:
             raise ValueError("Setting must be greater than 0")
         return v
+
+    @field_validator("rate_limit_trusted_proxy_networks")
+    @classmethod
+    def validate_trusted_proxy_networks(cls, networks: list[str]) -> list[str]:
+        """Reject invalid proxy network entries at configuration load time."""
+        for network in networks:
+            ip_network(network, strict=False)
+        return networks

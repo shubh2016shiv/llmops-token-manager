@@ -72,14 +72,18 @@ works — same pattern, same reliability.
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING, cast
 from urllib.parse import quote
 
-from limits.aio.storage import MemoryStorage
+from limits.aio.storage import MemoryStorage, RedisStorage, Storage
 from limits.aio.strategies import MovingWindowRateLimiter
 from limits.storage import storage_from_string
 from loguru import logger
 
 from app.core.config import settings
+
+if TYPE_CHECKING:
+    from limits.aio.storage.redis.coredis import CoredisBridge
 
 
 def _redis_dsn() -> str:
@@ -120,7 +124,7 @@ def _redis_dsn() -> str:
     )
 
 
-def _build_rate_limit_storage():
+def _build_rate_limit_storage() -> Storage:
     """
     Build the storage backend — the "notepad" where the limiter writes counts.
 
@@ -144,7 +148,13 @@ def _build_rate_limit_storage():
     """
     if os.getenv("RATE_LIMIT_STORAGE", "").lower() == "memory":
         return MemoryStorage()
-    return storage_from_string(_redis_dsn())
+    # storage_from_string() is a generic factory that can hand back either a
+    # sync or async storage implementation depending on the DSN's scheme.
+    # The "async+" prefix _redis_dsn() always emits guarantees the async
+    # variant at runtime (see its docstring); mypy can't see that from the
+    # string alone, so this cast documents the guarantee instead of losing
+    # type-checking on the rest of this file via `# type: ignore`.
+    return cast("Storage", storage_from_string(_redis_dsn()))
 
 
 class RateLimiterManager:
@@ -188,7 +198,7 @@ class RateLimiterManager:
 
     def __init__(self) -> None:
         # Start empty — nothing exists until `initialize()` is called.
-        self._storage = None
+        self._storage: Storage | None = None
         self._limiter: MovingWindowRateLimiter | None = None
 
     def initialize(self) -> None:
@@ -202,9 +212,12 @@ class RateLimiterManager:
             logger.warning("Rate limiter already initialized; skipping re-init")
             return
 
-        self._storage = _build_rate_limit_storage()
-        backend_name = type(self._storage).__name__
-        if isinstance(self._storage, MemoryStorage):
+        storage = _build_rate_limit_storage()
+        limiter = MovingWindowRateLimiter(storage)
+        self._storage = storage
+        self._limiter = limiter
+        backend_name = type(storage).__name__
+        if isinstance(storage, MemoryStorage):
             logger.info(
                 "Rate limiter initialized with in-memory storage "
                 "(non-distributed — intended for tests/single-process only)"
@@ -214,9 +227,6 @@ class RateLimiterManager:
                 f"Rate limiter initialized with {backend_name} at "
                 f"{settings.redis_host}:{settings.redis_port}/{settings.redis_db}"
             )
-        # Wrap the storage in a MovingWindowRateLimiter — this is the object
-        # that actually implements the sliding-window counting algorithm.
-        self._limiter = MovingWindowRateLimiter(self._storage)
 
     async def close(self) -> None:
         """
@@ -229,8 +239,14 @@ class RateLimiterManager:
         if self._limiter is None:
             return
         logger.info("Closing rate limiter storage")
-        self._storage = None
-        self._limiter = None
+        storage = self._storage
+        try:
+            if isinstance(storage, RedisStorage):
+                bridge = cast("CoredisBridge", storage.bridge)
+                bridge.get_connection().connection_pool.disconnect()
+        finally:
+            self._storage = None
+            self._limiter = None
 
     @property
     def limiter(self) -> MovingWindowRateLimiter:

@@ -22,7 +22,7 @@ Retry decision logic:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -83,6 +83,16 @@ class TokenRetryService:
 
         return await self._transition_to_acquired(token_request_id, deployment)
 
+    async def fetch_allocation_for_retry(self, token_request_id: str) -> dict[str, Any]:
+        """
+        Fetch a WAITING reservation before an API authorizes a retry.
+
+        The HTTP boundary must establish that the caller owns the reservation
+        before this use case can change its state.  Keeping the read here also
+        prevents the router from reaching into the persistence adapter.
+        """
+        return await self._fetch_waiting_allocation(token_request_id)
+
     async def _fetch_waiting_allocation(self, token_request_id: str) -> dict[str, Any]:
         """Return the allocation if it exists and is WAITING, else raise."""
         allocation = await self._allocation_persistence.get_allocation_by_request_id(
@@ -112,7 +122,7 @@ class TokenRetryService:
         lock_secs = (
             deployment.get("token_lock_duration_seconds") or _DEFAULT_LOCK_SECONDS
         )
-        expires_at = datetime.now() + timedelta(seconds=lock_secs)
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=lock_secs)
 
         updated = await self._allocation_persistence.transition_waiting_to_acquired(
             token_request_id=token_request_id,

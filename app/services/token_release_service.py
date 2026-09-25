@@ -202,7 +202,12 @@ class TokenReleaseService:
         token_count: int = allocation.get("token_count", 0)
 
         if not model or not endpoint or not token_count:
-            return False
+            logger.warning(
+                "[release] Redis counter release deferred: "
+                "allocation metadata incomplete",
+                extra={"token_request_id": token_request_id},
+            )
+            return True
 
         result = await self._redis_counter.release_tokens(model, endpoint, token_count)
         if result is None:

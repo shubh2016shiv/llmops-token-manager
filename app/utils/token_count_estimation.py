@@ -34,12 +34,17 @@ except ImportError as err:
         "LiteLLM library required. Install with: pip install litellm"
     ) from err
 
-# Configure structured logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+# Deliberately NOT logging.basicConfig() here. This module previously called
+# it at import time, which — unlike getLogger() — is a GLOBAL side effect:
+# it installs handlers on the root logger for the whole process, the moment
+# this module happens to be imported. app/core/logging.py owns the app's
+# actual logging configuration (loguru); a stdlib logging.basicConfig() call
+# racing against it depends entirely on which module some other import
+# pulled in first (basicConfig() is a silent no-op if the root logger
+# already has handlers), which is exactly the import-order fragility this
+# codebase's own config module works hard to avoid elsewhere. getLogger()
+# alone has no such side effect — it just binds a logger to whatever the
+# process's actual logging configuration turns out to be.
 logger = logging.getLogger(__name__)
 
 

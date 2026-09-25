@@ -20,7 +20,7 @@ Layer execution order:
     2. Token estimation  (this service)
     3. Deployment pick   (this service → DeploymentLoadBalancer)
     4. Redis fast path   (this service → RedisTokenCounterService)
-    4a.  ALLOCATED → RMQ publish; RMQ CB open → Redis rollback → DB path
+    4a.  ALLOCATED → RMQ publish; publish failure → Redis rollback → DB path
     4b.  MISS / EXHAUSTED → DB path
     5. DB path           (this service → LLMTokenAllocationPersistence)
        Atomic capacity check decides WAITING vs ACQUIRED; creates the record.
@@ -32,7 +32,7 @@ queries the users table (that is llm_services' concern).
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import TYPE_CHECKING, Any, cast
 import uuid
@@ -46,6 +46,7 @@ from app.core.exceptions import (
 )
 from app.models.response_models import TokenAllocationResponse
 from app.resilience.redis_token_counter import TokenReservationResult
+from app.resilience.token_queue.publisher import TokenPublishError
 from app.utils.token_count_estimation import estimate_tokens
 
 if TYPE_CHECKING:
@@ -112,9 +113,23 @@ class TokenAcquisitionService:
         """
         provider_name = request.llm_provider.value
         model_name = request.llm_model_name
-        estimated_token_count = self._estimate_token_count(request)
+        # Offloaded to a worker thread: TokenEstimator.estimate() (via
+        # estimate_tokens()) is a synchronous, CPU-bound call into litellm's
+        # tokenizer — calling it directly here would block THIS event loop
+        # for its full duration, freezing every other concurrent request this
+        # worker process is serving, not just this one. asyncio.to_thread
+        # keeps the estimator itself a plain sync utility (correct — litellm
+        # has no async API) while keeping it off the loop.
+        estimated_token_count = await asyncio.to_thread(
+            self._estimate_token_count, request
+        )
 
-        deployment = await self._choose_deployment(tenant_id, provider_name, model_name)
+        deployment = await self._choose_deployment(
+            tenant_id,
+            provider_name,
+            model_name,
+            request.deployment_name,
+        )
         api_endpoint = deployment["api_endpoint_url"]
 
         reservation_result = await self._redis_counter.reserve_tokens(
@@ -129,7 +144,8 @@ class TokenAcquisitionService:
             )
             if fast_path_response is not None:
                 return fast_path_response
-            # RMQ CB open — Redis reservation rolled back; fall to DB path.
+            # RabbitMQ could not accept the handoff; the Redis reservation was
+            # rolled back, so the DB path can safely attempt the allocation.
 
         _log_redis_miss_reason(reservation_result, model_name)
         return await self._create_db_allocation(
@@ -141,15 +157,22 @@ class TokenAcquisitionService:
     # ------------------------------------------------------------------
 
     def _estimate_token_count(self, request: TokenAllocationClientRequest) -> int:
-        """Return estimated token count for the request's input data."""
-        return estimate_tokens(request.input_data, request.llm_model_name).total_tokens
+        """Reserve estimated input plus the caller's maximum completion budget."""
+        input_tokens = estimate_tokens(
+            request.input_data, request.llm_model_name
+        ).total_tokens
+        return input_tokens + request.requested_completion_tokens
 
     # ------------------------------------------------------------------
     # Deployment selection (load balancer + circuit breaker)
     # ------------------------------------------------------------------
 
     async def _choose_deployment(
-        self, tenant_id: UUID, provider_name: str, model_name: str
+        self,
+        tenant_id: UUID,
+        provider_name: str,
+        model_name: str,
+        deployment_selector: str | None,
     ) -> dict[str, Any]:
         """
         Ask the load balancer for the least-loaded active deployment.
@@ -166,6 +189,7 @@ class TokenAcquisitionService:
                     tenant_id,
                     provider_name,
                     model_name,
+                    deployment_selector,
                 ),
             )
         except aiobreaker.CircuitBreakerError as exc:
@@ -189,13 +213,13 @@ class TokenAcquisitionService:
         Attempt RMQ publish after a successful Redis reservation.
 
         Returns the allocation response on success, or None if the RabbitMQ
-        circuit breaker is open (Redis reservation already rolled back).
+        publish fails (Redis reservation already rolled back).
         """
         token_request_id = f"req_{uuid.uuid4().hex}"
         lock_secs = (
             deployment.get("token_lock_duration_seconds") or _DEFAULT_LOCK_SECONDS
         )
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=lock_secs)
         api_endpoint = deployment["api_endpoint_url"]
 
@@ -212,11 +236,18 @@ class TokenAcquisitionService:
             await asyncio.get_event_loop().run_in_executor(
                 None, self._publisher.publish_allocation_request, payload
             )
-        except aiobreaker.CircuitBreakerError:
+        except (aiobreaker.CircuitBreakerError, TokenPublishError):
             await self._rollback_redis_on_rmq_failure(
                 request.llm_model_name, api_endpoint, token_count, token_request_id
             )
             return None
+        except Exception:
+            # Never leave a Redis reservation without a queued persistence
+            # message, even when the publisher raises an unexpected error.
+            await self._rollback_redis_on_rmq_failure(
+                request.llm_model_name, api_endpoint, token_count, token_request_id
+            )
+            raise
 
         logger.info(
             "[acquire] Fast-path ALLOCATED via RMQ",
@@ -244,7 +275,7 @@ class TokenAcquisitionService:
         token_count: int,
         token_request_id: str,
     ) -> None:
-        """Release the Redis reservation when the RMQ circuit breaker is open."""
+        """Release the Redis reservation after a failed RabbitMQ handoff."""
         rollback_result = await self._redis_counter.release_tokens(
             model_name, api_endpoint, token_count
         )
@@ -255,7 +286,7 @@ class TokenAcquisitionService:
                 extra={"token_request_id": token_request_id},
             )
         logger.warning(
-            "[acquire] RMQ CB open — Redis reservation rolled back; using DB path",
+            "[acquire] RabbitMQ handoff failed; Redis rollback attempted",
             extra={"token_request_id": token_request_id},
         )
 
@@ -289,7 +320,7 @@ class TokenAcquisitionService:
         lock_secs = (
             deployment.get("token_lock_duration_seconds") or _DEFAULT_LOCK_SECONDS
         )
-        expires_at = datetime.now() + timedelta(seconds=lock_secs)
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=lock_secs)
         try:
             record = cast(
                 "dict[str, Any]",

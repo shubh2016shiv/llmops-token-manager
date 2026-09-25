@@ -77,7 +77,11 @@ class DeploymentLoadBalancer:
         return candidates
 
     async def choose_least_loaded(
-        self, tenant_id: UUID, provider_name: str, model_name: str
+        self,
+        tenant_id: UUID,
+        provider_name: str,
+        model_name: str,
+        deployment_selector: str | None = None,
     ) -> dict[str, Any]:
         """
         Return the single least-loaded active deployment (the top of the ranking).
@@ -88,4 +92,16 @@ class DeploymentLoadBalancer:
         ranked = await self.rank_by_available_capacity(
             tenant_id, provider_name, model_name
         )
+        if deployment_selector is not None:
+            ranked = [
+                deployment
+                for deployment in ranked
+                if deployment.get("deployment_key") == deployment_selector
+                or deployment.get("deployment_name") == deployment_selector
+            ]
+            if not ranked:
+                raise DeploymentConfigurationError(
+                    deployment_selector,
+                    "active deployment selected by llm_services",
+                )
         return ranked[0]

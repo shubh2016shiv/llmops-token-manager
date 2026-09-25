@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock
 
-import pybreaker
+import aiobreaker
 from redis import exceptions as redis_exceptions
 
 from app.resilience.redis_token_counter import (
@@ -24,7 +26,9 @@ class _PassThroughBreaker:
 
 class _OpenBreaker:
     async def call_async(self, _func, *_args, **_kwargs):
-        raise pybreaker.CircuitBreakerError("open")
+        raise aiobreaker.CircuitBreakerError(
+            "circuit open", datetime.now() + timedelta(seconds=30)
+        )
 
 
 class _ScriptRedis:
@@ -32,17 +36,17 @@ class _ScriptRedis:
         self.pipeline_called = False
         self.close_count = 0
 
-    def register_script(self, _script_text):
-        async def _runner(*_args, **_kwargs):
+    def register_script(self, script: str) -> Any:  # noqa: ARG002
+        async def _runner(*_args: object, **_kwargs: object) -> object:
             return 1
 
         return _runner
 
-    def pipeline(self):
+    def pipeline(self) -> object:
         self.pipeline_called = True
         raise AssertionError("pipeline should not be used for seed/reconcile scripts")
 
-    async def close(self):
+    async def close(self) -> None:
         self.close_count += 1
 
 
@@ -50,21 +54,24 @@ class _NoScriptRedis:
     def __init__(self) -> None:
         self.register_count = 0
 
-    def register_script(self, _script_text):
+    def pipeline(self) -> object:
+        raise AssertionError("pipeline should not be called in NOSCRIPT tests")
+
+    def register_script(self, script: str) -> Any:  # noqa: ARG002
         self.register_count += 1
         if self.register_count == 1:
 
-            async def _fail(*_args, **_kwargs):
+            async def _fail(*_args: object, **_kwargs: object) -> object:
                 raise redis_exceptions.NoScriptError("NOSCRIPT")
 
             return _fail
 
-        async def _succeed(*_args, **_kwargs):
+        async def _succeed(*_args: object, **_kwargs: object) -> object:
             return 1
 
         return _succeed
 
-    async def close(self):
+    async def close(self) -> None:
         return None
 
 
@@ -169,7 +176,9 @@ def test_reconcile_counter_uses_atomic_script_contract() -> None:
         )
     )
 
-    script_call = counter_service._execute_lua_script.await_args.kwargs
+    await_args = counter_service._execute_lua_script.await_args
+    assert await_args is not None
+    script_call = await_args.kwargs
     assert script_call["script_name"] == counter_service_module.SCRIPT_NAME_RECONCILE
     assert script_call["args"] == [
         100,

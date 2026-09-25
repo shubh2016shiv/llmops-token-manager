@@ -1,20 +1,28 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from uuid import uuid4
 
-import pybreaker
+import aiobreaker
+from amqp.exceptions import RecoverableConnectionError
 import pytest
 
-from app.resilience.token_queue.publisher import TokenAllocationPublisher
+from app.resilience.token_queue.publisher import (
+    TokenAllocationPublisher,
+    TokenPublishError,
+)
 from app.resilience.token_queue.topology import TOKEN_ALLOCATION_QUEUE
 
 
 def _payload_dict() -> dict[str, object]:
     return {
         "token_request_id": "req_123",
+        "tenant_id": str(uuid4()),
         "user_id": str(uuid4()),
-        "llm_provider": "openai",
-        "llm_model_name": "gpt-4o",
+        "deployment_id": str(uuid4()),
+        "provider_name": "openai",
+        "model_name": "gpt-4o",
+        "deployment_key": "openai-deployment",
         "token_count": 50,
         "api_endpoint_url": "https://example.test/v1",
         "allocation_status": "ACQUIRED",
@@ -55,12 +63,68 @@ def test_publish_allocation_request_raises_when_breaker_open(monkeypatch) -> Non
     publisher = TokenAllocationPublisher()
 
     def _raise(*_args: object, **_kwargs: object) -> None:
-        raise pybreaker.CircuitBreakerError("open")
+        raise aiobreaker.CircuitBreakerError(
+            "circuit open", datetime.now() + timedelta(seconds=30)
+        )
 
     monkeypatch.setattr(publisher._rmq_cb, "call", _raise)
 
-    with pytest.raises(pybreaker.CircuitBreakerError):
+    with pytest.raises(aiobreaker.CircuitBreakerError):
         publisher.publish_allocation_request(_payload_dict())
+
+
+def test_publish_allocation_request_translates_transport_failure(monkeypatch) -> None:
+    publisher = TokenAllocationPublisher()
+
+    def _fail(*_args: object, **_kwargs: object) -> None:
+        raise RecoverableConnectionError("broker disconnected")
+
+    monkeypatch.setattr(publisher._rmq_cb, "call", _fail)
+
+    with pytest.raises(TokenPublishError, match="RabbitMQ allocation publish failed"):
+        publisher.publish_allocation_request(_payload_dict())
+
+
+def test_publish_retry_request_raises_bare_when_breaker_open(monkeypatch) -> None:
+    """
+    publish_retry_request must NOT wrap CircuitBreakerError — the current
+    caller (consumer._on_work_message) matches on this exact exception type
+    to choose pause-and-requeue over log-and-requeue, so wrapping it would
+    silently break that branch.
+    """
+    publisher = TokenAllocationPublisher()
+
+    def _raise(*_args: object, **_kwargs: object) -> None:
+        raise aiobreaker.CircuitBreakerError(
+            "circuit open", datetime.now() + timedelta(seconds=30)
+        )
+
+    monkeypatch.setattr(publisher._rmq_cb, "call", _raise)
+
+    with pytest.raises(aiobreaker.CircuitBreakerError):
+        publisher.publish_retry_request(_payload_dict(), attempt=1, reason="db down")
+
+
+def test_publish_retry_request_logs_and_reraises_transport_failure(
+    monkeypatch,
+) -> None:
+    """
+    Regression test: publish_retry_request previously let transport failures
+    (AMQPError/KombuError/ConnectionError/...) propagate completely
+    unlabeled, unlike its two sibling methods on the same class. It must now
+    log with attempt/msg_id context and re-raise the SAME exception type
+    (not a translated TokenPublishError) so consumer.py's existing bare
+    `except Exception` fallback still catches it.
+    """
+    publisher = TokenAllocationPublisher()
+
+    def _fail(*_args: object, **_kwargs: object) -> None:
+        raise RecoverableConnectionError("broker disconnected")
+
+    monkeypatch.setattr(publisher._rmq_cb, "call", _fail)
+
+    with pytest.raises(RecoverableConnectionError):
+        publisher.publish_retry_request(_payload_dict(), attempt=1, reason="db down")
 
 
 def test_publish_sync_uses_pooled_connection(monkeypatch) -> None:
@@ -74,7 +138,12 @@ def test_publish_sync_uses_pooled_connection(monkeypatch) -> None:
             return None
 
     class _FakeConnection:
+        def ensure_connection(self, *, max_retries: int) -> None:
+            assert max_retries == 1
+            published["reconnected"] = True
+
         def channel(self) -> _FakeChannel:
+            assert published["reconnected"] is True
             return _FakeChannel()
 
     class _AcquireContext:
@@ -128,4 +197,5 @@ def test_publish_sync_uses_pooled_connection(monkeypatch) -> None:
     )
 
     assert fake_pools.connections.used is True
+    assert published["reconnected"] is True
     assert published["payload"] == {"token_request_id": "req_123"}

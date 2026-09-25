@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
-from app.resilience.backpressure import (
-    circuit_state_probe as circuit_state_probe_module,
+from app.resilience.backpressure.probes import (
+    circuit_state as circuit_state_probe_module,
 )
 
 
@@ -13,11 +14,20 @@ class _FakeStateStorage:
 
 
 class _FakeCircuitBreaker:
+    """
+    Stands in for the real aiobreaker breaker the probe introspects.
+
+    Mirrors the attributes the probe actually reads:
+      - current_state.name  (an object with a `.name`, e.g. "OPEN")
+      - timeout_duration    (a timedelta — recovery window)
+      - fail_counter, name, _state_storage.opened_at
+    """
+
     def __init__(self, opened_at: object) -> None:
         self.name = "postgres"
-        self.current_state = "open"
+        self.current_state = SimpleNamespace(name="OPEN")
         self.fail_counter = 5
-        self.reset_timeout = 30
+        self.timeout_duration = timedelta(seconds=30)
         self._state_storage = _FakeStateStorage(opened_at)
 
 

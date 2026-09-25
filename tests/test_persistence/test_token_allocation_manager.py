@@ -263,6 +263,37 @@ class TestTokenAllocationServiceCreate:
             )
 
     @pytest.mark.asyncio
+    async def test_create_token_allocation_with_capacity_check_uses_locked_insert(
+        self, sample_allocation_data
+    ):
+        """DB fallback allocation should check capacity and insert atomically."""
+        mock_db_manager = MagicMock()
+        service = LLMTokenAllocationPersistence(mock_db_manager)
+        mock_session, _ = self.setup_mock_session_for_allocation(
+            mock_db_manager, sample_allocation_data
+        )
+
+        result = await service.create_token_allocation_with_capacity_check(
+            token_request_identifier="req_123",
+            user_id=sample_allocation_data["user_id"],
+            llm_provider="openai",
+            llm_model_name="gpt-4",
+            token_count=1000,
+            api_endpoint_url="https://api.test.com/v1",
+            expiration_timestamp=datetime.now() + timedelta(hours=1),
+        )
+
+        executed_query = str(mock_session.execute.call_args.args[0])
+        assert result == sample_allocation_data
+        assert "chosen_deployment" in executed_query
+        assert "current_load" in executed_query
+        assert "FOR UPDATE" in executed_query
+        assert "ELSE ''" not in executed_query
+        assert "COALESCE(:deployment_name, deployment_name)" in executed_query
+        assert "COALESCE(:cloud_provider, cloud_provider)" in executed_query
+        assert "COALESCE(:temperature, temperature)" in executed_query
+
+    @pytest.mark.asyncio
     async def test_create_token_allocation_with_metadata(self, sample_allocation_data):
         """Test creating allocation with request metadata"""
         mock_db_manager = MagicMock()
@@ -684,6 +715,15 @@ class TestTokenAllocationServiceUpdate:
         # Assertions
         assert result == updated_data
         mock_session.execute.assert_called_once()
+        executed_query = str(mock_session.execute.call_args.args[0])
+        assert "current_load" in executed_query
+        assert "FOR UPDATE" in executed_query
+        assert "current_load.total_tokens + waiting.token_count" in executed_query
+        assert "deployment_name = eligible.deployment_name" in executed_query
+        assert "cloud_provider = eligible.cloud_provider" in executed_query
+        assert "temperature = eligible.temperature" in executed_query
+        assert "top_p = eligible.top_p" in executed_query
+        assert "seed = eligible.random_seed" in executed_query
 
     @pytest.mark.asyncio
     async def test_transition_waiting_to_acquired_not_waiting(self):
@@ -887,6 +927,9 @@ class TestTokenAllocationServiceBusinessLogic:
         mock_db_manager.get_session = MagicMock(return_value=mock_get_session_cm())
         return mock_session, mock_result
 
+    @pytest.mark.skip(
+        reason="acquire_tokens moved to TokenAcquisitionService; see app/services/token_acquisition_service.py"
+    )
     @pytest.mark.asyncio
     async def test_acquire_tokens_immediate_allocation(self):
         """Test immediate token allocation when under limit"""
@@ -927,6 +970,9 @@ class TestTokenAllocationServiceBusinessLogic:
                 assert result["allocation_status"] == "ACQUIRED"
                 mock_create.assert_called_once()
 
+    @pytest.mark.skip(
+        reason="acquire_tokens moved to TokenAcquisitionService; see app/services/token_acquisition_service.py"
+    )
     @pytest.mark.asyncio
     async def test_acquire_tokens_waiting_allocation(self):
         """Test waiting allocation when at limit"""
@@ -960,6 +1006,9 @@ class TestTokenAllocationServiceBusinessLogic:
                 assert result["allocation_status"] == "WAITING"
                 mock_create.assert_called_once()
 
+    @pytest.mark.skip(
+        reason="acquire_tokens moved to TokenAcquisitionService; see app/services/token_acquisition_service.py"
+    )
     @pytest.mark.asyncio
     async def test_acquire_tokens_invalid_token_count(self):
         """Test validation error for invalid token count"""
@@ -971,6 +1020,9 @@ class TestTokenAllocationServiceBusinessLogic:
         with pytest.raises(ValueError, match="must be positive"):
             await service.acquire_tokens(uuid4(), "openai", "gpt-4", -100)
 
+    @pytest.mark.skip(
+        reason="acquire_tokens moved to TokenAcquisitionService; see app/services/token_acquisition_service.py"
+    )
     @pytest.mark.asyncio
     async def test_acquire_tokens_exceeds_limit(self):
         """Test error when token count exceeds limit"""
@@ -993,6 +1045,9 @@ class TestTokenAllocationServiceBusinessLogic:
             assert "error" in result
             assert "max limit exceeded" in result["error"]
 
+    @pytest.mark.skip(
+        reason="acquire_tokens moved to TokenAcquisitionService; see app/services/token_acquisition_service.py"
+    )
     @pytest.mark.asyncio
     async def test_acquire_tokens_no_deployments(self):
         """Test error when no deployments found"""
@@ -1009,6 +1064,9 @@ class TestTokenAllocationServiceBusinessLogic:
             with pytest.raises(ValueError, match="No deployments found"):
                 await service.acquire_tokens(uuid4(), "openai", "gpt-4", 1000)
 
+    @pytest.mark.skip(
+        reason="retry_acquire_tokens moved to TokenRetryService; see app/services/token_retry_service.py"
+    )
     @pytest.mark.asyncio
     async def test_retry_acquire_tokens_success(self):
         """Test successful retry of token acquisition"""
@@ -1062,6 +1120,9 @@ class TestTokenAllocationServiceBusinessLogic:
                     assert result["allocation_status"] == "ACQUIRED"
                     mock_transition.assert_called_once()
 
+    @pytest.mark.skip(
+        reason="retry_acquire_tokens moved to TokenRetryService; see app/services/token_retry_service.py"
+    )
     @pytest.mark.asyncio
     async def test_retry_acquire_tokens_not_found(self):
         """Test retry when allocation not found"""
@@ -1081,6 +1142,9 @@ class TestTokenAllocationServiceBusinessLogic:
             assert "error" in result
             assert result["error"] == "Invalid token_request_id = req_123"
 
+    @pytest.mark.skip(
+        reason="retry_acquire_tokens moved to TokenRetryService; see app/services/token_retry_service.py"
+    )
     @pytest.mark.asyncio
     async def test_retry_acquire_tokens_not_waiting(self):
         """Test retry when allocation not in WAITING status"""
@@ -1107,6 +1171,9 @@ class TestTokenAllocationServiceBusinessLogic:
             assert "error" in result
             assert "not in WAITING status" in result["error"]
 
+    @pytest.mark.skip(
+        reason="retry_acquire_tokens moved to TokenRetryService; see app/services/token_retry_service.py"
+    )
     @pytest.mark.asyncio
     async def test_retry_acquire_tokens_still_waiting(self):
         """Test retry when still over limit"""
@@ -1145,118 +1212,151 @@ class TestTokenAllocationServiceBusinessLogic:
                     assert "error" in result
                     assert "Failed to acquire tokens" in result["error"]
 
+    def _make_execute_result(self, data=None, scalar=None):
+        """Build a minimal mock SQLAlchemy result for a single execute() call."""
+        r = MagicMock()
+        r.mappings.return_value = r
+        r.one_or_none.return_value = data
+        r.scalar_one_or_none.return_value = scalar
+        return r
+
+    def _make_mock_session(self, mock_db_manager, side_effects):
+        """
+        Wire mock_db_manager.get_session to yield a session whose execute()
+        returns each item in side_effects on successive calls.
+        """
+        mock_session = MagicMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session.execute = AsyncMock(side_effect=side_effects)
+
+        @asynccontextmanager
+        async def mock_get_session_cm():
+            yield mock_session
+
+        mock_db_manager.get_session = MagicMock(return_value=mock_get_session_cm())
+        return mock_session
+
     @pytest.mark.asyncio
     async def test_pause_deployment_success(self):
-        """Test successful pause deployment"""
+        """
+        pause_deployment() makes exactly three execute() calls within one session:
+          1. SELECT … FOR UPDATE  (locked deployment lookup)
+          2. SELECT 1 … PAUSED   (existing-pause check → None means no existing pause)
+          3. INSERT … RETURNING * (create the PAUSED capacity-blocker)
+        All three run in the same transaction; there is no cross-session TOCTOU gap.
+        """
         mock_db_manager = MagicMock()
         service = LLMTokenAllocationPersistence(mock_db_manager)
 
         model_config = {
             "max_tokens": 100000,
-            "region": "us-east-1",
+            "cloud_provider": "Azure",
+            "deployment_region": "us-east-1",
             "deployment_name": "deployment-1",
         }
+        created_allocation = {
+            "token_request_id": "pause_abc123",
+            "user_id": str(uuid4()),
+            "llm_provider": "openai",
+            "llm_model_name": "gpt-4",
+            "deployment_name": "deployment-1",
+            "cloud_provider": "Azure",
+            "api_endpoint_url": "https://api.openai.com",
+            "deployment_region": "us-east-1",
+            "token_count": 100000,
+            "allocation_status": "PAUSED",
+            "allocated_at": datetime.now(),
+            "expires_at": datetime.now() + timedelta(minutes=30),
+            "request_context": None,
+            "temperature": None,
+            "top_p": None,
+            "seed": None,
+        }
 
-        # Setup mock for model lookup
-        mock_session, mock_result = self.setup_mock_session_for_allocation(
-            mock_db_manager, model_config
+        mock_session = self._make_mock_session(
+            mock_db_manager,
+            side_effects=[
+                self._make_execute_result(data=model_config),  # FOR UPDATE lock
+                self._make_execute_result(data=None, scalar=None),  # no existing pause
+                self._make_execute_result(data=created_allocation),  # INSERT
+            ],
         )
 
-        # Mock create_pause_allocation
-        with patch.object(service, "create_pause_allocation") as mock_create_pause:
-            mock_create_pause.return_value = {
-                "alloc_status": "PAUSED",
-                "model_name": "gpt-4",
-                "api_base": "https://api.openai.com",
-            }
-
-            # Call method
-            result = await service.pause_deployment(
-                uuid4(), "openai", "gpt-4", "https://api.openai.com"
-            )
-
-            # Assertions
-            assert result["alloc_status"] == "PAUSED"
-            mock_create_pause.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_pause_deployment_not_found(self):
-        """Test pause deployment when model not found"""
-        mock_db_manager = MagicMock()
-        service = LLMTokenAllocationPersistence(mock_db_manager)
-
-        # Setup mock to return None (model not found)
-        mock_session, mock_result = self.setup_mock_session_for_allocation(
-            mock_db_manager, None
-        )
-
-        # Call method
         result = await service.pause_deployment(
             uuid4(), "openai", "gpt-4", "https://api.openai.com"
         )
 
-        # Assertions
-        assert result["alloc_status"] == "NOT_FOUND"
-        assert "Deployment not found" in result["reason"]
+        assert result["allocation_status"] == "PAUSED"
+        assert mock_session.execute.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_create_pause_allocation_success(self):
-        """Test successful creation of pause allocation"""
+    async def test_pause_deployment_already_paused(self):
+        """
+        When an active PAUSED allocation is found (step 2), pause_deployment()
+        returns the ALREADY_PAUSED sentinel without inserting a duplicate row.
+        """
         mock_db_manager = MagicMock()
         service = LLMTokenAllocationPersistence(mock_db_manager)
 
-        # Mock create_token_allocation
-        with patch.object(service, "create_token_allocation") as mock_create:
-            mock_create.return_value = {
-                "token_request_id": "pause_123",
-                "allocation_status": "PAUSED",
-            }
+        model_config = {
+            "max_tokens": 100000,
+            "cloud_provider": None,
+            "deployment_region": "us-east-1",
+            "deployment_name": "deployment-1",
+        }
 
-            # Call method
-            result = await service.create_pause_allocation(
-                "pause_123",
-                uuid4(),  # Add user_id as 2nd parameter
-                "gpt-4",
-                "https://api.openai.com",
-                "us-east-1",
-                100000,
-                30,
-                "azure",
-                "deployment-1",
-                "maintenance",
-            )
+        mock_session = self._make_mock_session(
+            mock_db_manager,
+            side_effects=[
+                self._make_execute_result(data=model_config),  # FOR UPDATE lock
+                self._make_execute_result(data=None, scalar=1),  # existing pause found
+            ],
+        )
 
-            # Assertions
-            assert result["allocation_status"] == "PAUSED"
-            mock_create.assert_called_once()
+        result = await service.pause_deployment(
+            uuid4(), "openai", "gpt-4", "https://api.openai.com"
+        )
+
+        assert result["alloc_status"] == "ALREADY_PAUSED"
+        assert mock_session.execute.call_count == 2  # INSERT must NOT be reached
 
     @pytest.mark.asyncio
-    async def test_create_pause_allocation_validation_errors(self):
-        """Test validation errors for pause allocation"""
+    async def test_pause_deployment_not_found(self):
+        """
+        When the deployment row does not exist the method returns the NOT_FOUND
+        sentinel immediately after the first execute() (the FOR UPDATE lock).
+        """
+        mock_db_manager = MagicMock()
+        service = LLMTokenAllocationPersistence(mock_db_manager)
+
+        mock_session = self._make_mock_session(
+            mock_db_manager,
+            side_effects=[
+                self._make_execute_result(data=None),  # deployment not found
+            ],
+        )
+
+        result = await service.pause_deployment(
+            uuid4(), "openai", "gpt-4", "https://api.openai.com"
+        )
+
+        assert result["alloc_status"] == "NOT_FOUND"
+        assert "Deployment not found" in result["reason"]
+        assert mock_session.execute.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_pause_deployment_invalid_duration_raises(self):
+        """pause_deployment() rejects pause_duration_minutes <= 0 before any DB call."""
         service = LLMTokenAllocationPersistence()
 
-        # Test invalid token limit
         with pytest.raises(ValueError, match="must be positive"):
-            await service.create_pause_allocation(
-                "pause_123",
+            await service.pause_deployment(
                 uuid4(),
+                "openai",
                 "gpt-4",
                 "https://api.openai.com",
-                "us-east-1",
-                0,
-                30,
-            )
-
-        # Test invalid duration
-        with pytest.raises(ValueError, match="must be positive"):
-            await service.create_pause_allocation(
-                "pause_123",
-                uuid4(),
-                "gpt-4",
-                "https://api.openai.com",
-                "us-east-1",
-                100000,
-                0,
+                pause_duration_minutes=0,
             )
 
 
@@ -1333,11 +1433,16 @@ class TestTokenAllocationServiceLoadBalancing:
         mock_session.execute = AsyncMock(side_effect=mock_execute_side_effect)
 
         # Call method
-        total_tokens, chosen_config = await service.get_least_loaded_deployment("gpt-4")
+        total_tokens, chosen_config = await service.get_least_loaded_deployment(
+            "openai", "gpt-4"
+        )
 
         # Assertions
         assert total_tokens == 0
         assert chosen_config["model_name"] == "gpt-4"
+        for execute_call in mock_session.execute.await_args_list:
+            assert "llm_provider = :llm_provider" in str(execute_call.args[0])
+            assert execute_call.args[1]["llm_provider"] == "openai"
 
     @pytest.mark.asyncio
     async def test_get_least_loaded_deployment_unused_deployment(self):
@@ -1395,7 +1500,9 @@ class TestTokenAllocationServiceLoadBalancing:
         mock_db_manager.get_session = MagicMock(return_value=mock_get_session_cm())
 
         # Call method
-        total_tokens, chosen_config = await service.get_least_loaded_deployment("gpt-4")
+        total_tokens, chosen_config = await service.get_least_loaded_deployment(
+            "openai", "gpt-4"
+        )
 
         # Assertions
         assert total_tokens == 0  # Unused deployment
@@ -1458,7 +1565,9 @@ class TestTokenAllocationServiceLoadBalancing:
         mock_db_manager.get_session = MagicMock(return_value=mock_get_session_cm())
 
         # Call method
-        total_tokens, chosen_config = await service.get_least_loaded_deployment("gpt-4")
+        total_tokens, chosen_config = await service.get_least_loaded_deployment(
+            "openai", "gpt-4"
+        )
 
         # Assertions
         assert total_tokens == 5000  # Least loaded
@@ -1477,7 +1586,7 @@ class TestTokenAllocationServiceLoadBalancing:
 
         # Call method
         with pytest.raises(ValueError, match="No model deployments found"):
-            await service.get_least_loaded_deployment("gpt-4")
+            await service.get_least_loaded_deployment("openai", "gpt-4")
 
     @pytest.mark.asyncio
     async def test_get_least_loaded_deployment_no_match(self):
@@ -1530,7 +1639,9 @@ class TestTokenAllocationServiceLoadBalancing:
         mock_db_manager.get_session = MagicMock(return_value=mock_get_session_cm())
 
         # Call method
-        total_tokens, chosen_config = await service.get_least_loaded_deployment("gpt-4")
+        total_tokens, chosen_config = await service.get_least_loaded_deployment(
+            "openai", "gpt-4"
+        )
 
         # Assertions - when no match found, uses first deployment with 0 tokens
         assert total_tokens == 0

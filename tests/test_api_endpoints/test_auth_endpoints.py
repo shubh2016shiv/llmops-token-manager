@@ -1,6 +1,7 @@
 """Unit tests for auth endpoints."""
 
-from datetime import datetime, timedelta
+import asyncio
+from datetime import datetime, timedelta, timezone
 import os
 from unittest.mock import patch
 from uuid import uuid4
@@ -19,15 +20,39 @@ from app.models.auth_models import AuthTokenPayload
 @pytest.fixture
 def app():
     """Create a FastAPI app with auth routes."""
+    from app.core.redis_rate_limiter import rate_limiter_manager
+
+    rate_limiter_manager.initialize()
     app = FastAPI()
     app.include_router(router)
-    return app
+    yield app
+    asyncio.run(rate_limiter_manager.close())
 
 
 @pytest.fixture
 def client(app):
     """Create a test client."""
     return TestClient(app)
+
+
+class TestGenerateToken:
+    """A development helper must not mint arbitrary identities for developers."""
+
+    @patch("app.api.auth_endpoints.settings.app_environment", "development")
+    def test_developer_cannot_mint_admin_token(self, client, app, mock_developer_user):
+        from app.auth.auth_dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+        response = client.post(
+            "/api/v1/auth/token/generate",
+            json={
+                "user_id": str(mock_developer_user.user_id),
+                "tenant_id": str(mock_developer_user.tenant_id),
+                "role": "admin",
+            },
+        )
+
+        assert response.status_code == 403
 
 
 class TestRefreshAccessToken:
@@ -65,9 +90,10 @@ class TestRefreshAccessToken:
         """Token type/payload validation errors should map to 400."""
         mock_decode_token.return_value = AuthTokenPayload(
             user_id=uuid4(),
+            tenant_id=uuid4(),
             role="developer",
-            expire_at_time=datetime.utcnow() + timedelta(hours=1),
-            issued_at_time=datetime.utcnow(),
+            expire_at_time=datetime.now(timezone.utc) + timedelta(hours=1),
+            issued_at_time=datetime.now(timezone.utc),
             type="refresh",
         )
         mock_verify_token_type.side_effect = ValueError("Token type mismatch")
@@ -95,9 +121,10 @@ class TestRefreshAccessToken:
         """Unexpected failures should map to 500."""
         mock_decode_token.return_value = AuthTokenPayload(
             user_id=uuid4(),
+            tenant_id=uuid4(),
             role="developer",
-            expire_at_time=datetime.utcnow() + timedelta(hours=1),
-            issued_at_time=datetime.utcnow(),
+            expire_at_time=datetime.now(timezone.utc) + timedelta(hours=1),
+            issued_at_time=datetime.now(timezone.utc),
             type="refresh",
         )
         mock_verify_token_type.return_value = None

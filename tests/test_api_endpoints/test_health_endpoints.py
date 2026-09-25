@@ -6,11 +6,12 @@ and dependency health checks with 100% coverage.
 
 Test Coverage:
 - Basic health check endpoint (2 tests)
-- Dependency health check endpoint (6 tests)
+- Dependency health check endpoint (5 tests)
 
-Total: 8 comprehensive unit tests
+Total: 7 comprehensive unit tests
 """
 
+import asyncio
 from datetime import datetime, timezone
 from unittest.mock import patch
 
@@ -57,7 +58,6 @@ def sample_dependency_health():
         "postgresql": True,
         "redis": True,
         "rabbitmq": True,
-        "celery_worker": True,
         "token_maintenance": True,
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc),
@@ -129,8 +129,37 @@ class TestBasicHealthCheck:
 class TestDependencyHealthCheck:
     """Test cases for dependency health check endpoint."""
 
+    @patch("app.api.health_endpoints._READINESS_PROBE_TIMEOUT_SECONDS", 0.01)
     @patch("app.api.health_endpoints._check_token_maintenance")
-    @patch("app.api.health_endpoints._check_celery_worker")
+    @patch("app.api.health_endpoints._check_rabbitmq")
+    @patch("app.api.health_endpoints._check_redis")
+    @patch("app.api.health_endpoints._check_database")
+    def test_slow_probe_is_bounded(
+        self,
+        mock_check_db,
+        mock_check_redis,
+        mock_check_rabbitmq,
+        mock_check_token_maintenance,
+        client,
+    ):
+        """A hanging dependency must not block the readiness response."""
+
+        async def slow_database():
+            await asyncio.sleep(1)
+            return True
+
+        mock_check_db.side_effect = slow_database
+        mock_check_redis.return_value = True
+        mock_check_rabbitmq.return_value = True
+        mock_check_token_maintenance.return_value = True
+
+        response = client.get("/api/v1/health/dependencies")
+
+        assert response.status_code == 200
+        assert response.json()["postgresql"] is False
+        assert response.json()["status"] == "unhealthy"
+
+    @patch("app.api.health_endpoints._check_token_maintenance")
     @patch("app.api.health_endpoints._check_rabbitmq")
     @patch("app.api.health_endpoints._check_redis")
     @patch("app.api.health_endpoints._check_database")
@@ -139,7 +168,6 @@ class TestDependencyHealthCheck:
         mock_check_db,
         mock_check_redis,
         mock_check_rabbitmq,
-        mock_check_celery_worker,
         mock_check_token_maintenance,
         client,
         sample_dependency_health,
@@ -149,7 +177,6 @@ class TestDependencyHealthCheck:
         mock_check_db.return_value = True
         mock_check_redis.return_value = True
         mock_check_rabbitmq.return_value = True
-        mock_check_celery_worker.return_value = True
         mock_check_token_maintenance.return_value = True
 
         # Act
@@ -161,13 +188,11 @@ class TestDependencyHealthCheck:
         assert data["postgresql"] is True
         assert data["redis"] is True
         assert data["rabbitmq"] is True
-        assert data["celery_worker"] is True
         assert data["token_maintenance"] is True
         assert data["status"] == "healthy"
         assert "timestamp" in data
 
     @patch("app.api.health_endpoints._check_token_maintenance")
-    @patch("app.api.health_endpoints._check_celery_worker")
     @patch("app.api.health_endpoints._check_rabbitmq")
     @patch("app.api.health_endpoints._check_redis")
     @patch("app.api.health_endpoints._check_database")
@@ -176,7 +201,6 @@ class TestDependencyHealthCheck:
         mock_check_db,
         mock_check_redis,
         mock_check_rabbitmq,
-        mock_check_celery_worker,
         mock_check_token_maintenance,
         client,
     ):
@@ -185,7 +209,6 @@ class TestDependencyHealthCheck:
         mock_check_db.return_value = False
         mock_check_redis.return_value = True
         mock_check_rabbitmq.return_value = True
-        mock_check_celery_worker.return_value = True
         mock_check_token_maintenance.return_value = True
 
         # Act
@@ -197,12 +220,10 @@ class TestDependencyHealthCheck:
         assert data["postgresql"] is False
         assert data["redis"] is True
         assert data["rabbitmq"] is True
-        assert data["celery_worker"] is True
         assert data["token_maintenance"] is True
         assert data["status"] == "unhealthy"
 
     @patch("app.api.health_endpoints._check_token_maintenance")
-    @patch("app.api.health_endpoints._check_celery_worker")
     @patch("app.api.health_endpoints._check_rabbitmq")
     @patch("app.api.health_endpoints._check_redis")
     @patch("app.api.health_endpoints._check_database")
@@ -211,7 +232,6 @@ class TestDependencyHealthCheck:
         mock_check_db,
         mock_check_redis,
         mock_check_rabbitmq,
-        mock_check_celery_worker,
         mock_check_token_maintenance,
         client,
     ):
@@ -220,7 +240,6 @@ class TestDependencyHealthCheck:
         mock_check_db.return_value = True
         mock_check_redis.return_value = False
         mock_check_rabbitmq.return_value = True
-        mock_check_celery_worker.return_value = True
         mock_check_token_maintenance.return_value = True
 
         # Act
@@ -232,12 +251,10 @@ class TestDependencyHealthCheck:
         assert data["postgresql"] is True
         assert data["redis"] is False
         assert data["rabbitmq"] is True
-        assert data["celery_worker"] is True
         assert data["token_maintenance"] is True
         assert data["status"] == "unhealthy"
 
     @patch("app.api.health_endpoints._check_token_maintenance")
-    @patch("app.api.health_endpoints._check_celery_worker")
     @patch("app.api.health_endpoints._check_rabbitmq")
     @patch("app.api.health_endpoints._check_redis")
     @patch("app.api.health_endpoints._check_database")
@@ -246,7 +263,6 @@ class TestDependencyHealthCheck:
         mock_check_db,
         mock_check_redis,
         mock_check_rabbitmq,
-        mock_check_celery_worker,
         mock_check_token_maintenance,
         client,
     ):
@@ -255,7 +271,6 @@ class TestDependencyHealthCheck:
         mock_check_db.return_value = True
         mock_check_redis.return_value = True
         mock_check_rabbitmq.return_value = False
-        mock_check_celery_worker.return_value = True
         mock_check_token_maintenance.return_value = True
 
         # Act
@@ -267,12 +282,10 @@ class TestDependencyHealthCheck:
         assert data["postgresql"] is True
         assert data["redis"] is True
         assert data["rabbitmq"] is False
-        assert data["celery_worker"] is True
         assert data["token_maintenance"] is True
         assert data["status"] == "unhealthy"
 
     @patch("app.api.health_endpoints._check_token_maintenance")
-    @patch("app.api.health_endpoints._check_celery_worker")
     @patch("app.api.health_endpoints._check_rabbitmq")
     @patch("app.api.health_endpoints._check_redis")
     @patch("app.api.health_endpoints._check_database")
@@ -281,7 +294,6 @@ class TestDependencyHealthCheck:
         mock_check_db,
         mock_check_redis,
         mock_check_rabbitmq,
-        mock_check_celery_worker,
         mock_check_token_maintenance,
         client,
     ):
@@ -290,7 +302,6 @@ class TestDependencyHealthCheck:
         mock_check_db.return_value = False
         mock_check_redis.return_value = False
         mock_check_rabbitmq.return_value = False
-        mock_check_celery_worker.return_value = False
         mock_check_token_maintenance.return_value = False
 
         # Act
@@ -302,12 +313,10 @@ class TestDependencyHealthCheck:
         assert data["postgresql"] is False
         assert data["redis"] is False
         assert data["rabbitmq"] is False
-        assert data["celery_worker"] is False
         assert data["token_maintenance"] is False
         assert data["status"] == "unhealthy"
 
     @patch("app.api.health_endpoints._check_token_maintenance")
-    @patch("app.api.health_endpoints._check_celery_worker")
     @patch("app.api.health_endpoints._check_rabbitmq")
     @patch("app.api.health_endpoints._check_redis")
     @patch("app.api.health_endpoints._check_database")
@@ -316,7 +325,6 @@ class TestDependencyHealthCheck:
         mock_check_db,
         mock_check_redis,
         mock_check_rabbitmq,
-        mock_check_celery_worker,
         mock_check_token_maintenance,
         client,
     ):
@@ -325,7 +333,6 @@ class TestDependencyHealthCheck:
         mock_check_db.return_value = True
         mock_check_redis.return_value = True
         mock_check_rabbitmq.return_value = True
-        mock_check_celery_worker.return_value = True
         mock_check_token_maintenance.return_value = True
 
         # Act
@@ -340,7 +347,6 @@ class TestDependencyHealthCheck:
             "postgresql",
             "redis",
             "rabbitmq",
-            "celery_worker",
             "token_maintenance",
             "status",
             "timestamp",
@@ -352,7 +358,6 @@ class TestDependencyHealthCheck:
         assert isinstance(data["postgresql"], bool)
         assert isinstance(data["redis"], bool)
         assert isinstance(data["rabbitmq"], bool)
-        assert isinstance(data["celery_worker"], bool)
         assert isinstance(data["token_maintenance"], bool)
         assert isinstance(data["status"], str)
         assert isinstance(data["timestamp"], str)
@@ -362,38 +367,5 @@ class TestDependencyHealthCheck:
         assert dependency_health.postgresql is True
         assert dependency_health.redis is True
         assert dependency_health.rabbitmq is True
-        assert dependency_health.celery_worker is True
         assert dependency_health.token_maintenance is True
         assert dependency_health.status == "healthy"
-
-    @patch("app.api.health_endpoints._check_token_maintenance")
-    @patch("app.api.health_endpoints._check_celery_worker")
-    @patch("app.api.health_endpoints._check_rabbitmq")
-    @patch("app.api.health_endpoints._check_redis")
-    @patch("app.api.health_endpoints._check_database")
-    def test_dependencies_celery_worker_unhealthy(
-        self,
-        mock_check_db,
-        mock_check_redis,
-        mock_check_rabbitmq,
-        mock_check_celery_worker,
-        mock_check_token_maintenance,
-        client,
-    ):
-        """Test Celery worker unhealthy returns correct response."""
-        mock_check_db.return_value = True
-        mock_check_redis.return_value = True
-        mock_check_rabbitmq.return_value = True
-        mock_check_celery_worker.return_value = False
-        mock_check_token_maintenance.return_value = True
-
-        response = client.get("/api/v1/health/dependencies")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["postgresql"] is True
-        assert data["redis"] is True
-        assert data["rabbitmq"] is True
-        assert data["celery_worker"] is False
-        assert data["token_maintenance"] is True
-        assert data["status"] == "unhealthy"

@@ -1,4 +1,4 @@
-"""Unit tests for FastAPI lifespan dependency startup policy."""
+"""Application lifespan checks for maintenance ownership and startup policy."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,106 +10,85 @@ from app.core.service_health import ServiceStatus
 
 
 @pytest.mark.asyncio
-@patch("app.app.display_provisioning_service_info")
+@patch("app.app.maintenance_runner")
+@patch("app.app._seed_token_counters", new_callable=AsyncMock)
+@patch("app.app.declare_token_queues")
 @patch("app.app.display_service_info")
 @patch("app.app.verify_token_maintenance_readiness", new_callable=AsyncMock)
-@patch("app.app.verify_celery_worker_readiness", new_callable=AsyncMock)
-@patch("app.app.verify_rabbitmq_connectivity", new_callable=AsyncMock)
 @patch("app.app.verify_redis_connectivity", new_callable=AsyncMock)
 @patch("app.app.verify_database_connectivity", new_callable=AsyncMock)
+@patch("app.app.rate_limiter_manager")
 @patch("app.app.redis_manager")
 @patch("app.app.db_manager")
-@patch("app.app.settings")
-async def test_lifespan_allows_worker_degradation_by_default(
-    mock_settings,
+async def test_lifespan_starts_and_stops_maintenance(
     mock_db_manager,
     mock_redis_manager,
+    mock_rate_limiter,
     mock_verify_database,
     mock_verify_redis,
-    mock_verify_rabbitmq,
-    mock_verify_celery_worker,
-    mock_verify_token_maintenance,
+    mock_verify_maintenance,
     mock_display_service_info,
-    mock_display_provisioning_service_info,
+    mock_declare_queues,
+    mock_seed,
+    mock_runner,
 ):
-    """FastAPI should keep booting when only the worker is down by default."""
-    mock_settings.app_name = "LLM Token Manager"
-    mock_settings.app_version = "1.0.0"
-    mock_settings.debug = False
-    mock_settings.require_celery_worker_on_startup = False
-
+    """A serving app owns periodic jobs for exactly its lifespan."""
     mock_db_manager.initialize = AsyncMock()
     mock_db_manager.close = AsyncMock()
     mock_redis_manager.initialize = MagicMock()
     mock_redis_manager.close = AsyncMock()
-
-    mock_verify_database.return_value = ServiceStatus("PostgreSQL", "connected")
-    mock_verify_redis.return_value = ServiceStatus("Redis", "connected")
-    mock_verify_rabbitmq.return_value = ServiceStatus("RabbitMQ", "connected")
-    mock_verify_celery_worker.return_value = ServiceStatus(
-        "Celery worker", "failed", error_message="worker unavailable"
+    mock_rate_limiter.close = AsyncMock()
+    mock_runner.close = AsyncMock()
+    mock_verify_database.return_value = ServiceStatus(
+        name="PostgreSQL", status="connected"
     )
-    mock_verify_token_maintenance.return_value = ServiceStatus(
-        "Token maintenance", "connected"
+    mock_verify_redis.return_value = ServiceStatus(name="Redis", status="connected")
+    mock_verify_maintenance.return_value = ServiceStatus(
+        name="Token maintenance", status="connected"
     )
 
     async with lifespan(fastapi_app):
-        pass
+        mock_runner.start.assert_called_once_with()
 
+    mock_runner.close.assert_awaited_once_with()
     mock_display_service_info.assert_called_once()
-    mock_display_provisioning_service_info.assert_called_once()
+    mock_declare_queues.assert_called_once()
+    mock_seed.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 @patch("app.app.display_startup_failure")
 @patch("app.app.verify_token_maintenance_readiness", new_callable=AsyncMock)
-@patch("app.app.verify_celery_worker_readiness", new_callable=AsyncMock)
-@patch("app.app.verify_rabbitmq_connectivity", new_callable=AsyncMock)
 @patch("app.app.verify_redis_connectivity", new_callable=AsyncMock)
 @patch("app.app.verify_database_connectivity", new_callable=AsyncMock)
+@patch("app.app.rate_limiter_manager")
 @patch("app.app.redis_manager")
 @patch("app.app.db_manager")
-@patch("app.app.settings")
-@patch("os._exit", side_effect=RuntimeError("startup halted"))
-async def test_lifespan_can_require_celery_worker_on_startup(
-    mock_os_exit,
-    mock_settings,
+async def test_lifespan_rejects_unavailable_maintenance(
     mock_db_manager,
     mock_redis_manager,
+    mock_rate_limiter,
     mock_verify_database,
     mock_verify_redis,
-    mock_verify_rabbitmq,
-    mock_verify_celery_worker,
-    mock_verify_token_maintenance,
+    mock_verify_maintenance,
     mock_display_startup_failure,
 ):
-    """FastAPI should fail startup when the worker is required and unavailable."""
-    mock_settings.app_name = "LLM Token Manager"
-    mock_settings.app_version = "1.0.0"
-    mock_settings.debug = False
-    mock_settings.require_celery_worker_on_startup = True
-
+    """A service cannot declare readiness when reconciliation cannot run."""
     mock_db_manager.initialize = AsyncMock()
     mock_db_manager.close = AsyncMock()
     mock_redis_manager.initialize = MagicMock()
     mock_redis_manager.close = AsyncMock()
-
-    mock_verify_database.return_value = ServiceStatus("PostgreSQL", "connected")
-    mock_verify_redis.return_value = ServiceStatus("Redis", "connected")
-    mock_verify_rabbitmq.return_value = ServiceStatus("RabbitMQ", "connected")
-    worker_status = ServiceStatus(
-        "Celery worker", "failed", error_message="worker unavailable"
+    mock_rate_limiter.close = AsyncMock()
+    mock_verify_database.return_value = ServiceStatus(
+        name="PostgreSQL", status="connected"
     )
-    mock_verify_celery_worker.return_value = worker_status
-    mock_verify_token_maintenance.return_value = ServiceStatus(
-        "Token maintenance", "connected"
-    )
+    mock_verify_redis.return_value = ServiceStatus(name="Redis", status="connected")
+    failed = ServiceStatus(name="Token maintenance", status="failed")
+    mock_verify_maintenance.return_value = failed
 
-    with pytest.raises(RuntimeError, match="startup halted"):
+    with pytest.raises(RuntimeError, match="Required startup dependencies"):
         async with lifespan(fastapi_app):
             pass
 
-    mock_display_startup_failure.assert_called_once()
-    failed_services = mock_display_startup_failure.call_args.args[0]
-    assert failed_services == [worker_status]
-    mock_os_exit.assert_called_once_with(1)
+    mock_display_startup_failure.assert_called_once_with([failed])
+    mock_rate_limiter.initialize.assert_called_once()

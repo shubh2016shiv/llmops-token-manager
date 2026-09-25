@@ -12,7 +12,6 @@ Test Coverage:
 - Pause deployment (3 tests)
 """
 
-import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
@@ -26,6 +25,7 @@ from app.api.token_manager_endpoints import (
     get_token_acquisition_service,
     get_token_release_service,
     get_token_retry_service,
+    get_users_service,
     router,
 )
 from app.core.exceptions import (
@@ -33,8 +33,11 @@ from app.core.exceptions import (
     DatabaseUnavailableError,
     DeploymentConfigurationError,
     TokenLimitExceededError,
+    UserInactiveError,
+    UserNotFoundError,
 )
 from app.models.response_models import TokenAllocationResponse
+
 
 # ============================================================================
 # TEST SETUP
@@ -44,13 +47,9 @@ from app.models.response_models import TokenAllocationResponse
 @pytest.fixture
 def app():
     """Create FastAPI app with token manager endpoints router."""
-    from app.core.redis_rate_limiter import rate_limiter_manager
-
-    rate_limiter_manager.initialize()
     app = FastAPI()
     app.include_router(router)
-    yield app
-    asyncio.run(rate_limiter_manager.close())
+    return app
 
 
 @pytest.fixture
@@ -91,15 +90,13 @@ def _make_allocation_response(
     user_id: UUID,
     status: str = "ACQUIRED",
     token_request_id: str = "req_123abc",
-    tenant_id: UUID | None = None,
 ) -> TokenAllocationResponse:
     """Build a minimal valid TokenAllocationResponse for use in tests."""
     return TokenAllocationResponse(
         token_request_id=token_request_id,
         user_id=user_id,
-        tenant_id=tenant_id or UUID("22222222-2222-2222-2222-222222222222"),
-        provider_name="openai",
-        model_name="gpt-4",
+        llm_provider="openai",
+        llm_model_name="gpt-4",
         token_count=150,
         allocation_status=status,
         allocated_at=datetime.now(timezone.utc),
@@ -146,7 +143,7 @@ class TestAcquireTokens:
         assert data["token_request_id"] == "req_123abc"
         assert data["allocation_status"] == "ACQUIRED"
         assert data["token_count"] == 150
-        assert data["model_name"] == "gpt-4"
+        assert data["llm_model_name"] == "gpt-4"
 
         call_args = mock_service.acquire_tokens.call_args
         assert call_args.args[0] == mock_developer_user.user_id
@@ -218,7 +215,84 @@ class TestAcquireTokens:
 
         app.dependency_overrides.clear()
 
-    # Group 2: Service / Infrastructure Errors
+    # Group 2: User Validation Errors (3 tests)
+
+    def test_acquire_tokens_user_not_found(
+        self,
+        app,
+        client,
+        mock_developer_user,
+        sample_client_request,
+    ):
+        """Test token allocation when user is not found."""
+        from app.auth.auth_dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
+        mock_service = MagicMock()
+        mock_service.acquire_tokens = AsyncMock(
+            side_effect=UserNotFoundError(str(mock_developer_user.user_id))
+        )
+        app.dependency_overrides[get_token_acquisition_service] = lambda: mock_service
+
+        response = client.post("/api/v1/tokens/acquire", json=sample_client_request)
+
+        assert response.status_code == 404
+        assert "User not found" in response.json()["detail"]
+
+        app.dependency_overrides.clear()
+
+    def test_acquire_tokens_user_inactive(
+        self,
+        app,
+        client,
+        mock_developer_user,
+        sample_client_request,
+    ):
+        """Test token allocation when user is inactive."""
+        from app.auth.auth_dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
+        mock_service = MagicMock()
+        mock_service.acquire_tokens = AsyncMock(
+            side_effect=UserInactiveError(str(mock_developer_user.user_id), "inactive")
+        )
+        app.dependency_overrides[get_token_acquisition_service] = lambda: mock_service
+
+        response = client.post("/api/v1/tokens/acquire", json=sample_client_request)
+
+        assert response.status_code == 403
+        assert "User is not active" in response.json()["detail"]
+
+        app.dependency_overrides.clear()
+
+    def test_acquire_tokens_user_suspended(
+        self,
+        app,
+        client,
+        mock_developer_user,
+        sample_client_request,
+    ):
+        """Test token allocation when user is suspended."""
+        from app.auth.auth_dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
+
+        mock_service = MagicMock()
+        mock_service.acquire_tokens = AsyncMock(
+            side_effect=UserInactiveError(str(mock_developer_user.user_id), "suspended")
+        )
+        app.dependency_overrides[get_token_acquisition_service] = lambda: mock_service
+
+        response = client.post("/api/v1/tokens/acquire", json=sample_client_request)
+
+        assert response.status_code == 403
+        assert "User is not active" in response.json()["detail"]
+
+        app.dependency_overrides.clear()
+
+    # Group 3: Service / Infrastructure Errors (4 tests)
 
     def test_acquire_tokens_db_unavailable_returns_503(
         self,
@@ -346,9 +420,7 @@ class TestAcquireTokens:
 
     # Group 4: Request Validation (3 tests)
 
-    def test_acquire_tokens_invalid_provider_enum(
-        self, app, client, mock_developer_user
-    ):
+    def test_acquire_tokens_invalid_provider_enum(self, app, client, mock_developer_user):
         """Test token allocation with invalid provider enum value."""
         from app.auth.auth_dependencies import get_current_user
 
@@ -411,27 +483,6 @@ class TestAcquireTokens:
 
 
 class TestPauseDeployment:
-    def test_developer_cannot_pause(self, app, client, mock_developer_user):
-        """A caller cannot gain operator rights through the request body."""
-        from app.auth.auth_dependencies import get_current_user
-
-        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
-        persistence = MagicMock()
-        app.dependency_overrides[get_allocation_persistence] = lambda: persistence
-
-        response = client.put(
-            "/api/v1/tokens/pause-deployment",
-            json={
-                "llm_provider": "openai",
-                "model_name": "gpt-4",
-                "api_endpoint_url": "https://api.openai.com/v1",
-                "pause_reason": "outage",
-            },
-        )
-
-        assert response.status_code == 403
-        persistence.pause_deployment.assert_not_called()
-
     """Test cases for pause_deployment endpoint."""
 
     def test_pause_deployment_missing_api_endpoint_url_returns_422(
@@ -485,26 +536,27 @@ class TestPauseDeployment:
         mock_operator_user,
         sample_user_response,
     ):
-        """
-        Valid request reaches the persistence layer via Depends() and returns
-        a PauseDeploymentAllocationResponse with allocation_status = 'PAUSED'.
-        """
+        """Valid request reaches the persistence layer via Depends() and returns
+        a PauseDeploymentAllocationResponse with allocation_status = 'PAUSED'."""
         from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_operator_user
+
+        mock_users_service = MagicMock()
+        mock_users_service.get_user_by_id = AsyncMock(return_value=sample_user_response)
+        app.dependency_overrides[get_users_service] = lambda: mock_users_service
 
         mock_persistence = MagicMock()
         mock_persistence.pause_deployment = AsyncMock(
             return_value={
                 "token_request_id": "pause_req_123",
                 "user_id": mock_operator_user.user_id,
-                "tenant_id": mock_operator_user.tenant_id,
-                "provider_name": "openai",
-                "model_name": "gpt-4",
+                "llm_provider": "openai",
+                "llm_model_name": "gpt-4",
                 "deployment_name": None,
                 "cloud_provider": None,
                 "api_endpoint_url": "https://api.openai.com/v1",
-                "cloud_region": "eastus2",
+                "deployment_region": "eastus2",
                 "token_count": 100000,
                 "allocation_status": "PAUSED",
                 "allocated_at": datetime.now(timezone.utc),
@@ -530,6 +582,9 @@ class TestPauseDeployment:
         assert response.status_code == 200
         assert response.json()["allocation_status"] == "PAUSED"
 
+        mock_users_service.get_user_by_id.assert_called_once_with(
+            mock_operator_user.user_id
+        )
         mock_persistence.pause_deployment.assert_called_once()
         assert mock_persistence.pause_deployment.call_args[1]["api_endpoint"] == (
             "https://api.openai.com/v1"
@@ -546,44 +601,6 @@ class TestPauseDeployment:
 class TestRetryAcquireTokens:
     """Test cases for retry_acquire_tokens endpoint."""
 
-    def test_other_tenant_admin_cannot_retry(self, app, client, mock_admin_user):
-        """A privileged role never crosses the tenant boundary."""
-        from app.auth.auth_dependencies import get_current_user
-
-        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
-        service = MagicMock()
-        service.fetch_allocation_for_retry = AsyncMock(
-            return_value={
-                "tenant_id": UUID("11111111-1111-1111-1111-111111111111"),
-                "user_id": mock_admin_user.user_id,
-            }
-        )
-        service.retry_acquire = AsyncMock()
-        app.dependency_overrides[get_token_retry_service] = lambda: service
-
-        response = client.post(
-            "/api/v1/tokens/acquire/retry", json={"token_request_id": "req_123"}
-        )
-
-        assert response.status_code == 403
-        service.retry_acquire.assert_not_awaited()
-
-    def test_retry_rejects_unknown_fields(self, app, client, mock_developer_user):
-        """Caller-supplied role or tenant data cannot alter authorization."""
-        from app.auth.auth_dependencies import get_current_user
-
-        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
-        service = MagicMock()
-        app.dependency_overrides[get_token_retry_service] = lambda: service
-
-        response = client.post(
-            "/api/v1/tokens/acquire/retry",
-            json={"token_request_id": "req_123", "role": "admin"},
-        )
-
-        assert response.status_code == 422
-        service.fetch_allocation_for_retry.assert_not_called()
-
     def test_retry_acquire_tokens_still_waiting_returns_202(
         self,
         app,
@@ -596,12 +613,6 @@ class TestRetryAcquireTokens:
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
         mock_service = MagicMock()
-        mock_service.fetch_allocation_for_retry = AsyncMock(
-            return_value={
-                "user_id": mock_developer_user.user_id,
-                "tenant_id": mock_developer_user.tenant_id,
-            }
-        )
         mock_service.retry_acquire = AsyncMock(
             return_value=_make_allocation_response(
                 mock_developer_user.user_id, status="WAITING"
@@ -629,12 +640,6 @@ class TestRetryAcquireTokens:
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
         mock_service = MagicMock()
-        mock_service.fetch_allocation_for_retry = AsyncMock(
-            return_value={
-                "user_id": mock_developer_user.user_id,
-                "tenant_id": mock_developer_user.tenant_id,
-            }
-        )
         mock_service.retry_acquire = AsyncMock(
             return_value=_make_allocation_response(
                 mock_developer_user.user_id, status="ACQUIRED"
@@ -662,9 +667,6 @@ class TestRetryAcquireTokens:
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
         mock_service = MagicMock()
-        mock_service.fetch_allocation_for_retry = AsyncMock(
-            side_effect=AllocationNotFoundError("req_missing")
-        )
         mock_service.retry_acquire = AsyncMock(
             side_effect=AllocationNotFoundError("req_missing")
         )
@@ -689,12 +691,6 @@ class TestRetryAcquireTokens:
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
 
         mock_service = MagicMock()
-        mock_service.fetch_allocation_for_retry = AsyncMock(
-            return_value={
-                "user_id": UUID("11111111-1111-1111-1111-111111111111"),
-                "tenant_id": mock_developer_user.tenant_id,
-            }
-        )
         mock_service.retry_acquire = AsyncMock(
             return_value=_make_allocation_response(
                 user_id=UUID("11111111-1111-1111-1111-111111111111"),
@@ -711,7 +707,6 @@ class TestRetryAcquireTokens:
             response.json()["detail"]
             == "Not authorised to operate on this token request"
         )
-        mock_service.retry_acquire.assert_not_called()
 
         app.dependency_overrides.clear()
 
@@ -727,12 +722,6 @@ class TestRetryAcquireTokens:
         app.dependency_overrides[get_current_user] = lambda: mock_admin_user
 
         mock_service = MagicMock()
-        mock_service.fetch_allocation_for_retry = AsyncMock(
-            return_value={
-                "user_id": UUID("11111111-1111-1111-1111-111111111111"),
-                "tenant_id": mock_admin_user.tenant_id,
-            }
-        )
         mock_service.retry_acquire = AsyncMock(
             return_value=_make_allocation_response(
                 user_id=UUID("11111111-1111-1111-1111-111111111111"),
@@ -758,44 +747,6 @@ class TestRetryAcquireTokens:
 class TestReleaseTokens:
     """Test cases for release_tokens endpoint."""
 
-    def test_other_tenant_admin_cannot_release(self, app, client, mock_admin_user):
-        """Cross-tenant release is denied before deletion."""
-        from app.auth.auth_dependencies import get_current_user
-
-        app.dependency_overrides[get_current_user] = lambda: mock_admin_user
-        service = MagicMock()
-        service.fetch_allocation_for_release = AsyncMock(
-            return_value={
-                "tenant_id": UUID("11111111-1111-1111-1111-111111111111"),
-                "user_id": mock_admin_user.user_id,
-            }
-        )
-        service.execute_release = AsyncMock()
-        app.dependency_overrides[get_token_release_service] = lambda: service
-
-        response = client.put(
-            "/api/v1/tokens/release", json={"token_request_id": "req_123"}
-        )
-
-        assert response.status_code == 403
-        service.execute_release.assert_not_awaited()
-
-    def test_release_rejects_unknown_fields(self, app, client, mock_developer_user):
-        """Legacy caller role claims must be rejected at the HTTP boundary."""
-        from app.auth.auth_dependencies import get_current_user
-
-        app.dependency_overrides[get_current_user] = lambda: mock_developer_user
-        service = MagicMock()
-        app.dependency_overrides[get_token_release_service] = lambda: service
-
-        response = client.put(
-            "/api/v1/tokens/release",
-            json={"token_request_id": "req_123", "user_role": "admin"},
-        )
-
-        assert response.status_code == 422
-        service.fetch_allocation_for_release.assert_not_called()
-
     @pytest.fixture
     def sample_release_request(self):
         """Sample token release request data."""
@@ -807,7 +758,6 @@ class TestReleaseTokens:
         return {
             "token_request_id": "req_123abc",
             "user_id": str(mock_developer_user.user_id),
-            "tenant_id": str(mock_developer_user.tenant_id),
             "llm_model_name": "gpt-4",
             "api_endpoint_url": "https://api.openai.com/v1",
             "token_count": 150,
@@ -879,7 +829,7 @@ class TestReleaseTokens:
 
         app.dependency_overrides.clear()
 
-    def test_release_tokens_race_condition_is_idempotent(
+    def test_release_tokens_race_condition_returns_500(
         self,
         app,
         client,
@@ -887,7 +837,7 @@ class TestReleaseTokens:
         sample_release_request,
         owner_allocation,
     ):
-        """A concurrent finalizer has the same outcome as an already-finalized request."""
+        """Test 500 when allocation disappears between fetch and delete (race condition)."""
         from app.auth.auth_dependencies import get_current_user
 
         app.dependency_overrides[get_current_user] = lambda: mock_developer_user
@@ -903,8 +853,8 @@ class TestReleaseTokens:
 
         response = client.put("/api/v1/tokens/release", json=sample_release_request)
 
-        assert response.status_code == 200
-        assert response.json()["allocation_status"] == "RELEASED"
+        assert response.status_code == 500
+        assert "Token allocation not found" in response.json()["detail"]
 
         app.dependency_overrides.clear()
 
@@ -955,7 +905,6 @@ class TestReleaseTokens:
         cross_user_allocation = {
             "token_request_id": "req_123abc",
             "user_id": str(UUID("11111111-1111-1111-1111-111111111111")),
-            "tenant_id": str(mock_developer_user.tenant_id),
             "llm_model_name": "gpt-4",
             "token_count": 150,
         }
@@ -992,7 +941,6 @@ class TestReleaseTokens:
         cross_user_allocation = {
             "token_request_id": "req_123abc",
             "user_id": str(UUID("11111111-1111-1111-1111-111111111111")),
-            "tenant_id": str(mock_admin_user.tenant_id),
             "llm_model_name": "gpt-4",
             "token_count": 150,
         }

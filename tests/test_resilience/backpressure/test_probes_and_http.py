@@ -6,11 +6,11 @@ import pytest
 from redis import exceptions as redis_exceptions
 
 from app.models.resilience_models import BackpressureDecision
-from app.resilience.backpressure import pool_probe as pool_probe_module
-from app.resilience.backpressure import queue_depth_probe as queue_depth_probe_module
-from app.resilience.backpressure.decision_to_http import (
+from app.resilience.backpressure.http_response import (
     raise_for_backpressure_decision,
 )
+from app.resilience.backpressure.probes import db_pool as pool_probe_module
+from app.resilience.backpressure.probes import queue_depth as queue_depth_probe_module
 
 
 class _RedisWithMissingKey:

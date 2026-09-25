@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from uuid import uuid4
 
-import pybreaker
+import aiobreaker
 
 from app.models.resilience_models import TokenAllocationPersistPayload
 from app.resilience.token_queue.consumer import TokenQueueConsumerService
@@ -23,12 +24,27 @@ class _FakeMessage:
 
 
 def _validated_payload() -> TokenAllocationPersistPayload:
+    """
+    Regression fix: this previously used field names (llm_provider,
+    llm_model_name) that don't exist on TokenAllocationPersistPayload and
+    omitted required fields (tenant_id, deployment_id, deployment_key), so
+    model_validate() raised here — inside the lambda standing in for
+    persist_allocation_message() — which then fell through
+    _on_work_message's real exception handler into a real (unmocked)
+    publish_retry_request() call. That call needs live RabbitMQ, which is
+    what actually made this test fail in this environment; the stack trace's
+    "Failed to build storage" noise was a red herring one level removed from
+    the real bug.
+    """
     return TokenAllocationPersistPayload.model_validate(
         {
             "token_request_id": "req_123",
+            "tenant_id": str(uuid4()),
             "user_id": str(uuid4()),
-            "llm_provider": "openai",
-            "llm_model_name": "gpt-4o",
+            "deployment_id": str(uuid4()),
+            "provider_name": "openai",
+            "model_name": "gpt-4o",
+            "deployment_key": "tenant-a:openai:gpt-4o",
             "token_count": 50,
             "api_endpoint_url": "https://example.test/v1",
             "allocation_status": "ACQUIRED",
@@ -120,7 +136,9 @@ def test_work_message_retry_publish_breaker_open_requeues_after_backoff(
         service._publisher,
         "publish_retry_request",
         lambda *args, **kwargs: (_ for _ in ()).throw(
-            pybreaker.CircuitBreakerError("open")
+            aiobreaker.CircuitBreakerError(
+                "circuit open", datetime.now() + timedelta(seconds=30)
+            )
         ),
     )
     monkeypatch.setattr(
@@ -135,15 +153,38 @@ def test_work_message_retry_publish_breaker_open_requeues_after_backoff(
 
 
 def test_get_consumers_uses_configurable_prefetch_count() -> None:
+    """
+    Regression fix: the original fake required `channel` as an explicit
+    positional argument to consumer_cls(...). Real kombu never calls
+    get_consumers()'s consumer_cls that way — per ConsumerMixin.consume()
+    (kombu/mixins.py), it pre-binds the channel via
+    `functools.partial(Consumer, channel, ...)` *before* calling
+    get_consumers(), which is exactly why consumer.py's own docstring says
+    "consumer_cls is already bound to the channel... must NOT be passed
+    again." The old fake enforced the opposite of what the real contract is,
+    so this test failed on a TypeError that had nothing to do with the
+    prefetch-count behavior it was meant to verify.
+    """
     service = TokenQueueConsumerService(prefetch_count=7)
     captured: list[dict[str, object]] = []
 
-    def _fake_consumer_cls(channel: object, **kwargs: object) -> dict[str, object]:
-        consumer_kwargs = {"channel": channel, **kwargs}
-        captured.append(consumer_kwargs)
-        return consumer_kwargs
+    class _FakeConsumer:
+        """
+        Stands in for a real kombu Consumer: get_consumers() calls
+        `.qos(prefetch_count=...)` on whatever consumer_cls(...) returns, so
+        the fake must support that (a plain dict, as the original fixture
+        returned, does not — AttributeError: 'dict' object has no attribute
+        'qos', a second bug the channel-argument fix alone didn't surface).
+        """
 
-    consumers = service.get_consumers(_fake_consumer_cls, channel=object())
+        def __init__(self, **kwargs: object) -> None:
+            self.init_kwargs = kwargs
+
+        def qos(self, *, prefetch_count: int) -> None:
+            self.init_kwargs["prefetch_count"] = prefetch_count
+            captured.append(self.init_kwargs)
+
+    consumers = service.get_consumers(_FakeConsumer, channel=object())
 
     assert len(consumers) == 2
     assert captured[0]["prefetch_count"] == 7

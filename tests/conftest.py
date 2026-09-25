@@ -24,6 +24,8 @@ os.environ.setdefault("DATABASE_PASSWORD", "mypassword")
 os.environ.setdefault("REDIS_HOST", "localhost")
 os.environ.setdefault("REDIS_PORT", "6379")
 os.environ.setdefault("REDIS_PASSWORD", "")
+# Use in-memory storage for rate limiter in tests — avoids coredis/Redis dependency.
+os.environ.setdefault("RATE_LIMIT_STORAGE", "memory")
 
 # ============================================================================
 # AUTHENTICATION FIXTURES FOR TESTING
@@ -44,6 +46,7 @@ def mock_developer_user():
 
     return AuthTokenPayload(
         user_id=uuid4(),
+        tenant_id=uuid4(),
         role="developer",
         expire_at_time=datetime.utcnow() + timedelta(hours=24),
         issued_at_time=datetime.utcnow(),
@@ -58,6 +61,7 @@ def mock_operator_user():
 
     return AuthTokenPayload(
         user_id=uuid4(),
+        tenant_id=uuid4(),
         role="operator",
         expire_at_time=datetime.utcnow() + timedelta(hours=24),
         issued_at_time=datetime.utcnow(),
@@ -72,6 +76,7 @@ def mock_admin_user():
 
     return AuthTokenPayload(
         user_id=uuid4(),
+        tenant_id=uuid4(),
         role="admin",
         expire_at_time=datetime.utcnow() + timedelta(hours=24),
         issued_at_time=datetime.utcnow(),
@@ -86,6 +91,7 @@ def mock_owner_user():
 
     return AuthTokenPayload(
         user_id=uuid4(),
+        tenant_id=uuid4(),
         role="owner",
         expire_at_time=datetime.utcnow() + timedelta(hours=24),
         issued_at_time=datetime.utcnow(),

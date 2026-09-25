@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.persistence.token_maintenance_persistence import TokenMaintenancePersistence
+from app.persistence.token_maintenance import TokenMaintenancePersistence
 
 
 class _FakeResult:

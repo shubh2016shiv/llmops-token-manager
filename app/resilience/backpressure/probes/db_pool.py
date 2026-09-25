@@ -37,11 +37,16 @@ Last Updated: 2026-07-23
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 from loguru import logger
 
 # db_manager.pool is the live SQLAlchemy connection pool. Its `.size()` and
 # `.checkedout()` methods give the two numbers we need to compute utilization.
 from app.core.database import db_manager
+
+if TYPE_CHECKING:
+    from sqlalchemy.pool import QueuePool
 
 
 def read_db_pool_utilization_pct() -> int | None:
@@ -61,8 +66,15 @@ def read_db_pool_utilization_pct() -> int | None:
         # Read the two live counters straight off the SQLAlchemy pool:
         #   size()       → total connections the pool is configured to hold.
         #   checkedout() → how many of those are currently in use.
-        pool_size = pool.size()
-        checked_out_connections = pool.checkedout()
+        # db_manager.pool is typed as the base SQLAlchemy `Pool` (it can, in
+        # principle, be swapped for a pool class without these methods), but
+        # size()/checkedout() are QueuePool-specific — the class
+        # create_async_engine() actually builds unless overridden. The cast
+        # documents that runtime assumption for the type checker; if it's
+        # ever wrong, the `except Exception` below still fails open safely.
+        queue_pool = cast("QueuePool", pool)
+        pool_size = queue_pool.size()
+        checked_out_connections = queue_pool.checkedout()
 
         # Guard against a zero/negative size: dividing by it would raise, and a
         # pool that reports size 0 tells us nothing useful → treat as "unknown".

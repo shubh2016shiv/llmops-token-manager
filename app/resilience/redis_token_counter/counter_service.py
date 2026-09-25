@@ -387,7 +387,13 @@ class RedisTokenCounterService:
     def _get_or_register_script(self, script_name: str) -> RedisLuaScriptRunner:
         # Return the cached runner if we've registered it before; otherwise load it.
         script_attr_name = self._script_attr_name(script_name)
-        registered_script = getattr(self, script_attr_name)
+        # getattr() with a dynamic name erases the type mypy would otherwise
+        # infer from the four `_*_script: RedisLuaScriptRunner | None`
+        # attributes declared in __init__ — cast documents that invariant
+        # instead of returning an unchecked Any.
+        registered_script = cast(
+            "RedisLuaScriptRunner | None", getattr(self, script_attr_name)
+        )
         if registered_script is None:
             # Benign race: concurrent coroutines may double-register the same
             # script; Redis SCRIPT LOAD is idempotent and both runners are valid.

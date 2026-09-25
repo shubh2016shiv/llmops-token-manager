@@ -87,7 +87,9 @@ def build_synchronous_redis_client() -> redis.Redis:
                 host=settings.redis_host,
                 port=settings.redis_port,
                 db=settings.redis_db,
-                password=settings.redis_password,
+                password=settings.redis_password.get_secret_value()
+                if settings.redis_password
+                else None,
                 max_connections=settings.redis_max_connections,
                 socket_connect_timeout=5,
                 socket_keepalive=True,

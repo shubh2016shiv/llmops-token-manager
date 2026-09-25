@@ -25,8 +25,13 @@ Author: Engineering Team
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import aiobreaker
 from loguru import logger
+
+if TYPE_CHECKING:
+    from aiobreaker.state import CircuitBreakerBaseState
 
 
 class CircuitBreakerListener(aiobreaker.CircuitBreakerListener):
@@ -35,8 +40,8 @@ class CircuitBreakerListener(aiobreaker.CircuitBreakerListener):
     def state_change(
         self,
         circuit_breaker: aiobreaker.CircuitBreaker,
-        old_state: aiobreaker.CircuitBreakerState,
-        new_state: aiobreaker.CircuitBreakerState,
+        old_state: CircuitBreakerBaseState,
+        new_state: CircuitBreakerBaseState,
     ) -> None:
         """
         Called by aiobreaker whenever a breaker moves between states.
@@ -48,7 +53,7 @@ class CircuitBreakerListener(aiobreaker.CircuitBreakerListener):
         """
         logger.warning(
             f"[CircuitBreaker:{circuit_breaker.name}] "
-            f"State transition: {old_state.name} -> {new_state.name} | "
+            f"State transition: {old_state.state.name} -> {new_state.state.name} | "
             f"failures={circuit_breaker.fail_counter} "
             f"threshold={circuit_breaker.fail_max}"
         )

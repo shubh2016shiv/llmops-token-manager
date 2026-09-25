@@ -71,11 +71,8 @@ class TokenMaintenancePersistence(BasePersistence):
                 else:
                     logger.debug("Token maintenance found no expired allocations")
                 return deleted_count
-        except Exception as error:
-            logger.error(
-                "Token maintenance failed to delete expired allocations",
-                error=str(error),
-            )
+        except Exception:
+            logger.error("Token maintenance failed to delete expired allocations")
             raise
 
     async def list_invalid_active_models_without_capacity(
@@ -91,11 +88,8 @@ class TokenMaintenancePersistence(BasePersistence):
                     InvalidActiveDeploymentRecord.model_validate(dict(row))
                     for row in result.mappings().all()
                 ]
-        except Exception as error:
-            logger.error(
-                "Token maintenance failed to load invalid active deployment rows",
-                error=str(error),
-            )
+        except Exception:
+            logger.error("Token maintenance failed to load invalid active deployments")
             raise
 
     async def _load_counter_seed_records(
@@ -109,9 +103,6 @@ class TokenMaintenancePersistence(BasePersistence):
                     CounterSeedRecord.model_validate(dict(row))
                     for row in result.mappings().all()
                 ]
-        except Exception as error:
-            logger.error(
-                "Token maintenance failed to load counter seed records",
-                error=str(error),
-            )
+        except Exception:
+            logger.error("Token maintenance failed to load counter seed records")
             raise

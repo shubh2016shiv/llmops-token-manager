@@ -9,7 +9,7 @@ and inserts — all in one transaction so concurrent requests can't over-allocat
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -19,6 +19,7 @@ from app.persistence.allocations._base import AllocationPersistenceBase
 from app.persistence.queries.allocation_queries import (
     CREATE_TOKEN_ALLOCATION_SQL,
     CREATE_TOKEN_ALLOCATION_WITH_CAPACITY_CHECK_SQL,
+    GET_TOKEN_ALLOCATION_BY_REQUEST_ID_SQL,
 )
 
 if TYPE_CHECKING:
@@ -64,7 +65,14 @@ class AllocationAcquireMixin(AllocationPersistenceBase):
         self.validate_uuid(tenant_id, "tenant_id")
         self.validate_uuid(user_id, "user_id")
         self.validate_uuid(deployment_id, "deployment_id")
-        self.validate_allocation_status(allocation_status)
+        if allocation_status != "ACQUIRED":
+            raise ValueError("Reserved allocation must have ACQUIRED status")
+        self.validate_llm_provider(provider_name)
+        self.validate_string_not_empty(model_name, "model_name")
+        self.validate_string_not_empty(deployment_key, "deployment_key")
+        self.validate_string_not_empty(api_endpoint_url, "api_endpoint_url")
+        self.validate_positive_integer(token_count, "token_count")
+        self.validate_cloud_provider(cloud_provider)
         request_context_json = self._validate_and_serialize_json(
             request_metadata, "request_metadata"
         )
@@ -84,7 +92,7 @@ class AllocationAcquireMixin(AllocationPersistenceBase):
             "cloud_region": cloud_region,
             "token_count": token_count,
             "allocation_status": allocation_status,
-            "allocated_at": datetime.now(),
+            "allocated_at": datetime.now(timezone.utc),
             "expires_at": expiration_timestamp,
             "request_context": request_context_json or "{}",
             "temperature": temperature,
@@ -98,12 +106,30 @@ class AllocationAcquireMixin(AllocationPersistenceBase):
                 )
                 created = result.mappings().one_or_none()
                 if not created:
-                    raise RuntimeError("Failed to persist reserved allocation")
+                    existing_result = await session.execute(
+                        text(GET_TOKEN_ALLOCATION_BY_REQUEST_ID_SQL),
+                        {"token_request_id": token_request_identifier},
+                    )
+                    existing = existing_result.mappings().one_or_none()
+                    expected = (
+                        ("tenant_id", tenant_id),
+                        ("user_id", user_id),
+                        ("deployment_id", deployment_id),
+                        ("provider_name", provider_name),
+                        ("model_name", model_name),
+                        ("deployment_key", deployment_key),
+                        ("api_endpoint_url", api_endpoint_url),
+                        ("token_count", token_count),
+                        ("allocation_status", allocation_status),
+                    )
+                    if existing is None or any(
+                        existing[key] != value for key, value in expected
+                    ):
+                        raise ValueError("Conflicting reserved allocation request ID")
+                    return dict(existing)
                 return dict(created)
-        except Exception as e:
-            logger.error(
-                f"Error persisting reserved allocation {token_request_identifier}: {e}"
-            )
+        except Exception:
+            logger.error("Failed to persist reserved allocation")
             raise
 
     async def create_allocation_with_capacity_check(
@@ -153,7 +179,7 @@ class AllocationAcquireMixin(AllocationPersistenceBase):
                     "provider_name": provider_name,
                     "model_name": model_name,
                     "token_count": token_count,
-                    "allocated_at": datetime.now(),
+                    "allocated_at": datetime.now(timezone.utc),
                     "expires_at": expiration_timestamp,
                     "request_context": request_context_json or "{}",
                     "temperature": temperature,
@@ -181,6 +207,6 @@ class AllocationAcquireMixin(AllocationPersistenceBase):
                     ),
                 )
                 return allocation
-        except Exception as e:
-            logger.error(f"Error acquiring allocation {token_request_identifier}: {e}")
+        except Exception:
+            logger.error("Failed to acquire allocation")
             raise

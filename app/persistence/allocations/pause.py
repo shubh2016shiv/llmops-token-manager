@@ -11,7 +11,7 @@ all run in one transaction, so no cross-session TOCTOU window exists.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 from typing import Any
 import uuid
@@ -49,13 +49,12 @@ class AllocationPauseMixin(AllocationPersistenceBase):
         Returns the created allocation dict on success, or a sentinel dict with
         ``alloc_status`` = NOT_FOUND / ALREADY_PAUSED.
         """
-        if pause_duration_minutes <= 0:
-            raise ValueError(
-                f"Pause duration must be positive, got {pause_duration_minutes}"
-            )
+        self.validate_positive_integer(pause_duration_minutes, "pause_duration_minutes")
         self.validate_uuid(tenant_id, "tenant_id")
         self.validate_uuid(user_id, "user_id")
         self.validate_string_not_empty(provider_name, "provider_name")
+        self.validate_llm_provider(provider_name)
+        self.validate_string_not_empty(model_name, "model_name")
         self.validate_string_not_empty(api_endpoint, "api_endpoint")
 
         try:
@@ -105,6 +104,7 @@ class AllocationPauseMixin(AllocationPersistenceBase):
                 if pause_reason:
                     context["reason"] = pause_reason
 
+                now = datetime.now(timezone.utc)
                 params = {
                     "token_request_id": f"pause_{uuid.uuid4().hex}",
                     "tenant_id": tenant_id,
@@ -122,9 +122,8 @@ class AllocationPauseMixin(AllocationPersistenceBase):
                     "cloud_region": deployment.get("cloud_region"),
                     "token_count": deployment["token_capacity_limit"],
                     "allocation_status": "PAUSED",
-                    "allocated_at": datetime.now(),
-                    "expires_at": datetime.now()
-                    + timedelta(minutes=pause_duration_minutes),
+                    "allocated_at": now,
+                    "expires_at": now + timedelta(minutes=pause_duration_minutes),
                     "request_context": json.dumps(context),
                     "temperature": None,
                     "top_p": None,
@@ -142,9 +141,6 @@ class AllocationPauseMixin(AllocationPersistenceBase):
                 )
                 return dict(created)
 
-        except ValueError as e:
-            logger.error(f"Value error in pause_deployment: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Database error in pause_deployment: {e}")
+        except Exception:
+            logger.error("Failed to pause deployment")
             raise

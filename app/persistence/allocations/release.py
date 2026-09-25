@@ -41,6 +41,6 @@ class AllocationReleaseMixin(AllocationPersistenceBase):
                         f"Allocation not found for release: {token_request_id}"
                     )
                 return bool(deleted)
-        except Exception as e:
-            logger.error(f"Error releasing allocation {token_request_id}: {e}")
+        except Exception:
+            logger.error("Failed to release allocation")
             raise

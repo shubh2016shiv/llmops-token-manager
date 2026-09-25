@@ -72,6 +72,6 @@ class AllocationPersistenceBase(BasePersistence):
                 )
                 record = result.mappings().one_or_none()
                 return dict(record) if record else None
-        except Exception as e:
-            logger.error(f"Error fetching allocation {token_request_identifier}: {e}")
+        except Exception:
+            logger.error("Failed to fetch allocation")
             raise

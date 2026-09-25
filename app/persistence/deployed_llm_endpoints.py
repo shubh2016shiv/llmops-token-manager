@@ -54,10 +54,8 @@ class DeployedLLMReadPersistence(BasePersistence):
                     },
                 )
                 return [dict(row) for row in result.mappings().all()]
-        except Exception as e:
-            logger.error(
-                f"Error listing endpoints for {provider_name}/{model_name}: {e}"
-            )
+        except Exception:
+            logger.error("Failed to list active model endpoints")
             raise
 
     async def get_active_token_load_per_endpoint(
@@ -81,8 +79,6 @@ class DeployedLLMReadPersistence(BasePersistence):
                     row["deployment_id"]: int(row["total_tokens"] or 0)
                     for row in result.mappings().all()
                 }
-        except Exception as e:
-            logger.error(
-                f"Error loading endpoint token load for {provider_name}/{model_name}: {e}"
-            )
+        except Exception:
+            logger.error("Failed to load endpoint token usage")
             raise

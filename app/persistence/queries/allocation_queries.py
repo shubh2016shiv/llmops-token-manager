@@ -22,6 +22,7 @@ CREATE_TOKEN_ALLOCATION_SQL = """
         :cloud_provider, :cloud_region, :token_count, :allocation_status, :allocated_at,
         :expires_at, :request_context, :temperature, :top_p, :seed
     )
+    ON CONFLICT (token_request_id) DO NOTHING
     RETURNING *
 """
 
@@ -30,10 +31,16 @@ CREATE_TOKEN_ALLOCATION_SQL = """
 # ACQUIRED vs WAITING in the same transaction as the insert.
 CREATE_TOKEN_ALLOCATION_WITH_CAPACITY_CHECK_SQL = """
     WITH chosen_deployment AS (
-        SELECT *
-        FROM tenant_deployments
-        WHERE deployment_id = :deployment_id AND status = 'active'
-        FOR UPDATE
+        SELECT td.*
+        FROM tenant_deployments td
+        JOIN provider_catalog pc ON pc.provider_id = td.provider_id
+        JOIN model_catalog mc ON mc.model_id = td.model_id
+        WHERE td.deployment_id = :deployment_id
+          AND td.tenant_id = :tenant_id
+          AND pc.provider_name = :provider_name
+          AND mc.model_name = :model_name
+          AND td.status = 'active'
+        FOR UPDATE OF td
     ),
     current_load AS (
         SELECT COALESCE(SUM(a.token_count), 0)::INTEGER AS total_tokens
@@ -122,10 +129,12 @@ TRANSITION_WAITING_TO_ACQUIRED_WITH_CAPACITY_CHECK_SQL = """
         FOR UPDATE
     ),
     chosen_deployment AS (
-        SELECT *
-        FROM tenant_deployments
-        WHERE deployment_id = :deployment_id AND status = 'active'
-        FOR UPDATE
+        SELECT td.*, pc.provider_name, mc.model_name
+        FROM tenant_deployments td
+        JOIN provider_catalog pc ON pc.provider_id = td.provider_id
+        JOIN model_catalog mc ON mc.model_id = td.model_id
+        WHERE td.deployment_id = :deployment_id AND td.status = 'active'
+        FOR UPDATE OF td
     ),
     current_load AS (
         SELECT COALESCE(SUM(a.token_count), 0)::INTEGER AS total_tokens
@@ -150,7 +159,10 @@ TRANSITION_WAITING_TO_ACQUIRED_WITH_CAPACITY_CHECK_SQL = """
         FROM waiting_allocation waiting
         CROSS JOIN chosen_deployment deployment
         CROSS JOIN current_load
-        WHERE current_load.total_tokens + waiting.token_count
+        WHERE waiting.tenant_id = deployment.tenant_id
+          AND waiting.provider_name = deployment.provider_name
+          AND waiting.model_name = deployment.model_name
+          AND current_load.total_tokens + waiting.token_count
             <= deployment.token_capacity_limit
     )
     UPDATE llm_token_allocations allocation

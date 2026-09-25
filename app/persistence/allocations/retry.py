@@ -61,6 +61,6 @@ class AllocationRetryMixin(AllocationPersistenceBase):
                     "(not WAITING or insufficient capacity)"
                 )
                 return None
-        except Exception as e:
-            logger.error(f"Error retrying allocation {token_request_id}: {e}")
+        except Exception:
+            logger.error("Failed to retry allocation")
             raise

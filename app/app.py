@@ -13,7 +13,7 @@ Main application initialization and configuration.
 Registers routers, middleware, and lifecycle handlers.
 """
 
-# Import everything else
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -53,6 +53,7 @@ from app.resilience.redis_token_counter import (
 from app.resilience.token_maintenance.health import (
     verify_token_maintenance_readiness,
 )
+from app.resilience.token_maintenance.runner import maintenance_runner
 from app.resilience.token_queue import declare_token_queues
 
 # -----------------------------------------------------------------------------
@@ -99,7 +100,7 @@ async def lifespan(app: FastAPI):
     if postgres_status.status == "connected":
         logger.info("[SUCCESS] PostgreSQL connected and ready")
     else:
-        logger.error(f"[FAILED] PostgreSQL: {postgres_status.error_message}")
+        logger.error("[FAILED] PostgreSQL connectivity check")
 
     # Check Redis
     logger.info("Checking Redis connectivity...")
@@ -110,7 +111,7 @@ async def lifespan(app: FastAPI):
     if redis_status.status == "connected":
         logger.info("[SUCCESS] Redis connected and ready")
     else:
-        logger.error(f"[FAILED] Redis: {redis_status.error_message}")
+        logger.error("[FAILED] Redis connectivity check")
 
     # Initialize the rate limiter INSIDE the serving event loop.
     # This binds the coredis connection pool to the loop that will handle
@@ -122,11 +123,12 @@ async def lifespan(app: FastAPI):
     try:
         rate_limiter_manager.initialize()
         logger.info("[SUCCESS] Rate limiter initialized")
-    except Exception as e:
+    except Exception:
         logger.error(
             "[FAILED] Rate limiter initialization failed. This is a deploy-time "
-            f"driver/config fault, not a transient outage: {e}"
+            "driver/config fault, not a transient outage"
         )
+        await _close_runtime_resources()
         raise
 
     logger.info("Checking token maintenance readiness...")
@@ -136,18 +138,10 @@ async def lifespan(app: FastAPI):
     if token_maintenance_status.status == "connected":
         logger.info("[SUCCESS] Token maintenance runtime ready")
     else:
-        logger.warning(
-            "[DEGRADED] Token maintenance readiness check reported not-ready "
-            f"({token_maintenance_status.error_message}). Maintenance jobs are "
-            "declared in token_maintenance/scheduler.py; the in-process runner "
-            "that executes them on their timers is a separate wiring step."
-        )
+        logger.error("[FAILED] Token maintenance schedule is not ready")
 
     startup_blockers = [
-        service
-        for service in service_statuses
-        if service.status == "failed"
-        and service.name not in {"Celery worker", "Token maintenance"}
+        service for service in service_statuses if service.status == "failed"
     ]
 
     if startup_blockers:
@@ -156,9 +150,8 @@ async def lifespan(app: FastAPI):
             "Application startup failed: "
             f"{len(startup_blockers)} service(s) unavailable"
         )
-        import os
-
-        os._exit(1)  # Exit immediately without traceback
+        await _close_runtime_resources()
+        raise RuntimeError("Required startup dependencies are unavailable")
 
     # All services connected - display success info
     display_service_info()
@@ -171,38 +164,63 @@ async def lifespan(app: FastAPI):
     try:
         declare_token_queues()
         logger.info("[SUCCESS] Token allocation queues declared")
-    except Exception as e:
-        logger.warning(f"[DEGRADED] Token queue declaration failed (non-fatal): {e}")
+    except Exception:
+        logger.warning("[DEGRADED] Token queue declaration failed")
 
     # 2. Seed Redis token counters from PostgreSQL ground truth
     logger.info("Seeding Redis token counters from PostgreSQL...")
     try:
         await _seed_token_counters()
         logger.info("[SUCCESS] Redis token counters seeded")
-    except Exception as e:
+    except Exception:
         logger.warning(
-            f"[DEGRADED] Token counter seeding failed (non-fatal — "
-            f"will self-correct on first reconcile run): {e}"
+            "[DEGRADED] Token counter seeding failed; reconciliation will retry"
         )
 
-    # 3. Celery beat schedule registration is disabled along with the shared
-    # Celery app (see note above) — reconciliation beat is currently inactive.
+    # 3. Run reconciliation, queue-depth publishing, and expiry cleanup in
+    # the serving loop. The runner owns cancellation during shutdown.
+    try:
+        maintenance_runner.start()
+    except Exception:
+        await _close_runtime_resources()
+        raise
 
     logger.info("[SUCCESS] Application startup complete")
 
-    yield
-
-    # Shutdown
-    logger.info("Shutting down application")
     try:
-        await rate_limiter_manager.close()
-        await db_manager.close()
-        await redis_manager.close()
-        await close_shared_redis_token_counter_service()
-        close_circuit_breaker_redis_client()
+        yield
+    finally:
+        logger.info("Shutting down application")
+        await _close_runtime_resources()
         logger.info("Application shutdown complete")
-    except Exception as e:
-        logger.error(f"Shutdown error: {e}")
+
+
+async def _close_runtime_resources() -> None:
+    """Close independent clients even if one close fails during shutdown."""
+    results = await asyncio.gather(
+        maintenance_runner.close(),
+        rate_limiter_manager.close(),
+        db_manager.close(),
+        redis_manager.close(),
+        close_shared_redis_token_counter_service(),
+        return_exceptions=True,
+    )
+    for resource, result in zip(
+        ("maintenance", "rate limiter", "database", "redis", "counter"),
+        results,
+        strict=True,
+    ):
+        if isinstance(result, BaseException):
+            # Exception CLASS name only, never str(exc) — a close() failure's
+            # message can carry connection details (same discipline as
+            # token_maintenance/runner.py's job-failure logging). The class
+            # name alone is still enough to tell "ConnectionError" apart from
+            # "TimeoutError" in the logs without that risk.
+            logger.error("{} shutdown failed: {}", resource, type(result).__name__)
+    try:
+        close_circuit_breaker_redis_client()
+    except Exception as exc:
+        logger.error("Circuit-breaker client shutdown failed: {}", type(exc).__name__)
 
 
 async def _seed_token_counters() -> None:
@@ -213,8 +231,7 @@ async def _seed_token_counters() -> None:
     and seeds the Redis fast-path counters so the first requests after startup
     use the fast path immediately (no cold-start DB read cascade).
 
-    Non-fatal: if PostgreSQL or Redis are unavailable at this point,
-    the counters will be seeded lazily by the first reconcile beat task.
+    A failed startup seed is retried by the in-process reconciliation job.
     """
     shared_token_counter_service = get_shared_redis_token_counter_service()
     maintenance_persistence = TokenMaintenancePersistence()
@@ -263,17 +280,40 @@ app = FastAPI(
 # Register standardized rate-limit error handler.
 register_rate_limit_exception_handler(app)
 
-# Correlation ID middleware (register early so it wraps all routes/middleware)
-app.middleware("http")(correlation_id_middleware)
-
-# CORS middleware
+# CORS middleware.
+#
+# allow_credentials is deliberately False, not the more common-looking True:
+# this API has no cookie/session auth anywhere (every caller authenticates
+# via a bearer JWT or an X-Service-Id header, both ordinary headers covered
+# by allow_headers) — grepping the codebase turns up zero set_cookie or
+# SessionMiddleware usage. allow_origins=["*"] combined with
+# allow_credentials=True is a well-known antipattern: browsers require it
+# (per the CORS spec, "*" + credentials is actually disallowed), so
+# Starlette's CORSMiddleware falls back to echoing the request's own Origin
+# header back as an exact match — which, combined with a wildcard allowlist,
+# means it accepts a credentialed cross-origin request from literally any
+# origin. Since nothing here needs credentialed CORS, disabling it removes
+# the antipattern instead of requiring us to guess at a real origin
+# allowlist we don't have visibility into.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Correlation ID middleware. Registered AFTER CORSMiddleware so it becomes
+# the OUTERMOST layer: Starlette builds the middleware stack in reverse
+# registration order (the middleware added last wraps everything added
+# before it — verified against Starlette's actual dispatch order, not
+# assumed), so this is what actually makes every response — including a
+# CORS preflight short-circuited by CORSMiddleware before reaching any
+# route — carry an X-Correlation-Id and get logged with request-tracing
+# context. Registering it first (as this file used to) put it INSIDE
+# CORSMiddleware instead, the opposite of the "wraps all routes/middleware"
+# intent its own docstring states.
+app.middleware("http")(correlation_id_middleware)
 
 # Register routers
 # Enterprise pattern: register one aggregated API router from `app.api`.

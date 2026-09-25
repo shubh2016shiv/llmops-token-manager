@@ -29,6 +29,10 @@ VALID_LLM_PROVIDERS = [
     "deepinfra",
     "novita",
     "on_premise",
+    "azure_openai",
+    "bedrock",
+    "vllm",
+    "lm_studio",
 ]
 
 # Valid cloud providers from database schema

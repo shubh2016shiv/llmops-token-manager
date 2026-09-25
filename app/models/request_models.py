@@ -16,7 +16,14 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 class LLMProvider(str, Enum):
@@ -40,6 +47,10 @@ class LLMProvider(str, Enum):
     DEEPINFRA = "deepinfra"
     NOVITA = "novita"
     ON_PREMISE = "on_premise"
+    AZURE_OPENAI = "azure_openai"
+    BEDROCK = "bedrock"
+    VLLM = "vllm"
+    LM_STUDIO = "lm_studio"
 
 
 class CloudProvider(str, Enum):
@@ -167,6 +178,22 @@ class TokenAllocationClientRequest(BaseModel):
     Client provides only essential fields - system derives the rest.
     """
 
+    model_config = ConfigDict(
+        extra="forbid",
+        protected_namespaces=(),
+        populate_by_name=True,
+        json_schema_extra={
+            "example": {
+                "llm_provider": "openai",
+                "llm_model_name": "gpt-4.1",
+                "input_data": "Your prompt text here for token estimation",
+                "cloud_provider": "Azure",
+                "deployment_region": "eastus2",
+                "request_context": {"project": "medical-qa", "team": "research"},
+            }
+        },
+    )
+
     llm_provider: LLMProvider = Field(
         ..., description="LLM provider type - determines routing"
     )
@@ -180,7 +207,16 @@ class TokenAllocationClientRequest(BaseModel):
     )
 
     input_data: str | list[dict[str, Any]] = Field(
-        ..., description="The actual input text or structured data for token estimation"
+        ...,
+        description="The actual input text or structured data for token estimation",
+        max_length=1_000_000,
+    )
+
+    requested_completion_tokens: int = Field(
+        default=0,
+        ge=0,
+        le=3_000_000,
+        description="Maximum output tokens to include in the capacity reservation.",
     )
 
     deployment_name: str | None = Field(
@@ -204,20 +240,6 @@ class TokenAllocationClientRequest(BaseModel):
         default=None,
         description="Metadata for tracking (team, project, batch_id, etc.)",
     )
-
-    class Config:
-        protected_namespaces = ()
-        populate_by_name = True
-        json_schema_extra = {
-            "example": {
-                "llm_provider": "openai",
-                "llm_model_name": "gpt-4.1",
-                "input_data": "Your prompt text here for token estimation",
-                "cloud_provider": "Azure",
-                "deployment_region": "eastus2",
-                "request_context": {"project": "medical-qa", "team": "research"},
-            }
-        }
 
 
 class TokenAllocationRequest(BaseModel):
@@ -319,15 +341,22 @@ class TokenReleaseRequest(BaseModel):
     Critical: Must call immediately after LLM call completes to free capacity.
     """
 
-    token_request_id: str = Field(..., description="Token request ID to release")
-
-    user_role: UserRole = Field(
-        description="User role - determines access to requests",
-        default=UserRole.DEVELOPER,
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"example": {"token_request_id": "abc123def456"}},
     )
 
-    class Config:
-        json_schema_extra = {"example": {"token_request_id": "abc123def456"}}
+    token_request_id: str = Field(
+        ..., min_length=1, max_length=100, description="Token request ID to release"
+    )
+
+    completion_status: str = Field(
+        default="completed",
+        pattern=r"^(completed|failed|cancelled|disconnected)$",
+        description="Terminal inference outcome reported by the calling service.",
+    )
+    actual_prompt_tokens: int | None = Field(default=None, ge=0)
+    actual_completion_tokens: int | None = Field(default=None, ge=0)
 
 
 class PauseDeploymentRequest(BaseModel):
@@ -337,9 +366,20 @@ class PauseDeploymentRequest(BaseModel):
     Use when: Provider outage, rate limits, high errors, maintenance.
     """
 
-    user_role: UserRole = Field(
-        description="User role - determines access to requests",
-        default=UserRole.OPERATOR,
+    model_config = ConfigDict(
+        extra="forbid",
+        protected_namespaces=(),
+        populate_by_name=True,
+        json_schema_extra={
+            "example": {
+                "llm_provider": "openai",
+                "llm_model_name": "gpt-4-turbo-2024-04-09-gp",
+                "cloud_provider": "Azure",
+                "api_endpoint_url": "https://<deployment>-<region>.openai.azure.com/",
+                "pause_reason": "Azure region outage - 503 errors",
+                "pause_duration_minutes": 60,
+            }
+        },
     )
 
     llm_provider: LLMProvider = Field(..., description="LLM provider to pause")
@@ -394,22 +434,6 @@ class PauseDeploymentRequest(BaseModel):
         gt=0,
         le=1440,
     )
-
-    class Config:
-        # Disable protected namespaces to avoid conflicts with model_ prefix fields
-        protected_namespaces = ()
-        # Allow population by field name or alias
-        populate_by_name = True
-        json_schema_extra = {
-            "example": {
-                "llm_provider": "openai",
-                "llm_model_name": "gpt-4-turbo-2024-04-09-gp",  # Updated field name
-                "cloud_provider": "Azure",
-                "api_endpoint_url": "https://<deployment>-<region>.openai.azure.com/",
-                "pause_reason": "Azure region outage - 503 errors",
-                "pause_duration_minutes": 60,
-            }
-        }
 
 
 class ResumeDeploymentRequest(BaseModel):
@@ -1081,12 +1105,14 @@ class TokenRetryRequest(BaseModel):
     to check if capacity is now available.
     """
 
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"example": {"token_request_id": "req_abc123xyz"}},
+    )
+
     token_request_id: str = Field(
         ..., description="Token request ID to retry", min_length=1, max_length=100
     )
-
-    class Config:
-        json_schema_extra = {"example": {"token_request_id": "req_abc123xyz"}}
 
 
 # ============================================================================

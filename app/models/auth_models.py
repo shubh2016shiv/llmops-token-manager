@@ -6,9 +6,10 @@ Defines the structure for token payloads, responses, and requests.
 """
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AuthTokenPayload(BaseModel):
@@ -24,15 +25,18 @@ class AuthTokenPayload(BaseModel):
 
     user_id: UUID = Field(..., description="User's unique identifier")
     role: str = Field(
-        ..., description="User role: developer, operator, admin, or owner"
+        ...,
+        description="User role: developer, operator, admin, or owner",
+        min_length=1,
+        max_length=128,
     )
     tenant_id: UUID = Field(..., description="Tenant the user is acting within")
     expire_at_time: datetime = Field(..., description="Token expiration timestamp")
     issued_at_time: datetime = Field(..., description="Token issued at timestamp")
-    type: str = Field(..., description="Token type: 'access' or 'refresh'")
+    type: Literal["access", "refresh"] = Field(..., description="Token type")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "user_id": "550e8400-e29b-41d4-a716-446655440000",
                 "role": "developer",
@@ -42,6 +46,7 @@ class AuthTokenPayload(BaseModel):
                 "type": "access",
             }
         }
+    )
 
 
 class AuthTokenResponse(BaseModel):
@@ -61,8 +66,8 @@ class AuthTokenResponse(BaseModel):
         default=None, description="Refresh token (only if refresh is enabled)"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
                 "token_type": "bearer",
@@ -70,6 +75,7 @@ class AuthTokenResponse(BaseModel):
                 "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
             }
         }
+    )
 
 
 class AuthTokenRefreshRequest(BaseModel):
@@ -80,12 +86,16 @@ class AuthTokenRefreshRequest(BaseModel):
     Only available when jwt_refresh_enabled=True in configuration.
     """
 
-    refresh_token: str = Field(..., description="Valid refresh token")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
             "example": {"refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}
-        }
+        },
+    )
+
+    refresh_token: str = Field(
+        ..., min_length=1, max_length=8192, description="Valid refresh token"
+    )
 
 
 class AuthTokenGenerateRequest(BaseModel):
@@ -96,15 +106,19 @@ class AuthTokenGenerateRequest(BaseModel):
     In real system, this would be called by authentication service.
     """
 
-    user_id: UUID = Field(..., description="User ID to generate token for")
-    role: str = Field(..., description="User role for the token")
-    tenant_id: UUID = Field(..., description="Tenant the token should act within")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
             "example": {
                 "user_id": "550e8400-e29b-41d4-a716-446655440000",
                 "role": "developer",
                 "tenant_id": "660e8400-e29b-41d4-a716-446655440000",
             }
-        }
+        },
+    )
+
+    user_id: UUID = Field(..., description="User ID to generate token for")
+    role: str = Field(
+        ..., min_length=1, max_length=128, description="User role for the token"
+    )
+    tenant_id: UUID = Field(..., description="Tenant the token should act within")
